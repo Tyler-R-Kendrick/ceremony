@@ -376,6 +376,15 @@ export class ConnectorDrafts {
         id: `installed-connector:${manifest.id}`,
       };
       const prior = await tx.get(recordKey);
+      // The record is tenant-wide by connector id, but every read of it is
+      // scoped to its author. Replacing another author's record would take
+      // their connector away from them without either author being told, so
+      // only the author who installed it may replace it.
+      if (
+        prior &&
+        installedSchema.parse(prior.value).author !== actor.subjectId
+      )
+        throw new AuthorizationError("denied");
       await tx.put(
         recordKey,
         {

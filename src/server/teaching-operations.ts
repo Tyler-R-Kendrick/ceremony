@@ -1,0 +1,242 @@
+import { z } from "zod";
+import type { AuthoringTransport } from "../core/authoring-tools.js";
+import {
+  parseRecipeImport,
+  recipeDefinitionSchema,
+} from "../core/recipe-contracts.js";
+import {
+  demonstrationConsentSchema,
+  type DemonstrationEvent,
+} from "../core/teaching-contracts.js";
+import { deleteAuthoredSession } from "./authored-operations.js";
+import {
+  AuthorizationError,
+  requireCapability,
+  type ActorContext,
+} from "./identity.js";
+import type { PublishedRecipe } from "./recipes/index.js";
+import type { TeachingRuntime } from "./teaching-runtime.js";
+
+/**
+ * Teaching operations that more than one transport performs.
+ *
+ * The browser application reaches these through `teaching-http.ts`; a chat
+ * client reaches the same ones through `mcp.ts`. Each is the service call the
+ * HTTP route always made, moved here so the route and the tool cannot come to
+ * disagree about what a request may contain or which checks run. The services
+ * behind them re-check capability and ownership themselves; the checks here
+ * are the ones the HTTP route added on top, kept so neither transport is the
+ * weaker one.
+ *
+ * Review and publication are deliberately absent. They are a person's
+ * decision about what the tenant may run, and no agent transport offers them.
+ */
+
+export const teachingIdentifier = z
+  .string()
+  .regex(/^[a-zA-Z][a-zA-Z0-9_.:-]{0,119}$/);
+const revision = z.number().int().positive();
+const publicValue = z.union([
+  z.string().max(512),
+  z.number().finite(),
+  z.boolean(),
+  z.null(),
+]);
+
+export const teachingInputs = {
+  demonstrationStart: z.strictObject({
+    runId: teachingIdentifier,
+    scope: z.array(teachingIdentifier).max(32).optional(),
+  }),
+  demonstrationConsent: z.strictObject({
+    revision,
+    consent: demonstrationConsentSchema,
+  }),
+  draftCompile: z.strictObject({
+    demonstrationId: teachingIdentifier,
+    first: z.number().int().nonnegative(),
+    last: z.number().int().nonnegative(),
+  }),
+  draftImport: z.strictObject({ definition: z.string().max(262144) }),
+  draftEdit: z.strictObject({ revision, definition: recipeDefinitionSchema }),
+  recipeCompose: z.strictObject({
+    references: z
+      .array(
+        z.strictObject({
+          id: teachingIdentifier,
+          version: z.string(),
+          digest: z.string(),
+        }),
+      )
+      .min(2)
+      .max(32),
+  }),
+  recipeExecute: z.strictObject({
+    connectorId: teachingIdentifier.default("github"),
+    sourceRunId: teachingIdentifier.optional(),
+    id: teachingIdentifier,
+    version: z.string(),
+    digest: z.string(),
+    inputs: z.record(teachingIdentifier, publicValue),
+  }),
+  authoringDelete: z.strictObject({
+    connectorId: z.string().min(1).max(64),
+    runId: z.string().min(1).max(120).optional(),
+    revision: revision.optional(),
+  }),
+} as const;
+
+/**
+ * Compile a contiguous span of a demonstration into a recipe draft. The span
+ * is bounded before any page is read, and the draft is saved by the recipe
+ * service under the caller's authorship.
+ */
+export async function compileDemonstrationDraft(
+  runtime: TeachingRuntime,
+  actor: ActorContext,
+  input: z.infer<typeof teachingInputs.draftCompile>,
+) {
+  if (
+    input.first < 1 ||
+    input.last < input.first ||
+    input.last - input.first >= 1000
+  )
+    throw new AuthorizationError("invalid_request");
+  const events: DemonstrationEvent[] = [];
+  let after = input.first - 1;
+  while (after < input.last) {
+    const page = await runtime.demonstrations.timeline(
+      actor,
+      input.demonstrationId,
+      after,
+      Math.min(100, input.last - after),
+    );
+    if (!page.events.length) break;
+    events.push(...page.events.filter((event) => event.sequence <= input.last));
+    after = page.events.at(-1)!.sequence;
+  }
+  return await runtime.recipes.compileDraft(actor, events, {
+    first: input.first,
+    last: input.last,
+  });
+}
+
+export async function importRecipeDraft(
+  runtime: TeachingRuntime,
+  actor: ActorContext,
+  input: z.infer<typeof teachingInputs.draftImport>,
+) {
+  return await runtime.recipes.createDraft(
+    actor,
+    parseRecipeImport(input.definition),
+  );
+}
+
+/** The tenant's current published recipes, with what executing one needs. */
+export async function listPublishedRecipes(
+  runtime: TeachingRuntime,
+  actor: ActorContext,
+) {
+  requireCapability(actor, "executor");
+  const rows = await runtime.store.transaction((tx) =>
+    tx.list<PublishedRecipe>(actor.tenantId, "recipe", 100),
+  );
+  return rows
+    .filter((x) => x.value.definition && !x.value.retired)
+    .map((x) => ({
+      id: x.value.definition.id,
+      title: x.value.definition.title,
+      version: x.value.version,
+      digest: x.value.digest,
+      definition: x.value.definition,
+    }));
+}
+
+/**
+ * Execute a published recipe, pinned by version and digest. Only a published,
+ * unretired recipe can be named here: a draft is never executable, which is
+ * what keeps review and publication a person's decision.
+ */
+export async function executePublishedRecipe(
+  runtime: TeachingRuntime,
+  actor: ActorContext,
+  input: z.infer<typeof teachingInputs.recipeExecute>,
+) {
+  const published = await runtime.recipes.getPublished(
+    actor,
+    input.id,
+    input.version,
+    input.digest,
+  );
+  return await runtime.executeRecipe(
+    actor,
+    published.definition,
+    input.inputs,
+    input.connectorId,
+    input.sourceRunId,
+  );
+}
+
+/**
+ * Remove a local authored connection: cancel its run if a revision is known,
+ * delete the stored session, and uninstall the connector. The provider
+ * account itself is untouched.
+ */
+export async function deleteAuthoredConnection(
+  runtime: TeachingRuntime,
+  actor: ActorContext,
+  input: z.infer<typeof teachingInputs.authoringDelete>,
+) {
+  requireCapability(actor, "author");
+  requireCapability(actor, "executor");
+  if (input.runId) {
+    try {
+      if (input.revision)
+        await runtime.commands.cancel(actor, input.runId, input.revision);
+    } catch {
+      /* Already complete or cancelled. */
+    }
+    await deleteAuthoredSession(runtime.store, actor, input.runId);
+  }
+  return await runtime.authoring.uninstall(actor, input.connectorId);
+}
+
+/**
+ * The authoring transport for an authenticated server-side caller: what the
+ * browser's WebMCP tools reach over `/authoring/*`, without the HTTP hop.
+ * Every action requires `author`, as every `/authoring/*` route does.
+ */
+export function authoringTransportFor(
+  runtime: TeachingRuntime,
+  actor: ActorContext,
+): Required<AuthoringTransport> {
+  return {
+    async fromProvider(input) {
+      requireCapability(actor, "author");
+      return await runtime.authoring.fromProvider(
+        actor,
+        input.provider,
+        input.openApiUrl,
+        input.intent,
+        input.origin,
+      );
+    },
+    async compose(input) {
+      requireCapability(actor, "author");
+      return await runtime.authoring.compose(
+        actor,
+        input.draftId,
+        input.revision,
+        input.childIds,
+      );
+    },
+    async read(draftId) {
+      requireCapability(actor, "author");
+      return await runtime.authoring.read(actor, z.uuid().parse(draftId));
+    },
+    async delete(input) {
+      await deleteAuthoredConnection(runtime, actor, input);
+      return { ok: true, human: null };
+    },
+  };
+}
