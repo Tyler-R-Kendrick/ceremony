@@ -237,6 +237,20 @@ export async function listPublishedRecipes(
 }
 
 /**
+ * The operations a recipe can invoke on this host, built-in and pack-provided
+ * alike, each with its contract and where it came from. A pack operation
+ * carries its pack, version, publisher key, effect and declared destinations,
+ * so an author or reviewer can see exactly what a step from a third party may
+ * reach before a recipe that uses it is published.
+ */
+export function listOperations(runtime: TeachingRuntime, actor: ActorContext) {
+  const roles = ["author", "executor", "reviewer", "admin"] as const;
+  if (!roles.some((capability) => actor.capabilities.includes(capability)))
+    throw new AuthorizationError("denied");
+  return runtime.registry.describe();
+}
+
+/**
  * Execute a published recipe, pinned by version and digest. Only a published,
  * unretired recipe can be named here: a draft is never executable, which is
  * what keeps review and publication a person's decision.

@@ -73,6 +73,12 @@ import {
 import { jiraHuman, jiraOwnerPage } from "./jira-human.js";
 import { JiraSetupAssignments } from "./jira-setup.js";
 import { ProviderRegistry, type ProviderEntry } from "./provider-registry.js";
+import {
+  loadOperationPacks,
+  OperationPackRefused,
+  type OperationPackOptions,
+  type OperationPackRefusal,
+} from "./operation-packs.js";
 
 export interface GitHubRuntimeOptions {
   store: AsyncCeremonyStore;
@@ -150,6 +156,14 @@ export interface GitHubRuntimeOptions {
   /** Explicit host policy for a human-chosen account; never a model-generated wildcard. */
   allowTarget?(actor: ActorContext, target: string): Promise<boolean>;
   continuation?: TeachingRuntimeOptions["continuation"];
+  /**
+   * Signed operation packs to load at startup (docs/operation-packs.md).
+   * `oauth-client` credentials resolve through this runtime's store. A
+   * refused pack stops startup unless `onRefused` takes the report instead.
+   */
+  operationPacks?: Omit<OperationPackOptions, "store"> & {
+    onRefused?(refusals: readonly OperationPackRefusal[]): void;
+  };
   /** Trusted private session configuration; checked again at each provider boundary. */
   configuration?(
     actor: ActorContext,
@@ -509,6 +523,16 @@ export function createGitHubRuntime(
     ...(options.inbox ? { inbox: options.inbox } : {}),
   });
   providers.register(registry);
+  // Packs register last, into the same registry and vocabulary, so a pack
+  // can use any host contract but never replace a host operation.
+  if (options.operationPacks) {
+    const { onRefused, ...packs } = options.operationPacks;
+    const report = loadOperationPacks(registry, { ...packs, store });
+    if (report.refused.length) {
+      if (!onRefused) throw new OperationPackRefused(report.refused);
+      onRefused(report.refused);
+    }
+  }
   const operationContext = (
     actor: ActorContext,
     record: RunRecord,

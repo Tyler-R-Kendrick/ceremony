@@ -26,6 +26,9 @@ export type {
   OperationContext,
   OperationResult,
   VocabularyEntry,
+  OperationProvenance,
+  PackProvenance,
+  OperationDescription,
 } from "./registry.js";
 export type RecipeDiagnostic = { code: string; node?: string };
 export type PublishedRecipe = {

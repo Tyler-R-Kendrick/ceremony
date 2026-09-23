@@ -18,6 +18,7 @@ import {
   executePublishedRecipe,
   importArazzoDraft,
   importRecipeDraft,
+  listOperations,
   listPublishedRecipes,
   proposeCredentialVerification,
   teachingIdentifier,
@@ -269,6 +270,17 @@ export function registerTeachingTools(
         runtime.recipes.getDraft(who, readInput.parse(input).draftId),
     );
   }
+
+  // The steps a recipe can use. A pack-provided one says so, with its pack,
+  // publisher key, effect and the origins it may contact.
+  if (holds("author", "executor", "reviewer"))
+    tool(
+      "ceremony_operations",
+      'List the operations a recipe can invoke on this server, with each one\'s input and output contracts and provider. Operations from a signed operation pack have ids "pack:<pack>/<name>" and a source naming the pack, its publisher key, whether it reads or writes, and every origin it may contact; they compose and run like built-in operations.',
+      z.strictObject({}),
+      { readOnlyHint: true },
+      async (who) => ({ operations: listOperations(runtime, who) }),
+    );
 
   // Chaining: published recipes are the units that compose and execute.
   if (holds("executor")) {
