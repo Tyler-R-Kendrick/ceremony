@@ -212,6 +212,8 @@ export type FixtureAdapterOptions = {
   apiKeyProfileId?: string;
   clientId?: string;
   support?: ConnectorAdapter["support"];
+  /** Declare the adapter generic: its evidence then speaks for one definition at a time. */
+  evidenceScope?: ConnectorAdapter["evidenceScope"];
 };
 
 type OauthPrivate = { verifier: string; url: string; redirectUri: string };
@@ -360,6 +362,7 @@ export function createFixtureAdapter(
       "A loopback protocol fixture exercising api-key and OAuth authorization-code profiles.",
     service: "fixture",
     support: options.support ?? "fixture",
+    ...(options.evidenceScope ? { evidenceScope: options.evidenceScope } : {}),
     custody: ["host-owned"],
     configuration: [],
     profiles: ["oauth-authorization-code", "api-key"],

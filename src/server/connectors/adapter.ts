@@ -256,6 +256,15 @@ export interface ConnectorAdapter {
   /** Logical service key for directory grouping; grouping never merges grants. */
   readonly service: string;
   readonly support: SupportLevel;
+  /**
+   * `"definition"` when the adapter runs whatever description a person
+   * imported (the generic OpenAPI and provider-catalog adapters): its own
+   * suites prove the code path, not any provider behind an imported
+   * definition, so support evidence speaks for one definition at a time.
+   * Absent means `"adapter"`: one provider, and adapter-wide evidence speaks
+   * for every connection through it. See `SupportLabelScope`.
+   */
+  readonly evidenceScope?: "adapter" | "definition";
   readonly custody: readonly CredentialCustody[];
   readonly configuration: readonly ConfigurationRequirement[];
   /** Protocol profiles this adapter implements, e.g. ["openapi-3.1", "openapi-3.0"]. */

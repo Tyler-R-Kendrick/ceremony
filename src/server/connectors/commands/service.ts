@@ -383,6 +383,12 @@ function boundedState(
   return merged;
 }
 
+/** Every name a support-evidence entry may use for a definition. */
+const definitionNames = (definition: NormalizedDefinition) => [
+  definition.definitionRef,
+  `sha256:${definition.normalizedDigest}`,
+];
+
 export class ConnectorCommandService {
   readonly registry: ConnectorAdapterRegistry;
   readonly origin: string;
@@ -427,21 +433,33 @@ export class ConnectorCommandService {
   }
 
   /**
-   * The host's opt-in production minimum, rechecked at approval, connect and
-   * invoke because evidence expires between them. Off by default, and it
-   * reads configuration only when a minimum is set.
+   * The host's opt-in production minimum. It is rechecked at every step that
+   * starts or continues work with the provider -- approval, connect, the
+   * completion of a pending ceremony (callback, private input, a provider
+   * event), poll, verify, reconnect and invoke -- because evidence expires
+   * between them: an in-flight ceremony whose evidence lapsed does not
+   * finish. Disconnect, revocation and deletion are never gated, so a person
+   * can always let go of a connection. The label is the binding
+   * definition's, so a generic adapter is admitted only for a description
+   * someone exercised. Off by default, and it reads configuration and the
+   * definition only when a minimum is set.
    */
   private async requireSupport(
     actor: ActorContext,
     adapter: ConnectorAdapter,
-    destinations: RuntimeBinding["destinations"],
+    subject: Pick<RuntimeBinding, "definitionRef" | "destinations">,
+    definition?: NormalizedDefinition,
   ): Promise<void> {
     if (!this.support.minimumForProduction) return;
-    if (!this.support.isProduction(destinations)) return;
+    if (!this.support.isProduction(subject.destinations)) return;
+    const reviewed =
+      definition ??
+      (await this.definition(actor.tenantId, subject.definitionRef));
     this.support.require(
-      adapter.id,
-      destinations,
+      adapter,
+      subject.destinations,
       await this.configured(actor, adapter),
+      definitionNames(reviewed),
     );
   }
 
@@ -653,7 +671,7 @@ export class ConnectorCommandService {
     return catalogFor(
       this.registry,
       (adapter) => presence.get(adapter.id) ?? new Set(),
-      (adapterId, configured) => this.support.label(adapterId, configured),
+      (adapter, configured) => this.support.label(adapter, configured),
     );
   }
 
@@ -979,7 +997,12 @@ export class ConnectorCommandService {
       definition,
       approvals.destinations,
     );
-    await this.requireSupport(actor, adapter, destinations);
+    await this.requireSupport(
+      actor,
+      adapter,
+      { definitionRef: definition.definitionRef, destinations },
+      definition,
+    );
     const reviewed = await this.reviewInputs(
       actor,
       adapter,
@@ -1455,7 +1478,7 @@ export class ConnectorCommandService {
       binding.definitionRef,
     );
     await this.authorize(actor, { kind: "binding", binding }, "connect");
-    await this.requireSupport(actor, adapter, binding.destinations);
+    await this.requireSupport(actor, adapter, binding, definition);
     if (input.durable)
       await this.authorize(
         actor,
@@ -1985,6 +2008,7 @@ export class ConnectorCommandService {
           ? "input"
           : "callback",
     );
+    await this.requireSupport(actor, adapter, binding);
     // One completion per handoff and generation, even under concurrency: the
     // journal entry is written before the adapter touches the provider.
     const journal = await this.ports.effects.begin({
@@ -2137,6 +2161,7 @@ export class ConnectorCommandService {
       { kind: "connection", connection: record, binding },
       "poll",
     );
+    await this.requireSupport(actor, adapter, binding);
     if (!adapter.complete) return this.project(actor, entry);
     const handoff = await this.pendingHandoff(actor, record);
     const result = await adapterCall(() =>
@@ -2194,9 +2219,16 @@ export class ConnectorCommandService {
       entry.record.bindingRevision,
     );
     const adapter = this.adapterFor(binding);
+    const definition = await this.definition(
+      actor.tenantId,
+      binding.definitionRef,
+    );
+    // The connection's own definition: a generic adapter's code-path label
+    // says nothing about the description this connection runs.
     return this.support.label(
-      adapter.id,
+      adapter,
       await this.configured(actor, adapter),
+      definitionNames(definition),
     );
   }
 
@@ -2246,6 +2278,7 @@ export class ConnectorCommandService {
       { kind: "connection", connection: record, binding },
       "verify",
     );
+    await this.requireSupport(actor, adapter, binding);
     const result = await adapterCall(() =>
       adapter.verify!(this.context(actor, binding, record)),
     );
@@ -2310,7 +2343,7 @@ export class ConnectorCommandService {
       { kind: "connection", connection: record, binding },
       "invoke",
     );
-    await this.requireSupport(actor, adapter, binding.destinations);
+    await this.requireSupport(actor, adapter, binding);
     const operation = boundOperation(binding, input.operationRef);
     if (!operation)
       throw new ConnectorError("denied", { detail: "operation.unapproved" });
@@ -2562,6 +2595,7 @@ export class ConnectorCommandService {
       { kind: "connection", connection: record, binding },
       "reconnect",
     );
+    await this.requireSupport(actor, adapter, binding);
     if (input.accountSwitch) {
       if (actor.actorKind !== "human")
         throw new ConnectorError("denied", {
