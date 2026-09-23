@@ -69,23 +69,6 @@
   color: var(--muted);
   font-size: 14px;
 }
-.teaching-capture {
-  margin: 16px 0;
-  display: grid;
-  gap: 8px;
-}
-.teaching-capture figcaption {
-  color: var(--muted, #526171);
-  font-size: 12px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-.teaching-capture video {
-  width: 100%;
-  max-height: 320px;
-  background: #0f1720;
-  border-radius: 8px;
-}
 .teaching-error {
   color: #a03620;
 }

@@ -651,7 +651,7 @@ test("authentication sessions never request video recording", async (t) => {
   });
   assert.equal(result.status, "callback");
   assert.equal(recordingRequested, false);
-  assert.equal(result.capturePath, undefined);
+  assert.equal("capturePath" in result, false);
 });
 
 for (const server of [

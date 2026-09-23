@@ -24,7 +24,6 @@ export type TeachingRun = {
   profile: string;
   status: "active" | "cancelled" | "complete";
   identity?: { handle: string; did: string };
-  capture?: boolean;
   account?: "stored";
   human?: { reason: string; account?: string; fields: string[] };
   nodes: Array<{
@@ -1197,29 +1196,14 @@ function connectionPresentation(
 }
 
 function ConnectionEvidence({
-  run,
-  base,
   report,
   serviceName,
 }: {
-  run: Run | undefined;
-  base: string;
   report: CeremonyReport | undefined;
   serviceName: string;
 }) {
   return (
     <>
-      {run?.capture && (
-        <figure className="teaching-capture">
-          <figcaption>Isolated browser recording</figcaption>
-          <video
-            controls
-            playsInline
-            aria-label="Silent recording of the isolated browser"
-            src={`${base}/runs/${encodeURIComponent(run.id)}/capture`}
-          />
-        </figure>
-      )}
       {report ? (
         <CeremonyBoard
           report={report}
@@ -1791,12 +1775,7 @@ export function TeachingConnection({
           </p>
         )}
         {notice && <p role="status">{notice}</p>}
-        <ConnectionEvidence
-          run={run}
-          base={base}
-          report={report}
-          serviceName={serviceName}
-        />
+        <ConnectionEvidence report={report} serviceName={serviceName} />
         <AccountTarget
           connectorId={connectorId}
           accountRequired={accountRequired}

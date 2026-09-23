@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { publicAuthFetch } from "./public-auth-fetch.js";
 import { accountIdentifierSchema } from "../core/teaching-contracts.js";
@@ -21,16 +21,21 @@ import type { AsyncCeremonyStore } from "./persistence/index.js";
 import { AuthorizationError } from "./identity.js";
 import { originCandidatesFromProvider } from "../core/connector-authoring.js";
 import {
+  authoredClientAuthentication,
   ensureAuthoredApp,
   humanRedirectUri,
   readAuthoredApp,
 } from "./authored-app.js";
 import {
+  applyClientAuthentication,
+  authorizationParamsSchema,
   beginAuthorization,
   dpopJwkSchema,
   dpopUserinfoRequest,
   exchangeAuthorizationCode,
   requestedScopes,
+  tokenEndpointAuthMethods,
+  type ClientAuthentication,
 } from "./authored-oauth.js";
 import type {
   AuthorizationBrowser,
@@ -44,8 +49,90 @@ import {
 } from "./provider-discovery.js";
 
 const slot = (contract: string) => ({ contract, required: true });
-const artifact = (kind: string) =>
-  `authored-${kind}-${createHash("sha256").update(kind).digest("hex").slice(0, 16)}`;
+type HandleKind = "app" | "session" | "connection";
+type HandleRecord = {
+  subject: string;
+  runId: string;
+  nodeId: string;
+  kind: HandleKind;
+  handle: string;
+};
+const digest = (value: unknown) =>
+  createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 32);
+const handleIndexKey = (
+  actor: ActorContext,
+  runId: string,
+  nodeId: string,
+  kind: HandleKind,
+) => ({
+  tenant: actor.tenantId,
+  kind: "artifact" as const,
+  id: `authored-handle:${digest([runId, nodeId, kind])}`,
+});
+const handleKey = (actor: ActorContext, handle: string) => ({
+  tenant: actor.tenantId,
+  kind: "artifact" as const,
+  id: `authored-handle-ref:${digest(handle)}`,
+});
+
+/**
+ * The opaque reference an authored step hands to the next one. It is random
+ * per run and node, and resolves only to that run and node for that subject,
+ * so a handle seen in one run's history names nothing in another run. The
+ * same node asked again gets the same handle: a retried step does not mint a
+ * second reference to the same server-side state.
+ */
+export async function issueAuthoredHandle(
+  store: AsyncCeremonyStore,
+  context: OperationContext,
+  kind: HandleKind,
+): Promise<string> {
+  const indexKey = handleIndexKey(
+    context.actor,
+    context.runId,
+    context.nodeId,
+    kind,
+  );
+  return store.transaction(async (tx) => {
+    const index = await tx.get<HandleRecord>(indexKey);
+    if (index && index.value.subject === context.actor.subjectId)
+      return index.value.handle;
+    const handle = `authored-${kind}-${randomBytes(16).toString("hex")}`;
+    const value: HandleRecord = {
+      subject: context.actor.subjectId,
+      runId: context.runId,
+      nodeId: context.nodeId,
+      kind,
+      handle,
+    };
+    await tx.put(indexKey, value, index?.revision ?? null);
+    await tx.put(handleKey(context.actor, handle), value, null);
+    return handle;
+  });
+}
+
+/** Whether a handle was issued in this run for this subject, of this kind (and, when named, by this node). */
+export async function authoredHandleBound(
+  store: AsyncCeremonyStore,
+  actor: ActorContext,
+  runId: string,
+  handle: unknown,
+  expected: { kind: HandleKind; nodeId?: string },
+) {
+  if (typeof handle !== "string" || !/^authored-[a-z0-9-]{4,80}$/.test(handle))
+    return false;
+  const record = await store.transaction((tx) =>
+    tx.get<HandleRecord>(handleKey(actor, handle)),
+  );
+  return Boolean(
+    record &&
+    record.value.handle === handle &&
+    record.value.subject === actor.subjectId &&
+    record.value.runId === runId &&
+    record.value.kind === expected.kind &&
+    (expected.nodeId === undefined || record.value.nodeId === expected.nodeId),
+  );
+}
 
 export const authoredAccountRegistrationRecipe: RecipeDefinition = {
   schemaVersion: 1,
@@ -365,6 +452,70 @@ export function recipeFromProject(project: ConnectorDraft): RecipeDefinition {
   };
 }
 
+const forbiddenHeaders = new Set([
+  "host",
+  "cookie",
+  "connection",
+  "content-length",
+  "content-type",
+  "transfer-encoding",
+  "proxy-authorization",
+  "te",
+  "upgrade",
+]);
+const fieldName = z.string().regex(/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/);
+/** Where a collected credential goes on the verification request. */
+export const credentialPlacementSchema = z.discriminatedUnion("in", [
+  z.strictObject({
+    in: z.literal("header"),
+    name: z
+      .string()
+      .regex(/^[A-Za-z][A-Za-z0-9-]{0,63}$/)
+      .refine((name) => !forbiddenHeaders.has(name.toLowerCase())),
+    /** Literal text before the key, such as `Bearer ` or `Token `. */
+    prefix: z
+      .string()
+      .max(32)
+      .regex(/^[A-Za-z0-9 _.-]*$/)
+      .optional(),
+  }),
+  z.strictObject({ in: z.literal("query"), name: fieldName }),
+  z.strictObject({ in: z.literal("basic") }),
+  z.strictObject({
+    in: z.literal("form"),
+    usernameField: fieldName.optional(),
+    passwordField: fieldName.optional(),
+  }),
+]);
+/**
+ * An author's declaration of how to prove a collected API key or password
+ * works: one bounded HTTPS request to the provider, expecting a status. The
+ * origin must be one the authored provider already declared, so a credential
+ * can never be pointed at a third party through this declaration.
+ */
+export const credentialVerificationSchema = z.strictObject({
+  url: z
+    .string()
+    .max(2048)
+    .url()
+    .refine((value) => {
+      const url = new URL(value);
+      return (
+        url.protocol === "https:" && !url.username && !url.password && !url.hash
+      );
+    }, "Use an HTTPS URL without credentials or a fragment"),
+  method: z.enum(["GET", "HEAD", "POST"]).optional(),
+  expectStatus: z
+    .array(z.number().int().min(200).max(299))
+    .min(1)
+    .max(4)
+    .optional(),
+  placement: credentialPlacementSchema,
+});
+export type CredentialVerification = z.infer<
+  typeof credentialVerificationSchema
+>;
+
 const sessionSchema = z.object({
   handle: z.string().min(1).max(256),
   did: z.string().min(1).max(256).optional(),
@@ -398,6 +549,12 @@ export const discoveredAuthSchema = z.object({
   candidates: z.array(z.string().max(200)).max(8).optional(),
   codeChallengeMethods: z.array(z.string().max(32)).max(16).optional(),
   retryable: z.boolean().optional(),
+  /** Allowlisted extra authorization-request parameters; never a protocol parameter. */
+  authorizationParams: authorizationParamsSchema.optional(),
+  /** How the declared client authenticates to the token endpoint; a secret, if any, is in custody. */
+  tokenEndpointAuthMethod: z.enum(tokenEndpointAuthMethods).optional(),
+  /** How a collected key or password is checked against the provider. */
+  credentialVerification: credentialVerificationSchema.optional(),
 });
 function sessionKey(actor: ActorContext, runId: string) {
   return {
@@ -534,15 +691,23 @@ async function tokenRequest(
   endpoint: string,
   body: URLSearchParams,
   fetcher: typeof fetch,
+  clientAuth?: ClientAuthentication,
 ) {
+  const headers: Record<string, string> = {
+    "content-type": "application/x-www-form-urlencoded",
+    accept: "application/json",
+  };
+  applyClientAuthentication(
+    body.get("client_id") ?? "",
+    headers,
+    body,
+    clientAuth,
+  );
   const response = await fetcher(endpoint, {
     method: "POST",
     redirect: "error",
     signal: AbortSignal.timeout(15_000),
-    headers: {
-      "content-type": "application/x-www-form-urlencoded",
-      accept: "application/json",
-    },
+    headers,
     body,
   });
   if (!response.ok) return undefined;
@@ -568,20 +733,24 @@ export async function pollDeviceToken(
   endpoint: string,
   input: { deviceCode: string; clientId: string },
   fetcher: typeof fetch,
+  clientAuth?: ClientAuthentication,
 ) {
+  const headers: Record<string, string> = {
+    "content-type": "application/x-www-form-urlencoded",
+    accept: "application/json",
+  };
+  const body = new URLSearchParams({
+    grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+    device_code: input.deviceCode,
+    client_id: input.clientId,
+  });
+  applyClientAuthentication(input.clientId, headers, body, clientAuth);
   const response = await fetcher(endpoint, {
     method: "POST",
     redirect: "error",
     signal: AbortSignal.timeout(15_000),
-    headers: {
-      "content-type": "application/x-www-form-urlencoded",
-      accept: "application/json",
-    },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-      device_code: input.deviceCode,
-      client_id: input.clientId,
-    }),
+    headers,
+    body,
   }).catch(() => undefined);
   if (!response || response.status === 429 || response.status >= 500) {
     const retry = response?.headers.get("retry-after");
@@ -690,9 +859,15 @@ export async function saveAuthoredDeviceSession(
   discovery: z.infer<typeof discoveredAuthSchema>,
   input: { deviceCode: string; clientId: string },
   fetcher: typeof fetch,
+  clientAuth?: ClientAuthentication,
 ) {
   if (!discovery.tokenEndpoint) return { status: "denied" as const };
-  const poll = await pollDeviceToken(discovery.tokenEndpoint, input, fetcher);
+  const poll = await pollDeviceToken(
+    discovery.tokenEndpoint,
+    input,
+    fetcher,
+    clientAuth,
+  );
   if (poll.status !== "ready") return poll;
   const identity = await saveAuthoredGrantSession(
     store,
@@ -757,6 +932,7 @@ export async function saveAuthoredAuthorizationSession(
     clientId: string;
   },
   fetcher: typeof fetch,
+  clientAuth?: ClientAuthentication,
 ) {
   if (!discovery.tokenEndpoint) return undefined;
   const body = new URLSearchParams({
@@ -766,7 +942,12 @@ export async function saveAuthoredAuthorizationSession(
     client_id: input.clientId,
     code_verifier: input.verifier,
   });
-  const token = await tokenRequest(discovery.tokenEndpoint, body, fetcher);
+  const token = await tokenRequest(
+    discovery.tokenEndpoint,
+    body,
+    fetcher,
+    clientAuth,
+  );
   if (!token) return undefined;
   return saveAuthoredGrantSession(
     store,
@@ -822,7 +1003,10 @@ export async function deleteAuthoredSession(
     const pendingKey = pendingRegistrationKey(actor, runId);
     const pending = await tx.get(pendingKey);
     if (pending) await tx.delete(pendingKey, pending.revision);
-    return Boolean(record || pending);
+    const credentialKey = authoredCredentialKey(actor, runId);
+    const credential = await tx.get(credentialKey);
+    if (credential) await tx.delete(credentialKey, credential.revision);
+    return Boolean(record || pending || credential);
   });
 }
 async function liveSession(
@@ -893,6 +1077,7 @@ async function isolatedAuthorizationAttempt(
   },
   resume: boolean,
   fetcher: typeof fetch,
+  clientAuth?: ClientAuthentication,
 ) {
   const key = authoredOauthKey(context.actor, context.runId);
   const redirectUri = humanRedirectUri(
@@ -931,6 +1116,10 @@ async function isolatedAuthorizationAttempt(
     redirectUri,
     scope: app.scope || requestedScopes(boundDiscovery.scopes).join(" "),
     dpop: Boolean(boundDiscovery.dpopRequired || app.dpopRequired),
+    ...(boundDiscovery.authorizationParams
+      ? { authorizationParams: boundDiscovery.authorizationParams }
+      : {}),
+    ...(clientAuth ? { clientAuth } : {}),
     fetch: fetcher,
   });
   const value = isolatedAuthorizationSchema.parse({
@@ -1416,38 +1605,6 @@ export async function authoredAccountStored(
   return Boolean(await accountForIntent(store, actor, connectorId, intent));
 }
 
-export function authoredCaptureKey(actor: ActorContext, runId: string) {
-  return {
-    tenant: actor.tenantId,
-    kind: "session" as const,
-    id: `authored-capture:${createHash("sha256").update(runId).digest("hex").slice(0, 24)}`,
-  };
-}
-
-export async function saveAuthoredCapture(
-  store: AsyncCeremonyStore,
-  actor: ActorContext,
-  runId: string,
-  path: string,
-) {
-  const key = authoredCaptureKey(actor, runId);
-  await store.transaction(async (tx) => {
-    const current = await tx.get(key);
-    await tx.put(key, { path }, current?.revision ?? null);
-  });
-}
-
-export async function readAuthoredCapture(
-  store: AsyncCeremonyStore,
-  actor: ActorContext,
-  runId: string,
-) {
-  const record = await store.transaction((tx) =>
-    tx.get<{ path?: string }>(authoredCaptureKey(actor, runId)),
-  );
-  return record?.value.path;
-}
-
 export function authoredLogKey(actor: ActorContext, runId: string) {
   return {
     tenant: actor.tenantId,
@@ -1486,6 +1643,232 @@ export async function readAuthoredLog(
   return record?.value.events ?? [];
 }
 
+/**
+ * Custody for a key or a username and password collected for an authored
+ * API-key, Basic or form connector. The value arrives only through the native
+ * private form on the run owner's human route, is bound to that run, node and
+ * subject, and is read back only to apply it to the declared verification
+ * request. It never enters a run snapshot, an event, a demonstration or a
+ * tool result: the run carries an opaque handle to it.
+ */
+export function authoredCredentialKey(actor: ActorContext, runId: string) {
+  return {
+    tenant: actor.tenantId,
+    kind: "handoff" as const,
+    id: `authored-credential:${digest([actor.subjectId, runId])}`,
+  };
+}
+const credentialFieldValue = z.string().min(1).max(4096);
+const credentialRecordSchema = z.strictObject({
+  subject: z.string(),
+  actorSession: z.string(),
+  runId: z.string(),
+  nodeId: z.string(),
+  fields: z.union([
+    z.strictObject({ token: credentialFieldValue }),
+    z.strictObject({
+      username: credentialFieldValue.max(254),
+      password: credentialFieldValue,
+    }),
+  ]),
+  verified: z.boolean().optional(),
+});
+type CredentialRecord = z.infer<typeof credentialRecordSchema>;
+
+/** Which values a secret connector collects: a key, or a username and password. */
+export function authoredCredentialFields(installed: {
+  discovery?:
+    { credentialVerification?: CredentialVerification | undefined } | undefined;
+  manifest?: { methods?: Array<{ kind: string }> | undefined } | undefined;
+}): Array<"token" | "password" | "username"> {
+  const placement = installed.discovery?.credentialVerification?.placement.in;
+  if (placement === "header" || placement === "query") return ["token"];
+  if (placement === "basic" || placement === "form")
+    return ["password", "username"];
+  const kinds = (installed.manifest?.methods ?? []).map(
+    (method) => method.kind,
+  );
+  return kinds.includes("api-key") &&
+    !kinds.some((kind) =>
+      ["basic", "form", "account-registration"].includes(kind),
+    )
+    ? ["token"]
+    : ["password", "username"];
+}
+
+/** Written only by the native private form, in the same transaction that consumes the collection. */
+export async function writeAuthoredCredential(
+  tx: import("./persistence/index.js").AsyncTransaction,
+  context: OperationContext,
+  fields: Record<string, string>,
+) {
+  const value = credentialRecordSchema.parse({
+    subject: context.actor.subjectId,
+    actorSession: context.actor.sessionId,
+    runId: context.runId,
+    nodeId: context.nodeId,
+    fields,
+  });
+  const key = authoredCredentialKey(context.actor, context.runId);
+  const prior = await tx.get(key);
+  await tx.put(key, value, prior?.revision ?? null);
+}
+
+async function readAuthoredCredential(
+  store: AsyncCeremonyStore,
+  actor: ActorContext,
+  runId: string,
+): Promise<(CredentialRecord & { revision: number }) | undefined> {
+  const record = await store.transaction((tx) =>
+    tx.get(authoredCredentialKey(actor, runId)),
+  );
+  const parsed = credentialRecordSchema.safeParse(record?.value);
+  if (
+    !record ||
+    !parsed.success ||
+    parsed.data.subject !== actor.subjectId ||
+    parsed.data.runId !== runId
+  )
+    return undefined;
+  return { ...parsed.data, revision: record.revision };
+}
+
+/** Whether the collected credential for this run exists (and, when asked, has passed verification). */
+export async function authoredCredentialStored(
+  store: AsyncCeremonyStore,
+  actor: ActorContext,
+  runId: string,
+  options: { verified?: boolean } = {},
+) {
+  const credential = await readAuthoredCredential(store, actor, runId);
+  return Boolean(credential && (!options.verified || credential.verified));
+}
+
+/** Origins the authored provider itself declared; a verification request may go only to one of them. */
+export function authoredProviderOrigins(discovery: {
+  origin?: string | undefined;
+  issuer?: string | undefined;
+  authorizationEndpoint?: string | undefined;
+  tokenEndpoint?: string | undefined;
+  userinfoEndpoint?: string | undefined;
+}) {
+  const origins = new Set<string>();
+  for (const value of [
+    discovery.origin,
+    discovery.issuer,
+    discovery.authorizationEndpoint,
+    discovery.tokenEndpoint,
+    discovery.userinfoEndpoint,
+  ])
+    if (value && URL.canParse(value)) {
+      const url = new URL(value);
+      if (url.protocol === "https:") origins.add(url.origin);
+    }
+  return origins;
+}
+
+function verificationAllowed(
+  discovery: z.infer<typeof discoveredAuthSchema>,
+  verification: CredentialVerification,
+) {
+  return authoredProviderOrigins(discovery).has(
+    new URL(verification.url).origin,
+  );
+}
+
+/**
+ * Records how an authored secret connector proves a collected credential.
+ * Only the author may declare it, and only against an origin the provider
+ * already declared: a declaration can say which request proves the key, never
+ * where else the key may be sent.
+ */
+export async function declareAuthoredCredentialVerification(
+  store: AsyncCeremonyStore,
+  actor: ActorContext,
+  connectorId: string,
+  declaration: unknown,
+) {
+  const verification = credentialVerificationSchema.parse(declaration);
+  const discovery = await installedDiscovery(store, actor, connectorId);
+  if (!discovery || !verificationAllowed(discovery, verification))
+    throw new AuthorizationError("denied");
+  await saveInstalledDiscovery(store, actor, connectorId, {
+    ...discovery,
+    credentialVerification: verification,
+  });
+}
+
+/**
+ * One bounded request to the declared verification endpoint with the
+ * credential applied where the author said. The response body is never read:
+ * only the status decides, so nothing the provider returns can reach a page,
+ * an event or a model.
+ */
+export async function probeAuthoredCredential(
+  verification: CredentialVerification,
+  fields: CredentialRecord["fields"],
+  fetcher: typeof fetch,
+  signal?: AbortSignal,
+): Promise<"accepted" | "rejected" | "unavailable"> {
+  const url = new URL(verification.url);
+  const headers: Record<string, string> = { accept: "application/json" };
+  const placement = verification.placement;
+  let body: URLSearchParams | undefined;
+  const token = "token" in fields ? fields.token : undefined;
+  const login = "password" in fields ? fields : undefined;
+  if (placement.in === "header" || placement.in === "query") {
+    if (!token) return "rejected";
+    if (placement.in === "header")
+      headers[placement.name.toLowerCase()] =
+        `${placement.prefix ?? ""}${token}`;
+    else url.searchParams.set(placement.name, token);
+  } else {
+    if (!login) return "rejected";
+    if (placement.in === "basic")
+      headers.authorization = `Basic ${Buffer.from(
+        `${login.username}:${login.password}`,
+      ).toString("base64")}`;
+    else {
+      body = new URLSearchParams({
+        [placement.usernameField ?? "username"]: login.username,
+        [placement.passwordField ?? "password"]: login.password,
+      });
+      headers["content-type"] = "application/x-www-form-urlencoded";
+    }
+  }
+  const method = body ? "POST" : (verification.method ?? "GET");
+  const response = await fetcher(url.href, {
+    method,
+    headers,
+    ...(body ? { body } : {}),
+    redirect: "error",
+    signal: signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(10_000)])
+      : AbortSignal.timeout(10_000),
+  }).catch(() => undefined);
+  if (!response) return "unavailable";
+  await response.body?.cancel().catch(() => {});
+  if ((verification.expectStatus ?? [200]).includes(response.status))
+    return "accepted";
+  if (response.status === 429 || response.status >= 500) return "unavailable";
+  return "rejected";
+}
+
+async function markAuthoredCredentialVerified(
+  store: AsyncCeremonyStore,
+  actor: ActorContext,
+  runId: string,
+  revision: number,
+) {
+  const key = authoredCredentialKey(actor, runId);
+  await store.transaction(async (tx) => {
+    const current = await tx.get<CredentialRecord>(key);
+    if (!current || current.revision !== revision)
+      throw new AuthorizationError("denied");
+    await tx.put(key, { ...current.value, verified: true }, current.revision);
+  });
+}
+
 export function registerAuthoredOperations(
   registry: OperationRegistry,
   options: {
@@ -1499,6 +1882,17 @@ export function registerAuthoredOperations(
     state: "complete",
     outputs,
   });
+  const handle = (context: OperationContext, kind: HandleKind) =>
+    issueAuthoredHandle(options.store, context, kind);
+  /** An upstream handle must come from this run: another run's reference names nothing here. */
+  const inputBound = (
+    context: OperationContext,
+    value: unknown,
+    kind: HandleKind,
+  ) =>
+    authoredHandleBound(options.store, context.actor, context.runId, value, {
+      kind,
+    });
   const operations = [
     {
       id: "authored.register-account",
@@ -1513,7 +1907,7 @@ export function registerAuthoredOperations(
             context.runId,
           )
         )
-          return complete({ connection: artifact("connection") });
+          return complete({ connection: await handle(context, "connection") });
         if (
           await options.store.transaction((tx) =>
             tx.get(authoredNativeKey(context.actor, context.runId)),
@@ -1581,7 +1975,7 @@ export function registerAuthoredOperations(
           context.runId,
         );
         if (browserState?.verified)
-          return complete({ connection: artifact("connection") });
+          return complete({ connection: await handle(context, "connection") });
         if (
           registering &&
           !browserState?.pending &&
@@ -1678,13 +2072,6 @@ export function registerAuthoredOperations(
               verified: result.status !== "blocked",
             },
           );
-          if (result.capturePath)
-            await saveAuthoredCapture(
-              options.store,
-              context.actor,
-              context.runId,
-              result.capturePath,
-            );
           return result;
         };
         const result = await runAccountBrowser();
@@ -1747,7 +2134,7 @@ export function registerAuthoredOperations(
             context.runId,
             "",
           );
-          return complete({ connection: artifact("connection") });
+          return complete({ connection: await handle(context, "connection") });
         };
         return finishAccountBrowser();
       },
@@ -1808,7 +2195,7 @@ export function registerAuthoredOperations(
             outputs: {},
             diagnosticCode: "awaiting-human" as const,
           };
-        return complete({ app: artifact("app") });
+        return complete({ app: await handle(context, "app") });
       },
     },
     {
@@ -1816,13 +2203,23 @@ export function registerAuthoredOperations(
       effect: "authored.authorize-user",
       inputs: { app: slot("authored.app") },
       outputs: { session: slot("authored.session") },
-      handler: async (context: OperationContext) => {
+      handler: async (
+        context: OperationContext,
+        inputs: Record<string, unknown>,
+      ) => {
+        if (!(await inputBound(context, inputs.app, "app")))
+          return {
+            state: "failed" as const,
+            outputs: {},
+            diagnosticCode: "denied" as const,
+          };
         const session = await publicAuthoredIdentity(
           options.store,
           context.actor,
           context.runId,
         );
-        if (session) return complete({ session: artifact("session") });
+        if (session)
+          return complete({ session: await handle(context, "session") });
         if (
           await options.store.transaction((tx) =>
             tx.get(authoredNativeKey(context.actor, context.runId)),
@@ -1906,6 +2303,14 @@ export function registerAuthoredOperations(
           };
         }
         try {
+          const clientAuth = await authoredClientAuthentication(
+            options.store,
+            context.actor,
+            context.target,
+            app.clientId,
+            app.tokenEndpointAuthMethod,
+          );
+          if (!clientAuth) throw new AuthorizationError("denied");
           const started = await isolatedAuthorizationAttempt(
             options.store,
             context,
@@ -1913,6 +2318,7 @@ export function registerAuthoredOperations(
             app,
             resume,
             fetcher,
+            clientAuth,
           );
           discovery = started.discovery;
           const attemptDiscovery = discovery;
@@ -2119,13 +2525,6 @@ export function registerAuthoredOperations(
                 verified: browserState?.verified ?? false,
               },
             );
-            if (result.capturePath)
-              await saveAuthoredCapture(
-                options.store,
-                context.actor,
-                context.runId,
-                result.capturePath,
-              );
             return result;
           };
           const result = await runAuthorizationBrowser();
@@ -2198,6 +2597,7 @@ export function registerAuthoredOperations(
                 callbackUrl: result.url,
                 verifier: started.verifier,
                 state: started.state,
+                clientAuth,
                 ...(started.dpopJwk ? { dpopJwk: started.dpopJwk } : {}),
                 fetch: fetcher,
               });
@@ -2210,7 +2610,8 @@ export function registerAuthoredOperations(
                 fetcher,
                 started.dpopJwk,
               );
-              if (created) return complete({ session: artifact("session") });
+              if (created)
+                return complete({ session: await handle(context, "session") });
             }
           };
           const completed = await finishAuthorizationBrowser();
@@ -2251,23 +2652,104 @@ export function registerAuthoredOperations(
       effect: "authored.collect-credential",
       inputs: {},
       outputs: { session: slot("authored.session") },
-      handler: async () => ({
-        state: "awaiting-human" as const,
-        outputs: {},
-        diagnosticCode: "awaiting-human" as const,
-      }),
+      // The person enters the value on the native private form; this step
+      // completes once that value is in custody for this run and node.
+      handler: async (context: OperationContext) => {
+        const credential = await readAuthoredCredential(
+          options.store,
+          context.actor,
+          context.runId,
+        );
+        if (!credential || credential.nodeId !== context.nodeId)
+          return {
+            state: "awaiting-human" as const,
+            outputs: {},
+            diagnosticCode: "awaiting-human" as const,
+          };
+        return complete({ session: await handle(context, "session") });
+      },
     },
     {
       id: "authored.verify-access",
       effect: "authored.verify-access",
       inputs: { session: slot("authored.session") },
       outputs: { connection: slot("authored.connection") },
-      handler: async (context: OperationContext) => {
+      handler: async (
+        context: OperationContext,
+        inputs: Record<string, unknown>,
+      ) => {
+        if (!(await inputBound(context, inputs.session, "session")))
+          return {
+            state: "failed" as const,
+            outputs: {},
+            diagnosticCode: "denied" as const,
+          };
         const discovery = await installedDiscovery(
           options.store,
           context.actor,
           context.target,
         );
+        const credential = await readAuthoredCredential(
+          options.store,
+          context.actor,
+          context.runId,
+        );
+        if (credential) {
+          const verification = discovery?.credentialVerification;
+          // Without a declared, in-origin verification request there is no
+          // evidence the credential works, so the connection is not claimed.
+          if (!verification || !verificationAllowed(discovery, verification)) {
+            await saveAuthoredBlocker(
+              options.store,
+              context.actor,
+              context.runId,
+              "verification-undeclared",
+            );
+            return {
+              state: "awaiting-human" as const,
+              outputs: {},
+              diagnosticCode: "awaiting-human" as const,
+            };
+          }
+          const outcome = credential.verified
+            ? "accepted"
+            : await probeAuthoredCredential(
+                verification,
+                credential.fields,
+                options.fetch ?? publicAuthFetch,
+                context.signal,
+              );
+          if (outcome !== "accepted") {
+            await saveAuthoredBlocker(
+              options.store,
+              context.actor,
+              context.runId,
+              outcome === "rejected" ? "credential-rejected" : "unavailable",
+            );
+            return {
+              state: "failed" as const,
+              outputs: {},
+              diagnosticCode:
+                outcome === "rejected"
+                  ? ("verification-rejected" as const)
+                  : ("unavailable" as const),
+            };
+          }
+          if (!credential.verified)
+            await markAuthoredCredentialVerified(
+              options.store,
+              context.actor,
+              context.runId,
+              credential.revision,
+            );
+          await saveAuthoredBlocker(
+            options.store,
+            context.actor,
+            context.runId,
+            "",
+          );
+          return complete({ connection: await handle(context, "connection") });
+        }
         const session = await liveSession(
           options.store,
           context,
@@ -2280,7 +2762,7 @@ export function registerAuthoredOperations(
             outputs: {},
             diagnosticCode: "awaiting-human" as const,
           };
-        return complete({ connection: artifact("connection") });
+        return complete({ connection: await handle(context, "connection") });
       },
     },
   ];
@@ -2316,6 +2798,19 @@ export function registerAuthoredOperations(
       handler: operation.handler,
       verify: async (context, result) => {
         if (result.state !== "complete") return false;
+        const [output] = Object.keys(operation.outputs) as [
+          "app" | "session" | "connection",
+        ];
+        if (
+          !(await authoredHandleBound(
+            options.store,
+            context.actor,
+            context.runId,
+            result.outputs[output],
+            { kind: output, nodeId: context.nodeId },
+          ))
+        )
+          return false;
         if (operation.id === "authored.register-account")
           return Boolean(
             (await publicAuthoredIdentity(
@@ -2336,6 +2831,22 @@ export function registerAuthoredOperations(
             (await readAuthoredApp(options.store, context.actor, context.runId))
               ?.clientId,
           );
+        if (operation.id === "authored.collect-credential")
+          return authoredCredentialStored(
+            options.store,
+            context.actor,
+            context.runId,
+          );
+        if (
+          operation.id === "authored.verify-access" &&
+          (await authoredCredentialStored(
+            options.store,
+            context.actor,
+            context.runId,
+            { verified: true },
+          ))
+        )
+          return true;
         return Boolean(
           await publicAuthoredIdentity(
             options.store,
