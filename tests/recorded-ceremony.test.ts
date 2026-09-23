@@ -655,6 +655,53 @@ describe("COMPILE: the trace is scrubbed, and then checked as if it were not", (
     assert.equal(recording.steps[0]!.page.path, "/flows/*/password");
   });
 
+  test("an identifier the provider assigned after a create is a wildcard; a path the run was sent to is not", () => {
+    const origin = "https://idp.example";
+    const button = (text: string) => [
+      { index: 0, kind: "button" as const, text },
+    ];
+    const paths = (
+      entryUrl: string,
+      pages: readonly [string, string][],
+    ): string[] => {
+      const recording = compileRecording(
+        pages.map(([path, text]) => ({
+          snapshot: snapshot(`${origin}${path}`, button(text)),
+          action: "click" as const,
+          element: 0,
+        })),
+        { ...options, entryUrl: `${origin}${entryUrl}` },
+      );
+      return recording.steps.map((step) => step.page.path);
+    };
+    // Created, then numbered - short or a UUID, the number is the app's.
+    assert.deepEqual(
+      paths("/api/1/apps/new", [
+        ["/api/1/apps/new", "Create app"],
+        ["/api/1/apps/7", "Generate a new secret"],
+        ["/api/1/apps/7/keys/3f2b6c1e-8d4a-4e1f-9b7c-2a6d5e4f3c21", "Done"],
+      ]),
+      ["/api/1/apps/new", "/api/1/apps/*", "/api/1/apps/*/keys/*"],
+    );
+    // A number the run was sent to, or reached by "Continue", is the page's.
+    assert.deepEqual(
+      paths("/signup/step/1", [
+        ["/signup/step/1", "Continue"],
+        ["/signup/step/2", "Continue"],
+      ]),
+      ["/signup/step/1", "/signup/step/2"],
+    );
+    // A number that was already there before anything was created stays,
+    // even when it shows up again afterwards.
+    assert.deepEqual(
+      paths("/orgs/2/apps/new", [
+        ["/orgs/2/apps/new", "Register application"],
+        ["/orgs/2/apps/2", "Done"],
+      ]),
+      ["/orgs/2/apps/new", "/orgs/2/apps/2"],
+    );
+  });
+
   test("an empty trace is not a recording", () => {
     assert.throws(
       () => compileRecording([], options),

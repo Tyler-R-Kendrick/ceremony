@@ -26,6 +26,8 @@ The schema is `recordedCeremonySchema` in `src/core/recorded-ceremony.ts`, at ve
 
 Limits: 32 steps, 8 branches, 4 success pages, 8 origins, 120 characters per descriptor, and 64 KiB canonical.
 
+Path patterns are generalised when the recording is compiled. A segment that identifies an attempt by its shape alone (three or more digits, a long hex run, a UUID, anything value-like) becomes `*`. A short number or a UUID becomes `*` too when the provider assigned it during the run: it appears in no path the run saw before it pressed a control that asks the provider to make something ("Register application", "Create", "New", "Add", "Generate"), and it first appears after one. So the settings page of the OAuth app a run registers is `/settings/developers/oauth-apps/*`, not `/1`, and the next run's app 2 matches it with no hand edit. Every segment present before that press stays exact, including one that recurs later, and a numbered wizard step reached by "Continue" stays exact because nothing was created.
+
 ### Why no value can get in
 
 - A fill names a role. The driver resolves that role from the host's credential source at the moment of filling. A TOTP code is derived from a held seed at that moment. The recording never sees any of these.
@@ -78,7 +80,7 @@ A **repair** happens only through `browser_record_login` with `basedOn`, and onl
 ## Evidence
 
 - `tests/recorded-ceremony.test.ts` runs in Node against the [auth scenario double](auth-scenario-doubles.md) in its identifier-first shape with a seed-derived TOTP code (`identifierFirst`, `totpSeed`). It records with a scripted interpreter standing in for a model, replays with zero interpreter calls, restyles the double (`restyle(seed)`: same origin and accounts, regenerated markup) to force drift, repairs only with a fallback, and checks that the schema rejects value fields, value-like text, undeclared origins and query strings. Canary credentials are asserted absent from recordings, transcripts, progress events and drift reports. It also records a registration whose required country picker the production heuristic answers from the plan's `choices`, and replays the `select` step at a fresh provider with zero interpreter calls.
-- `ISSUED-SERVICE` in `tests/browser-login-service.test.ts` records an app registration that keeps a client's ID and secret, has its author widen the numbered settings path, publishes it, refuses replays whose `issued` declaration differs, and replays it with the same one.
+- `ISSUED-SERVICE` in `tests/browser-login-service.test.ts` records an app registration that keeps a client's ID and secret, publishes it as recorded (the numbered settings page is already a pattern), refuses replays whose `issued` declaration differs, and replays it with the same one.
 - `tests/recorded-ceremony-host.test.ts` runs through the reference host in a real Chromium, over MCP and HTTP. An agent records, a person reviews and publishes, `browser_login` replays with zero model calls, a redeploy stops with `recording-drift`, and a repair is only a draft. Every tool result and route response is swept for the canaries.
 - `tests/recorded-ceremonies-store.test.ts` covers the draft, review and publish gating, edits, digest pinning, tamper refusal, tenant scope and retirement.
 

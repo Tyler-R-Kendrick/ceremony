@@ -941,22 +941,13 @@ describe("ISSUED-SERVICE: keeping a client's values through browser_login", () =
       draft: f.draft({ issued: issuedDeclaration }),
       recording: { id: "alpha-register-app", title: "Register an OAuth app" },
     });
-    // The app's settings page is numbered per provider, so its author widens
-    // that one segment before review - an edit is a new revision, and the
-    // review below is of the edited bytes.
-    const draft = await f.host.recordings!.editDraft(
-      subject,
-      recorded.draft!.draftId,
-      {
-        revision: recorded.draft!.revision,
-        recording: JSON.parse(
-          JSON.stringify(recorded.draft!.recording).replaceAll(
-            `${oauthAppsPath}/1"`,
-            `${oauthAppsPath}/*"`,
-          ),
-        ),
-      },
-    );
+    // The app's settings page is numbered per app. The number appeared only
+    // after "Register application", so the recording already matches any
+    // app's page, and the draft is reviewed exactly as it was recorded.
+    const draft = recorded.draft!;
+    const pages = JSON.stringify(draft.recording.steps);
+    assert.ok(pages.includes(`${oauthAppsPath}/*"`), pages);
+    assert.equal(pages.includes(`${oauthAppsPath}/1"`), false, pages);
     assert.deepEqual(draft.recording.issued, issuedDeclaration);
     await f.host.recordings!.review(subject, draft.draftId, {
       revision: draft.revision,

@@ -608,6 +608,28 @@ export type CompileRecordingOptions = {
   excluded: readonly string[];
 };
 
+/**
+ * The shape of an identifier a provider hands out: a number, or a UUID. A
+ * short number on its own could as well be a page's fixed name (`/v1`,
+ * `/step/2`), which is why shape alone generalises only the long ones below
+ * and a short one waits for evidence that the run caused it.
+ */
+function identifierShaped(segment: string): boolean {
+  return (
+    /^\d{1,19}$/.test(segment) ||
+    /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i.test(
+      segment,
+    )
+  );
+}
+
+/**
+ * A control whose press asks the provider to make something: "Register
+ * application", "Create project", "New token", "Add key", "Generate".
+ */
+const creating =
+  /\b(create|register|add|new|generate|save|install|publish|sign up)\b/i;
+
 /** Segments that identify an attempt rather than a page. */
 function generalizeSegment(segment: string): string {
   if (
@@ -624,16 +646,67 @@ function generalizeSegment(segment: string): string {
   return segment;
 }
 
-export function pageMatchOf(observed: string): PageMatch {
+/**
+ * The page pattern for an observed page.
+ *
+ * `assigned` names segments the provider handed out during the run - an
+ * identifier that first appeared after the run asked the provider to create
+ * something. Those are the attempt's, not the page's, whatever their length:
+ * the next run's app is `/oauth-apps/2`, not `/oauth-apps/1`.
+ */
+export function pageMatchOf(
+  observed: string,
+  assigned: ReadonlySet<string> = new Set(),
+): PageMatch {
   const url = new URL(observed);
   const segments = url.pathname.split("/").slice(1);
   const trailing = segments.at(-1) === "";
   const path =
     "/" +
     (trailing ? segments.slice(0, -1) : segments)
-      .map(generalizeSegment)
+      .map((segment) =>
+        assigned.has(segment) ? "*" : generalizeSegment(segment),
+      )
       .join("/");
   return { origin: url.origin, path: path.slice(0, 256) };
+}
+
+/**
+ * The identifier-shaped segments a provider assigned during this run.
+ *
+ * A segment counts only when two things are true: it was nowhere in a path
+ * the run saw before it asked the provider to create anything, and it first
+ * appears after such a request. Everything present before is kept exact,
+ * because it was part of where the run was sent, not something the run
+ * made: `/api/1/...` in the entry URL stays `/api/1/...`. A numbered wizard
+ * step reached by "Continue" stays exact too - nothing was created.
+ */
+function assignedSegments(
+  entryUrl: string,
+  trace: readonly RecordedTraceEntry[],
+): Set<string> {
+  const segmentsOf = (observed: string) =>
+    new URL(observed).pathname.split("/").filter(Boolean);
+  const before = new Set(segmentsOf(entryUrl));
+  const assigned = new Set<string>();
+  let created = false;
+  for (const entry of trace) {
+    for (const segment of segmentsOf(entry.snapshot.path))
+      if (!created) before.add(segment);
+      else if (!before.has(segment) && identifierShaped(segment))
+        assigned.add(segment);
+    const element =
+      entry.element === undefined
+        ? undefined
+        : entry.snapshot.elements[entry.element];
+    if (
+      entry.action === "click" &&
+      element &&
+      creating.test(`${element.text ?? ""} ${element.label ?? ""}`)
+    )
+      created = true;
+  }
+  return assigned;
 }
 
 /**
@@ -718,8 +791,9 @@ export function compileRecording(
   const success: PageMatch[] = [];
   const roles: CeremonyRole[] = [];
   let previousKey = "";
+  const assigned = assignedSegments(options.entryUrl, trace);
   for (const [position, entry] of trace.entries()) {
-    const page = pageMatchOf(entry.snapshot.path);
+    const page = pageMatchOf(entry.snapshot.path, assigned);
     if (!allowed.has(page.origin))
       throw new RecordingRejected("undeclared-origin");
     if (entry.action === "done") {
