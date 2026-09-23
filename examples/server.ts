@@ -40,7 +40,10 @@ import { createReferenceProvider } from "./provider.js";
 import { json, readBody, escapeHtml } from "./http.js";
 import { SQLiteCeremonyStore } from "../src/server/persistence/index.js";
 import { createGitHubRuntime } from "../src/server/github-runtime.js";
-import { createAuthorizationBrowser } from "../src/server/browser-executor.js";
+import {
+  createAuthorizationBrowser,
+  remoteBrowserOptionsFromEnv,
+} from "../src/server/browser-executor.js";
 import {
   createHttpInbox,
   createMailTmInbox,
@@ -303,15 +306,10 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
             ...(options.live?.cloudflare
               ? { cloudflare: options.live.cloudflare }
               : {}),
-            ...(process.env.BROWSERBASE_API_KEY &&
-            process.env.BROWSERBASE_PROJECT_ID
-              ? {
-                  browserbase: {
-                    apiKey: process.env.BROWSERBASE_API_KEY,
-                    projectId: process.env.BROWSERBASE_PROJECT_ID,
-                  },
-                }
-              : {}),
+            // Browserbase, any CDP endpoint, and the egress proxy every remote
+            // browser must use. Without CEREMONY_BROWSER_REMOTE_PROXY a remote
+            // browser is refused rather than run uncontained.
+            ...remoteBrowserOptionsFromEnv(process.env),
             ...(() => {
               const model = configuredModel({
                 ...(options.modelUrl ? { endpoint: options.modelUrl } : {}),

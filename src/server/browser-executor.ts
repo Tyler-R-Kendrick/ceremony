@@ -97,14 +97,145 @@ export type AuthorizationBrowser = {
 };
 
 type Opened = { browser: Browser; close: () => Promise<void> };
+
+/**
+ * Any browser that speaks the Chrome DevTools Protocol over a websocket.
+ *
+ * Browserbase and Cloudflare each needed a code path of their own because
+ * each mints its endpoint differently. Most hosted and self-hosted browsers
+ * (Steel, browserless, a Chromium the operator runs with a debugging port)
+ * simply hand out a `wss://` address and, sometimes, a header to present with
+ * it — so one configuration covers all of them.
+ *
+ * It is host configuration and nothing else. Whoever holds this endpoint holds
+ * the whole browser, cookies and all, so it is never accepted from a request,
+ * a recipe or a model, and it is subject to the same egress rule as every
+ * other remote browser: without a vetted `remoteProxy` nothing is opened.
+ */
+export type RemoteCdpBrowser = {
+  endpoint: string;
+  /** Presented on the websocket upgrade, e.g. an `Authorization` header. */
+  headers?: Record<string, string>;
+};
+
+const loopbackHosts = new Set(["127.0.0.1", "[::1]", "localhost"]);
+
+/**
+ * Whether a CDP endpoint may be dialled at all.
+ *
+ * Encrypted anywhere; plaintext only on this machine. A `ws://` endpoint on a
+ * network would send the browser's control channel — and any header that
+ * authenticates it — in the clear. Credentials belong in `headers` rather than
+ * in the URL's userinfo, where they end up in every log line that prints it.
+ */
+export function remoteCdpEndpointAllowed(endpoint: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return false;
+  }
+  if (url.username || url.password) return false;
+  if (url.protocol === "wss:" || url.protocol === "https:") return true;
+  return (
+    (url.protocol === "ws:" || url.protocol === "http:") &&
+    loopbackHosts.has(url.hostname)
+  );
+}
+
 type BrowserOptions = {
   open?: () => Promise<Opened>;
   cloudflare?: { accountId: string; apiToken: string };
   browserbase?: { apiKey: string; projectId: string };
+  cdp?: RemoteCdpBrowser;
   interpreter?: CeremonyInterpreter;
   /** Server-vetted remote proxy; never supplied by model or request input. */
   remoteProxy?: { server: string; username?: string; password?: string };
 };
+
+export type RemoteBrowserOptions = Pick<
+  BrowserOptions,
+  "browserbase" | "cdp" | "remoteProxy"
+>;
+
+/**
+ * Read a host's remote-browser configuration from its environment.
+ *
+ * Every value is validated here, at startup, so a typo is a refusal to boot
+ * rather than a login that quietly ends `browser-unavailable` later. The
+ * variables are read only from the host's environment; nothing a request or a
+ * model says reaches them.
+ *
+ * - `BROWSERBASE_API_KEY` + `BROWSERBASE_PROJECT_ID`: Browserbase sessions.
+ * - `CEREMONY_BROWSER_CDP_URL`: any CDP websocket endpoint.
+ * - `CEREMONY_BROWSER_CDP_HEADERS`: a JSON object of headers for it.
+ * - `CEREMONY_BROWSER_REMOTE_PROXY`: the egress proxy every remote browser is
+ *   required to use, with `CEREMONY_BROWSER_REMOTE_PROXY_USERNAME` and
+ *   `CEREMONY_BROWSER_REMOTE_PROXY_PASSWORD` when it authenticates.
+ */
+export function remoteBrowserOptionsFromEnv(
+  env: Record<string, string | undefined>,
+): RemoteBrowserOptions {
+  const options: RemoteBrowserOptions = {};
+  if (env.BROWSERBASE_API_KEY && env.BROWSERBASE_PROJECT_ID)
+    options.browserbase = {
+      apiKey: env.BROWSERBASE_API_KEY,
+      projectId: env.BROWSERBASE_PROJECT_ID,
+    };
+  if (env.CEREMONY_BROWSER_CDP_URL) {
+    if (!remoteCdpEndpointAllowed(env.CEREMONY_BROWSER_CDP_URL))
+      throw new Error(
+        "CEREMONY_BROWSER_CDP_URL must be wss:// (or ws:// on loopback) with no userinfo",
+      );
+    const headers = env.CEREMONY_BROWSER_CDP_HEADERS
+      ? z.record(z.string().min(1).max(128), z.string().max(4096)).safeParse(
+          (() => {
+            try {
+              return JSON.parse(env.CEREMONY_BROWSER_CDP_HEADERS);
+            } catch {
+              return undefined;
+            }
+          })(),
+        )
+      : undefined;
+    // The message names the variable and never its content: these headers
+    // are usually the endpoint's credential.
+    if (headers && !headers.success)
+      throw new Error("CEREMONY_BROWSER_CDP_HEADERS must be a JSON object");
+    options.cdp = {
+      endpoint: env.CEREMONY_BROWSER_CDP_URL,
+      ...(headers?.success ? { headers: headers.data } : {}),
+    };
+  }
+  if (env.CEREMONY_BROWSER_REMOTE_PROXY) {
+    let proxy: URL;
+    try {
+      proxy = new URL(env.CEREMONY_BROWSER_REMOTE_PROXY);
+    } catch {
+      throw new Error("CEREMONY_BROWSER_REMOTE_PROXY must be a URL");
+    }
+    // Same rule `openBrowser` applies, applied at boot: credentials go in
+    // their own variables, never in a URL that gets printed.
+    if (
+      !["http:", "https:"].includes(proxy.protocol) ||
+      proxy.username ||
+      proxy.password
+    )
+      throw new Error(
+        "CEREMONY_BROWSER_REMOTE_PROXY must be http(s):// with no userinfo",
+      );
+    options.remoteProxy = {
+      server: env.CEREMONY_BROWSER_REMOTE_PROXY,
+      ...(env.CEREMONY_BROWSER_REMOTE_PROXY_USERNAME
+        ? { username: env.CEREMONY_BROWSER_REMOTE_PROXY_USERNAME }
+        : {}),
+      ...(env.CEREMONY_BROWSER_REMOTE_PROXY_PASSWORD
+        ? { password: env.CEREMONY_BROWSER_REMOTE_PROXY_PASSWORD }
+        : {}),
+    };
+  }
+  return options;
+}
 
 async function requiresAuthenticator(page: Page) {
   if (
@@ -297,6 +428,7 @@ export function allowedAuthorizationOrigin(
 async function openRemote(options: {
   cloudflare?: { accountId: string; apiToken: string };
   browserbase?: { apiKey: string; projectId: string };
+  cdp?: RemoteCdpBrowser;
 }): Promise<Opened | undefined> {
   if (options.browserbase) {
     const response = await fetch("https://api.browserbase.com/v1/sessions", {
@@ -335,6 +467,17 @@ async function openRemote(options: {
     );
     return { browser, close: () => browser.close() };
   }
+  if (options.cdp) {
+    // Checked again here and not only at boot: a host that builds these
+    // options in code never passes through the environment reader.
+    if (!remoteCdpEndpointAllowed(options.cdp.endpoint))
+      throw new Error("Invalid remote CDP endpoint");
+    const browser = await chromium.connectOverCDP(options.cdp.endpoint, {
+      ...(options.cdp.headers ? { headers: { ...options.cdp.headers } } : {}),
+      timeout: 20_000,
+    });
+    return { browser, close: () => browser.close() };
+  }
 }
 
 async function openBrowser(
@@ -342,7 +485,11 @@ async function openBrowser(
 ): Promise<Opened & Pick<BrowserOptions, "remoteProxy">> {
   const supplied = await options.open?.();
   if (supplied) return supplied;
-  if (options.browserbase || options.cloudflare) {
+  // A remote browser's traffic leaves from somebody else's network, where the
+  // local egress proxy cannot reach it. The vetted remote proxy is the only
+  // containment such a browser has, so without one nothing remote is opened -
+  // whichever provider the endpoint came from.
+  if (options.browserbase || options.cloudflare || options.cdp) {
     if (!options.remoteProxy)
       throw new Error("Remote egress is not configured");
     const proxy = new URL(options.remoteProxy.server);
