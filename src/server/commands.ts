@@ -159,8 +159,9 @@ export class ProtectedCommandService {
     readonly reauthorize: Reauthorize,
   ) {}
   /**
-   * Whether a run with this provider/profile may include the operation. A node
-   * must match the run's provider and profile, so one provider's operation
+   * Whether a context with this provider/profile may include the operation.
+   * A node must match the provider and profile of the context it runs in (the
+   * run's, or the one its recipe placed it under), so one provider's operation
    * never executes under another's authorization context. The exceptions are
    * closed: steps the registry holds as provider-neutral, authored steps under
    * an authored profile, and the authored account bootstrap ahead of a GitHub
