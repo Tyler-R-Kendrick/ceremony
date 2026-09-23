@@ -8,9 +8,16 @@ import {
 import type {
   AsyncCeremonyStore,
   AsyncTransaction,
+  RecordKey,
 } from "../../../src/server/persistence/index.js";
-import { createConnectorPorts } from "../../../src/server/connectors/state/index.js";
-import { credentialKey } from "../../../src/server/connectors/state/keys.js";
+import {
+  createConnectorPorts,
+  type AuthorityThrottle,
+} from "../../../src/server/connectors/state/index.js";
+import {
+  budgetKey,
+  credentialKey,
+} from "../../../src/server/connectors/state/keys.js";
 import { ConnectorError } from "../../../src/server/connectors/errors.js";
 import { postgresFixture } from "../../fixtures/postgres.js";
 import {
@@ -295,6 +302,99 @@ test("AC-STATE-06: the per-authority budget is shared between workers and isolat
     (await b.throttle.state("tenant-x", "https://api.nango.dev")).openUntil,
     undefined,
   );
+});
+
+/**
+ * Workers holding their first reads of `key`, one each, until every one of
+ * them has found nothing.
+ *
+ * Every write to a budget first reads its row under a row lock, and that lock
+ * orders every write after the first. The first has no row to lock, so two
+ * workers both find nothing and both insert. That only happens when both reads
+ * land before either insert commits, which a pause could only make likely; a
+ * barrier the workers share makes it certain.
+ */
+function meetingOnEmptyRead(
+  stores: AsyncCeremonyStore[],
+  key: RecordKey,
+): AsyncCeremonyStore[] {
+  const all = Promise.withResolvers<void>();
+  let reads = 0;
+  const sameKey = (other: RecordKey) =>
+    other.tenant === key.tenant &&
+    other.kind === key.kind &&
+    other.id === key.id;
+  const watched = (tx: AsyncTransaction): AsyncTransaction =>
+    new Proxy(tx, {
+      get(target, property) {
+        if (property === "get")
+          return async <T>(read: RecordKey) => {
+            const record = await target.get<T>(read);
+            if (sameKey(read) && reads < stores.length) {
+              assert.equal(record, undefined, "the barrier read a stored row");
+              if (++reads === stores.length) all.resolve();
+              await all.promise;
+            }
+            return record;
+          };
+        const member = Reflect.get(target, property, target);
+        return typeof member === "function" ? member.bind(target) : member;
+      },
+    });
+  return stores.map(
+    (store) =>
+      new Proxy(store, {
+        get(target, property) {
+          if (property === "transaction")
+            return <T>(work: (tx: AsyncTransaction) => Promise<T>) =>
+              target.transaction((tx) => work(watched(tx)));
+          const member = Reflect.get(target, property, target);
+          return typeof member === "function" ? member.bind(target) : member;
+        },
+      }),
+  );
+}
+
+test("AC-STATE-06: two workers writing an authority's first budget share one window instead of conflicting", async () => {
+  const authority = "https://api.first-window.example";
+  const throttles = (tenant: string) =>
+    meetingOnEmptyRead([workerA, workerB], budgetKey(tenant, authority)).map(
+      (store) =>
+        createConnectorPorts(store, {
+          throttle: { limit: 3, windowMs: 60_000 },
+        }).throttle,
+    ) as [AuthorityThrottle, AuthorityThrottle];
+  const observer = createConnectorPorts(workerA, {
+    throttle: { limit: 3, windowMs: 60_000 },
+  }).throttle;
+
+  // Two first reservations, one from each worker: both are counted against
+  // the one window, and neither is refused as a conflict.
+  const [a, b] = throttles("tenant-first");
+  const reserved = await Promise.all([
+    a.reserve("tenant-first", authority),
+    b.reserve("tenant-first", authority),
+  ]);
+  assert.deepEqual(reserved.map((budget) => budget.remaining).sort(), [1, 2]);
+  assert.equal((await observer.state("tenant-first", authority)).count, 2);
+
+  // A trip racing a first reservation: the open circuit lands, and the
+  // reservation either counts or is refused by that circuit, never by the
+  // collision.
+  const [tripper, reserver] = throttles("tenant-tripped");
+  const [, raced] = await Promise.allSettled([
+    tripper.trip("tenant-tripped", authority, 30_000, "provider.unavailable"),
+    reserver.reserve("tenant-tripped", authority),
+  ]);
+  if (raced.status === "rejected")
+    assert.ok(
+      raced.reason instanceof ConnectorError &&
+        raced.reason.detail === "authority.circuit-open",
+      `the reservation failed for another reason: ${String(raced.reason)}`,
+    );
+  const tripped = await observer.state("tenant-tripped", authority);
+  assert.equal(tripped.openCode, "provider.unavailable");
+  assert.equal(tripped.count, raced.status === "fulfilled" ? 1 : 0);
 });
 
 test("STATE-04: a fixed window reopens on its own schedule", async () => {
