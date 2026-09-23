@@ -86,6 +86,7 @@ const events: CaptionEvent[] = [
   { kind: "verified", what: "token" },
   { kind: "handoff", what: "consent-approved" },
   { kind: "connector", stage: "exchange" },
+  { kind: "connector", stage: "secret-kept" },
   { kind: "decision", what: "no-account-register" },
   { kind: "recording", stage: "replayed" },
   { kind: "step", index: 3, total: 7, phase: "verify-email" },
@@ -122,6 +123,11 @@ test("DEMO-CAPTIONS: captions name the role and the actor", () => {
   assert.equal(
     caption({ kind: "step", index: 4, total: 7, phase: "verify-email" }),
     "Step 4/7 · verify email via inbox",
+  );
+  // Reading issued values is the driver's doing: the agent never sees them.
+  assert.equal(
+    caption({ kind: "connector", stage: "secret-kept" }),
+    "Driver: client ID + secret kept, never shown to agent",
   );
   // An unknown role is described as "a field", never echoed.
   assert.equal(
