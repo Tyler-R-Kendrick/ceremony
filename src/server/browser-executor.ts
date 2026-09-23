@@ -609,7 +609,11 @@ async function openRemote(options: {
     });
     if (response.ok) {
       const session = z
-        .object({ id: z.string().min(1), connectUrl: z.string().url() })
+        .object({
+          connectUrl: z.string().url(),
+          // Needed only for the live view; a session without one still runs.
+          id: z.string().min(1).optional(),
+        })
         .parse(await response.json());
       const browser = await chromium.connectOverCDP(session.connectUrl, {
         timeout: 20_000,
@@ -617,10 +621,14 @@ async function openRemote(options: {
       return {
         browser,
         close: () => browser.close(),
-        liveView: browserbaseLiveView({
-          apiKey: options.browserbase.apiKey,
-          sessionId: session.id,
-        }),
+        ...(session.id
+          ? {
+              liveView: browserbaseLiveView({
+                apiKey: options.browserbase.apiKey,
+                sessionId: session.id,
+              }),
+            }
+          : {}),
       };
     }
   }
