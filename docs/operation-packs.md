@@ -161,6 +161,7 @@ const packs = await prepareOperationPacks({
   secrets: async ({ pack, operationId, name, actor }) =>
     vault.read(pack, name, actor.tenantId),
   allowDestination: (pack, origin) => reviewed.has(`${pack} ${origin}`),
+  concurrency: { maxConcurrent: 4, queueTimeoutMs: 5_000, maxQueued: 256 },
 });
 createGitHubRuntime({
   // …
@@ -207,6 +208,17 @@ next call (`failed` / `denied`), with no restart:
 
 An invocation that is already running when its key is revoked finishes; the
 check happens before each call, not during one.
+
+### Concurrency
+
+One cap bounds how many sandboxes run at once across every pack a prepared
+set holds: invocations, verifications and the export check at load all take
+a slot. The defaults are the machine's available parallelism (at most 8)
+running at once, 256 waiting and a 5 s wait. An invocation that finds the
+queue full, or waits past `queueTimeoutMs`, is `failed` / `unavailable`
+without starting a worker. One cancelled while waiting is `cancelled`.
+`concurrency` takes either these settings or an `OperationPackLimiter`
+instance, so several runtimes in one process can share a single cap.
 
 ## What a handler sees
 
@@ -309,6 +321,7 @@ carries the handler's message, stack or output:
 | -------------------------------------------------------------------------------------- | ---------------------------------------------------- |
 | Throws, times out, runs out of memory, crashes, or returns oversized or invalid output | `failed` / `unavailable`                             |
 | Breaks a destination or method rule                                                    | `failed` / `denied`                                  |
+| No sandbox slot within the queue bound or wait                                         | `failed` / `unavailable`                             |
 | The run's signal aborts                                                                | `failed` / `cancelled`                               |
 | Any of the above after a write was sent                                                | `uncertain` (reconciliation, never a silent retry)   |
 | Returns `{ failed: code }`                                                             | `failed` / that code                                 |

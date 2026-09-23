@@ -46,6 +46,7 @@ import {
   type OperationPackOptions,
   type PreparedOperationPacks,
 } from "../src/server/operation-packs.js";
+import { OperationPackLimiter } from "../src/server/operation-pack-sandbox.js";
 import { SQLiteCeremonyStore } from "../src/server/persistence/index.js";
 import { loopbackAuthFetch } from "../src/server/public-auth-fetch.js";
 import {
@@ -1588,4 +1589,74 @@ test("a revocation file is re-read on its interval and fails closed", (t) => {
   assert.equal(isRevoked("other-key"), true);
   const defaults = revocationList(path);
   assert.equal(defaults("other-key"), true);
+});
+
+test("a global cap bounds concurrent sandboxes and refuses what waits too long", async (t) => {
+  const limiter = new OperationPackLimiter({
+    maxConcurrent: 1,
+    queueTimeoutMs: 200,
+    maxQueued: 1,
+  });
+  const setup = await loaded(
+    t,
+    () => [
+      fixtureOperation("hang", { limits: { timeoutMs: 1500 } }),
+      fixtureOperation("refuse"),
+    ],
+    { concurrency: limiter },
+  );
+  assert.deepEqual(setup.report.refused, []);
+  const unavailable = {
+    state: "failed",
+    outputs: {},
+    diagnosticCode: "unavailable",
+  };
+  const conflict = { state: "failed", outputs: {}, diagnosticCode: "conflict" };
+  // One slot, held by a hanging handler: the next waits 200 ms, then gives up.
+  const hanging = direct(setup, "hang");
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(limiter.running, 1);
+  const started = Date.now();
+  const queued = direct(setup, "refuse");
+  // The queue holds one: a third is refused at once.
+  assert.deepEqual(await direct(setup, "refuse"), unavailable);
+  assert.deepEqual(await queued, unavailable);
+  assert.ok(Date.now() - started >= 150);
+  // Cancelled while waiting.
+  const controller = new AbortController();
+  const waiting = direct(setup, "refuse", controller.signal);
+  controller.abort();
+  assert.deepEqual(await waiting, {
+    state: "failed",
+    outputs: {},
+    diagnosticCode: "cancelled",
+  });
+  assert.deepEqual(await hanging, unavailable);
+  assert.equal(limiter.running, 0);
+  // A longer wait is served once the slot frees.
+  const patient = new OperationPackLimiter({
+    maxConcurrent: 1,
+    queueTimeoutMs: 10_000,
+  });
+  const second = await loaded(
+    t,
+    () => [
+      fixtureOperation("hang", { limits: { timeoutMs: 300 } }),
+      fixtureOperation("refuse"),
+    ],
+    { concurrency: patient },
+  );
+  const first = direct(second, "hang");
+  assert.deepEqual(await direct(second, "refuse"), conflict);
+  assert.deepEqual(await first, unavailable);
+  // Settings instead of a shared limiter; nonsense settings are misconfiguration.
+  const configured = await loaded(t, () => [fixtureOperation("refuse")], {
+    concurrency: { maxConcurrent: 2 },
+  });
+  assert.deepEqual(await direct(configured, "refuse"), conflict);
+  assert.throws(
+    () => new OperationPackLimiter({ maxConcurrent: 0 }),
+    /Invalid operation pack concurrency/,
+  );
+  assert.ok(new OperationPackLimiter().maxConcurrent >= 1);
 });

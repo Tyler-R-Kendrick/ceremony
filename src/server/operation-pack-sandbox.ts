@@ -1,3 +1,4 @@
+import { availableParallelism } from "node:os";
 import { Worker } from "node:worker_threads";
 
 /*
@@ -153,6 +154,7 @@ export type SandboxFailure =
   | "memory"
   | "crashed"
   | "aborted"
+  | "busy"
   | "handler-error"
   | "missing-entry"
   | "output-too-large";
@@ -161,6 +163,80 @@ export type SandboxOutcome =
 /** What the host answers a request with: JSON text, or a fixed refusal code. */
 export type SandboxReply =
   { ok: true; text: string } | { ok: false; code: string };
+
+/**
+ * Bounds how many sandboxes run at once across every pack a host loaded.
+ * Excess invocations wait in a bounded queue for a bounded time; past either
+ * bound they are refused as `busy`, which the operation reports as
+ * `unavailable`, rather than starting another worker or process.
+ */
+export class OperationPackLimiter {
+  private active = 0;
+  private readonly waiting: Array<() => void> = [];
+  readonly maxConcurrent: number;
+  readonly queueTimeoutMs: number;
+  readonly maxQueued: number;
+  constructor(
+    options: {
+      maxConcurrent?: number;
+      queueTimeoutMs?: number;
+      maxQueued?: number;
+    } = {},
+  ) {
+    this.maxConcurrent =
+      options.maxConcurrent ?? Math.max(1, Math.min(8, availableParallelism()));
+    this.queueTimeoutMs = options.queueTimeoutMs ?? 5_000;
+    this.maxQueued = options.maxQueued ?? 256;
+    if (
+      !Number.isInteger(this.maxConcurrent) ||
+      this.maxConcurrent < 1 ||
+      !Number.isInteger(this.maxQueued) ||
+      this.maxQueued < 0 ||
+      !(this.queueTimeoutMs >= 0)
+    )
+      throw new Error("Invalid operation pack concurrency");
+  }
+  /** Sandboxes running now. */
+  get running(): number {
+    return this.active;
+  }
+  /** A release function, or why no slot was granted. */
+  async acquire(
+    signal: AbortSignal,
+  ): Promise<(() => void) | "busy" | "aborted"> {
+    if (signal.aborted) return "aborted";
+    if (this.active < this.maxConcurrent) return this.grant();
+    if (this.waiting.length >= this.maxQueued) return "busy";
+    return new Promise((resolve) => {
+      const wake = () => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", abort);
+        resolve(this.grant());
+      };
+      const leave = (reason: "busy" | "aborted") => {
+        const index = this.waiting.indexOf(wake);
+        if (index >= 0) this.waiting.splice(index, 1);
+        clearTimeout(timer);
+        signal.removeEventListener("abort", abort);
+        resolve(reason);
+      };
+      const abort = () => leave("aborted");
+      const timer = setTimeout(() => leave("busy"), this.queueTimeoutMs);
+      signal.addEventListener("abort", abort, { once: true });
+      this.waiting.push(wake);
+    });
+  }
+  private grant(): () => void {
+    this.active++;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.active--;
+      this.waiting.shift()?.();
+    };
+  }
+}
 
 export interface SandboxRun {
   source: string;
@@ -173,6 +249,7 @@ export interface SandboxRun {
   memoryMb: number;
   outputBytes: number;
   signal: AbortSignal;
+  limiter: OperationPackLimiter;
   /** Serves one `ceremony.fetch` call; the argument is the handler's JSON. */
   request(text: string): Promise<SandboxReply>;
 }
@@ -224,70 +301,76 @@ function startWorker(
  * error text, stack or console output back to the host.
  */
 export async function runInSandbox(run: SandboxRun): Promise<SandboxOutcome> {
-  if (run.signal.aborted) return { kind: "error", reason: "aborted" };
-  return new Promise<SandboxOutcome>((resolve) => {
-    let settled = false;
-    let channel: Channel | undefined;
-    const settle = (outcome: SandboxOutcome) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      run.signal.removeEventListener("abort", abort);
-      channel?.kill();
-      resolve(outcome);
-    };
-    const timer = setTimeout(
-      () => settle({ kind: "error", reason: "timeout" }),
-      run.timeoutMs,
-    );
-    const abort = () => settle({ kind: "error", reason: "aborted" });
-    run.signal.addEventListener("abort", abort, { once: true });
-    const onMessage = (message: unknown) => {
-      if (!message || typeof message !== "object") return;
-      const { kind, id, text, reason } = message as Record<string, unknown>;
-      if (
-        kind === "request" &&
-        typeof id === "number" &&
-        typeof text === "string"
-      ) {
-        void run
-          .request(text)
-          .catch((): SandboxReply => ({ ok: false, code: "unavailable" }))
-          .then((reply) => {
-            if (settled) return;
-            channel?.send({
-              kind: "settle",
-              id,
-              ok: reply.ok,
-              text: reply.ok ? reply.text : reply.code,
+  const slot = await run.limiter.acquire(run.signal);
+  if (slot === "busy" || slot === "aborted")
+    return { kind: "error", reason: slot };
+  try {
+    return await new Promise<SandboxOutcome>((resolve) => {
+      let settled = false;
+      let channel: Channel | undefined;
+      const settle = (outcome: SandboxOutcome) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        run.signal.removeEventListener("abort", abort);
+        channel?.kill();
+        resolve(outcome);
+      };
+      const timer = setTimeout(
+        () => settle({ kind: "error", reason: "timeout" }),
+        run.timeoutMs,
+      );
+      const abort = () => settle({ kind: "error", reason: "aborted" });
+      run.signal.addEventListener("abort", abort, { once: true });
+      const onMessage = (message: unknown) => {
+        if (!message || typeof message !== "object") return;
+        const { kind, id, text, reason } = message as Record<string, unknown>;
+        if (
+          kind === "request" &&
+          typeof id === "number" &&
+          typeof text === "string"
+        ) {
+          void run
+            .request(text)
+            .catch((): SandboxReply => ({ ok: false, code: "unavailable" }))
+            .then((reply) => {
+              if (settled) return;
+              channel?.send({
+                kind: "settle",
+                id,
+                ok: reply.ok,
+                text: reply.ok ? reply.text : reply.code,
+              });
             });
+        } else if (kind === "done" && typeof text === "string")
+          settle(
+            Buffer.byteLength(text) > run.outputBytes
+              ? { kind: "error", reason: "output-too-large" }
+              : { kind: "done", text },
+          );
+        else if (kind === "error")
+          settle({
+            kind: "error",
+            reason:
+              reason === "missing-entry" || reason === "output-too-large"
+                ? reason
+                : "handler-error",
           });
-      } else if (kind === "done" && typeof text === "string")
-        settle(
-          Buffer.byteLength(text) > run.outputBytes
-            ? { kind: "error", reason: "output-too-large" }
-            : { kind: "done", text },
-        );
-      else if (kind === "error")
-        settle({
-          kind: "error",
-          reason:
-            reason === "missing-entry" || reason === "output-too-large"
-              ? reason
-              : "handler-error",
-        });
-    };
-    const data = {
-      source: run.source,
-      entry: run.entry,
-      operation: run.operation,
-      input: run.input,
-      outputChars: run.outputBytes,
-      timeoutMs: run.timeoutMs,
-    };
-    const failure = (reason: SandboxFailure) =>
-      settle({ kind: "error", reason });
-    channel = startWorker(run, data, onMessage, failure);
-    if (settled) channel.kill();
-  });
+      };
+      const data = {
+        source: run.source,
+        entry: run.entry,
+        operation: run.operation,
+        input: run.input,
+        outputChars: run.outputBytes,
+        timeoutMs: run.timeoutMs,
+      };
+      const failure = (reason: SandboxFailure) =>
+        settle({ kind: "error", reason });
+      channel = startWorker(run, data, onMessage, failure);
+      if (settled) channel.kill();
+    });
+  } finally {
+    slot();
+  }
 }

@@ -31,7 +31,11 @@ import {
   type RegisteredOperation,
   type VocabularyEntry,
 } from "./recipes/registry.js";
-import { runInSandbox, type SandboxReply } from "./operation-pack-sandbox.js";
+import {
+  OperationPackLimiter,
+  runInSandbox,
+  type SandboxReply,
+} from "./operation-pack-sandbox.js";
 import { packPublisherKeyIdSchema } from "../core/operation-packs.js";
 
 /*
@@ -93,6 +97,15 @@ export interface OperationPackOptions {
    * one from a file the host re-reads on an interval.
    */
   isRevoked?(keyId: string): boolean | Promise<boolean>;
+  /**
+   * The cap on sandboxes running at once across every pack this host loads:
+   * settings, or a limiter shared with another runtime in the same process.
+   * Defaults to the machine's parallelism (at most 8), a 5 s queue wait and
+   * 256 queued invocations; past those an invocation is `unavailable`.
+   */
+  concurrency?:
+    | OperationPackLimiter
+    | { maxConcurrent?: number; queueTimeoutMs?: number; maxQueued?: number };
   /** Egress transport. Defaults to the server's public-only, no-redirect fetch. */
   fetch?: typeof fetch;
   /** Admit `http://` loopback destinations, for local fixtures only. */
@@ -435,7 +448,7 @@ type LoadedPack = {
   publisher: Publisher;
 };
 /** What every invocation of a prepared set shares. */
-type Runtime = { trust: Trust };
+type Runtime = { trust: Trust; limiter: OperationPackLimiter };
 
 /**
  * One invocation of one entry. Holds what the host learns while the handler
@@ -662,6 +675,7 @@ function packOperation(
         input: JSON.stringify(argument),
         ...limits,
         signal,
+        limiter: runtime.limiter,
         request: (text) => invocation.request(text),
       });
       return { outcome, invocation };
@@ -742,7 +756,11 @@ const refusal = (entry: string, error: unknown): OperationPackRefusal => {
 };
 
 /** Evaluate the bundle once and read which entries each operation defines. */
-async function checkExports(manifest: OperationPackManifest, source: string) {
+async function checkExports(
+  manifest: OperationPackManifest,
+  source: string,
+  limiter: OperationPackLimiter,
+) {
   const outcome = await runInSandbox({
     source,
     entry: "exports",
@@ -757,6 +775,7 @@ async function checkExports(manifest: OperationPackManifest, source: string) {
     ),
     outputBytes: OPERATION_PACK_LIMITS.outputBytes.max,
     signal: new AbortController().signal,
+    limiter,
     request: async () => ({ ok: false, code: "denied" }),
   });
   const exported = z
@@ -812,7 +831,7 @@ export class PreparedOperationPacks {
  * publisher's key and its standing, the signature, the bundle digest, and
  * that the bundle defines every declared operation. Nothing is registered.
  * Host misconfiguration (an unreadable directory, a trusted key that is not
- * Ed25519) throws instead of refusing.
+ * Ed25519, invalid concurrency) throws instead of refusing.
  */
 export async function prepareOperationPacks(
   options: OperationPackOptions,
@@ -823,6 +842,10 @@ export async function prepareOperationPacks(
     ...(options.isRevoked ? { isRevoked: options.isRevoked } : {}),
     now: options.now ?? Date.now,
   };
+  const limiter =
+    options.concurrency instanceof OperationPackLimiter
+      ? options.concurrency
+      : new OperationPackLimiter(options.concurrency);
   const packs: LoadedPack[] = [];
   const refused: OperationPackRefusal[] = [];
   const seen = new Set<string>();
@@ -882,7 +905,7 @@ export async function prepareOperationPacks(
         throw new Refusal("bundle-digest-mismatch");
       if (seen.has(manifest.id)) throw new Refusal("duplicate-operation");
       const source = bundle.toString("utf8");
-      await checkExports(manifest, source);
+      await checkExports(manifest, source, limiter);
       seen.add(manifest.id);
       packs.push({ entry: entry.name, manifest, source, publisher });
     } catch (error) {
@@ -893,7 +916,7 @@ export async function prepareOperationPacks(
     packs,
     refused,
     options,
-    runtime: { trust },
+    runtime: { trust, limiter },
   });
 }
 
