@@ -34,6 +34,7 @@ import {
 import {
   OperationPackLimiter,
   runInSandbox,
+  type SandboxIsolation,
   type SandboxReply,
 } from "./operation-pack-sandbox.js";
 import { packPublisherKeyIdSchema } from "../core/operation-packs.js";
@@ -72,6 +73,11 @@ export type TrustedPackPublisher = {
   notAfter?: string;
   /** Pack ids this key may publish. Absent means any. */
   packs?: readonly string[];
+  /**
+   * The host does not vouch for this publisher's code beyond its signature:
+   * its packs always run in `process` isolation, whatever the host default.
+   */
+  untrusted?: boolean;
 };
 
 /** What the host's secret resolver is asked for; it answers with the value or nothing. */
@@ -97,6 +103,12 @@ export interface OperationPackOptions {
    * one from a file the host re-reads on an interval.
    */
   isRevoked?(keyId: string): boolean | Promise<boolean>;
+  /**
+   * Host-wide sandbox: `worker` (a worker thread, the default) or `process`
+   * (a child process under Node's permission model). Publishers marked
+   * `untrusted` always get `process`.
+   */
+  isolation?: SandboxIsolation;
   /**
    * The cap on sandboxes running at once across every pack this host loads:
    * settings, or a limiter shared with another runtime in the same process.
@@ -199,6 +211,7 @@ type Publisher = {
   notBefore?: number;
   notAfter?: number;
   packs?: ReadonlySet<string>;
+  untrusted: boolean;
 };
 function trustedPublishers(
   publishers: readonly TrustedPackPublisher[],
@@ -229,6 +242,7 @@ function trustedPublishers(
       ...(notBefore !== undefined ? { notBefore } : {}),
       ...(notAfter !== undefined ? { notAfter } : {}),
       ...(publisher.packs ? { packs: new Set(publisher.packs) } : {}),
+      untrusted: publisher.untrusted === true,
     });
   }
   return trusted;
@@ -446,6 +460,7 @@ type LoadedPack = {
   manifest: OperationPackManifest;
   source: string;
   publisher: Publisher;
+  isolation: SandboxIsolation;
 };
 /** What every invocation of a prepared set shares. */
 type Runtime = { trust: Trust; limiter: OperationPackLimiter };
@@ -675,6 +690,7 @@ function packOperation(
         input: JSON.stringify(argument),
         ...limits,
         signal,
+        isolation: pack.isolation,
         limiter: runtime.limiter,
         request: (text) => invocation.request(text),
       });
@@ -759,6 +775,7 @@ const refusal = (entry: string, error: unknown): OperationPackRefusal => {
 async function checkExports(
   manifest: OperationPackManifest,
   source: string,
+  isolation: SandboxIsolation,
   limiter: OperationPackLimiter,
 ) {
   const outcome = await runInSandbox({
@@ -775,6 +792,7 @@ async function checkExports(
     ),
     outputBytes: OPERATION_PACK_LIMITS.outputBytes.max,
     signal: new AbortController().signal,
+    isolation,
     limiter,
     request: async () => ({ ok: false, code: "denied" }),
   });
@@ -904,10 +922,13 @@ export async function prepareOperationPacks(
       )
         throw new Refusal("bundle-digest-mismatch");
       if (seen.has(manifest.id)) throw new Refusal("duplicate-operation");
+      const isolation: SandboxIsolation = publisher.untrusted
+        ? "process"
+        : (options.isolation ?? "worker");
       const source = bundle.toString("utf8");
-      await checkExports(manifest, source, limiter);
+      await checkExports(manifest, source, isolation, limiter);
       seen.add(manifest.id);
-      packs.push({ entry: entry.name, manifest, source, publisher });
+      packs.push({ entry: entry.name, manifest, source, publisher, isolation });
     } catch (error) {
       refused.push(refusal(entry.name, error));
     }
@@ -962,6 +983,7 @@ export function registerOperationPacks(
           publisher: publisher.keyId,
           effect: operation.effect,
           destinations: operation.destinations,
+          isolation: pack.isolation,
         },
       }));
       // All or nothing: every operation must register in a scratch registry

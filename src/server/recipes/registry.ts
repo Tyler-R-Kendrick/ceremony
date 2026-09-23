@@ -99,6 +99,8 @@ export type PackProvenance = {
   effect: "read" | "write";
   /** Every origin the pack's handler may contact for this operation. */
   destinations: readonly string[];
+  /** Where the handler runs: a worker thread, or a child process under the permission model. */
+  isolation: "worker" | "process";
 };
 export type OperationProvenance = { kind: "host" } | PackProvenance;
 export type OperationDescription = OperationContract & {

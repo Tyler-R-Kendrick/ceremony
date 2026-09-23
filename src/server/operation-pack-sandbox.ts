@@ -1,17 +1,23 @@
+import {
+  spawn,
+  type ChildProcess,
+  type Serializable,
+} from "node:child_process";
 import { availableParallelism } from "node:os";
 import { Worker } from "node:worker_threads";
 
 /*
  * Runs one entry of an operation pack's handler bundle in isolation.
  *
- * Containment is the worker, not the `vm` context.
+ * Containment is the worker (or child process), not the `vm` context.
  * `node:vm` is not a security boundary: code in a context that can reach any
  * object from the realm that created it can climb to that realm's `Function`
  * and run with its authority. So the bundle runs in a fresh worker thread
  * (its own heap, with `resourceLimits`, an empty environment and no inherited
- * execArgv), inside a context created from a null-prototype object with
- * string and WebAssembly code generation off, and the host kills it at the
- * deadline whatever it is doing.
+ * execArgv) or, in `process` isolation, a fresh Node process under the
+ * permission model; inside either, in a context created from a
+ * null-prototype object with string and WebAssembly code generation off; and
+ * the host kills it at the deadline whatever it is doing.
  *
  * The one rule the bootstrap below keeps is that only primitives cross into
  * or out of the context. Inputs arrive as JSON text parsed inside the
@@ -21,9 +27,10 @@ import { Worker } from "node:worker_threads";
  * and never returns or throws anything. Nothing the bundle can reach
  * therefore belongs to the outer realm. As a second line, the bootstrap
  * drops the outer realm's `require`, `process` and `fetch` globals before the
- * bundle runs, so even an escape finds no module loader there. The worker
- * is still a thread of the host process, so that is defence in depth, not a
- * boundary, and a pack's publisher key is what the host trusts.
+ * bundle runs, so even an escape finds no module loader there. In worker
+ * isolation the worker is still a thread of the host process, so that is
+ * defence in depth, not a boundary; `process` isolation adds an OS process
+ * and the permission model (see `processIsolationArguments`).
  */
 
 /**
@@ -149,6 +156,51 @@ ${CORE}
 boot(workerData, (message) => parentPort.postMessage(message), (listener) => parentPort.on("message", listener));
 `;
 
+/**
+ * The child process entry. The first IPC message carries the run; later ones
+ * are the host's replies. `process.send` and `process.on` are bound before
+ * `process` is removed from the child's global scope.
+ */
+const CHILD_SOURCE = String.raw`"use strict";
+const vmModule = require("node:vm");
+const loadVm = () => vmModule;
+const post = process.send.bind(process);
+const on = process.on.bind(process);
+${STRIP}
+${CORE}
+let booted = false;
+const listeners = [];
+on("message", (message) => {
+  if (booted) {
+    for (const listener of listeners) listener(message);
+    return;
+  }
+  booted = true;
+  boot(message, post, (listener) => listeners.push(listener));
+});
+`;
+
+/**
+ * Node flags for `process` isolation. `--permission` turns on the permission
+ * model; with no `--allow-fs-read`, `--allow-fs-write`,
+ * `--allow-child-process`, `--allow-worker`, `--allow-addons` or
+ * `--allow-wasi`, the child can read and write no file, start no process or
+ * worker, and load no native addon. The bundle arrives over IPC from bytes
+ * the host already verified, so the child needs no filesystem read at all,
+ * not even of the bundle (reading it again would also reopen the file after
+ * its digest was checked). Node 22's permission model has no network
+ * permission: `--allow-net` does not exist in this version, so sockets are
+ * not restricted by it. What stands between a handler and the network is the
+ * `vm` context and the stripped globals, as in worker isolation.
+ */
+export function processIsolationArguments(memoryMb: number): string[] {
+  return [
+    "--permission",
+    "--disallow-code-generation-from-strings",
+    `--max-old-space-size=${memoryMb}`,
+  ];
+}
+
 export type SandboxFailure =
   | "timeout"
   | "memory"
@@ -163,6 +215,7 @@ export type SandboxOutcome =
 /** What the host answers a request with: JSON text, or a fixed refusal code. */
 export type SandboxReply =
   { ok: true; text: string } | { ok: false; code: string };
+export type SandboxIsolation = "worker" | "process";
 
 /**
  * Bounds how many sandboxes run at once across every pack a host loaded.
@@ -249,6 +302,7 @@ export interface SandboxRun {
   memoryMb: number;
   outputBytes: number;
   signal: AbortSignal;
+  isolation: SandboxIsolation;
   limiter: OperationPackLimiter;
   /** Serves one `ceremony.fetch` call; the argument is the handler's JSON. */
   request(text: string): Promise<SandboxReply>;
@@ -292,6 +346,36 @@ function startWorker(
   return {
     send: (message) => worker.postMessage(message),
     kill: () => void worker.terminate(),
+  };
+}
+
+function startProcess(
+  run: SandboxRun,
+  data: Record<string, unknown>,
+  onMessage: (message: unknown) => void,
+  onFailure: (reason: SandboxFailure) => void,
+): Channel {
+  // No shell, no inherited environment or flags; output is discarded and
+  // the only channel is JSON over IPC.
+  const child: ChildProcess = spawn(
+    process.execPath,
+    [...processIsolationArguments(run.memoryMb), "-e", CHILD_SOURCE],
+    {
+      stdio: ["ignore", "ignore", "ignore", "ipc"],
+      serialization: "json",
+      env: {},
+      windowsHide: true,
+    },
+  );
+  child.on("message", onMessage);
+  child.on("error", () => onFailure("crashed"));
+  child.on("exit", () => onFailure("crashed"));
+  child.send(data);
+  return {
+    send: (message) => {
+      if (child.connected) child.send(message as Serializable);
+    },
+    kill: () => void child.kill("SIGKILL"),
   };
 }
 
@@ -367,7 +451,12 @@ export async function runInSandbox(run: SandboxRun): Promise<SandboxOutcome> {
       };
       const failure = (reason: SandboxFailure) =>
         settle({ kind: "error", reason });
-      channel = startWorker(run, data, onMessage, failure);
+      channel = (run.isolation === "process" ? startProcess : startWorker)(
+        run,
+        data,
+        onMessage,
+        failure,
+      );
       if (settled) channel.kill();
     });
   } finally {

@@ -46,7 +46,10 @@ import {
   type OperationPackOptions,
   type PreparedOperationPacks,
 } from "../src/server/operation-packs.js";
-import { OperationPackLimiter } from "../src/server/operation-pack-sandbox.js";
+import {
+  OperationPackLimiter,
+  processIsolationArguments,
+} from "../src/server/operation-pack-sandbox.js";
 import { SQLiteCeremonyStore } from "../src/server/persistence/index.js";
 import { loopbackAuthFetch } from "../src/server/public-auth-fetch.js";
 import {
@@ -383,6 +386,7 @@ type Setup = {
 };
 type LoadOptions = Partial<OperationPackOptions> & {
   withoutSecrets?: true;
+  untrusted?: true;
 };
 /** Load one signed pack with the given operations into a fresh registry. */
 async function loaded(
@@ -390,7 +394,7 @@ async function loaded(
   operations: (base: string, stray: string) => PackOperation[],
   options: LoadOptions = {},
 ): Promise<Setup & { report: Awaited<ReturnType<typeof loadOperationPacks>> }> {
-  const { withoutSecrets, ...overrides } = options;
+  const { withoutSecrets, untrusted, ...overrides } = options;
   const server = await fixtureServer(t);
   const stray = await fixtureServer(t);
   const directory = packDirectory(t);
@@ -432,7 +436,13 @@ async function loaded(
   });
   const report = await loadOperationPacks(registry, {
     directory,
-    publishers: [{ keyId: signer.keyId, publicKey: signer.publicPem }],
+    publishers: [
+      {
+        keyId: signer.keyId,
+        publicKey: signer.publicPem,
+        ...(untrusted ? { untrusted } : {}),
+      },
+    ],
     fetch: loopbackAuthFetch,
     loopbackFixtures: true,
     store: database,
@@ -555,6 +565,7 @@ test("a signed pack loads, registers namespaced operations and runs in a recipe"
     publisher: "fixture-publisher",
     effect: "read",
     destinations: [setup.server.origin],
+    isolation: "worker",
   });
   assert.deepEqual(setup.registry.provenance("fixture.mint-client", "1.0.0"), {
     kind: "host",
@@ -728,6 +739,7 @@ test("admission, the pack namespace and the registry's vocabulary rules hold for
           publisher: "x",
           effect: "read",
           destinations: [],
+          isolation: "worker",
         },
       ),
     /namespace/,
@@ -746,6 +758,7 @@ test("admission, the pack namespace and the registry's vocabulary rules hold for
           publisher: "x",
           effect: "read",
           destinations: [],
+          isolation: "worker",
         },
       ),
     /namespace/,
@@ -1339,6 +1352,7 @@ test("the reference runtime loads packs at startup and marks them in the MCP and
     publisher: "fixture-publisher",
     effect: "read",
     destinations: [],
+    isolation: "worker",
   });
   assert.equal(pack.neutral, true);
   assert.deepEqual(
@@ -1659,4 +1673,109 @@ test("a global cap bounds concurrent sandboxes and refuses what waits too long",
     /Invalid operation pack concurrency/,
   );
   assert.ok(new OperationPackLimiter().maxConcurrent >= 1);
+});
+
+test("an untrusted publisher's operations run in a child process under the permission model", async (t) => {
+  const setup = await loaded(
+    t,
+    (base) => [
+      lookupOperation(base),
+      fixtureOperation("probe"),
+      fixtureOperation("spin", { limits: { timeoutMs: 1000 } }),
+      fixtureOperation("big", { limits: { outputBytes: 1024 } }),
+      fixtureOperation("hog", { limits: { memoryMb: 16, timeoutMs: 20_000 } }),
+      fixtureOperation("stray", { destinations: [base] }),
+    ],
+    { untrusted: true },
+  );
+  assert.deepEqual(setup.report.refused, []);
+  assert.equal(
+    (
+      setup.registry.provenance("pack:fixture-pack/lookup", "1.0.0") as {
+        isolation: string;
+      }
+    ).isolation,
+    "process",
+  );
+  // The same capability over IPC: declared origin, injected credential.
+  const lookup = await direct(setup, "lookup", undefined, {
+    account: "alice",
+  });
+  assert.deepEqual(lookup.outputs, {
+    plan: "pro",
+    note: "Bearer [redacted]",
+  });
+  assert.equal(setup.server.seen[0]!.authorization, `Bearer ${SECRET}`);
+  const probe = await direct(setup, "probe");
+  assert.equal(probe.state, "complete");
+  assert.ok(!String(probe.outputs.note).includes("ESCAPED"));
+  assert.ok(String(probe.outputs.note).startsWith("undefined,undefined,"));
+  const unavailable = {
+    state: "failed",
+    outputs: {},
+    diagnosticCode: "unavailable",
+  };
+  assert.deepEqual(await direct(setup, "spin"), unavailable);
+  assert.deepEqual(await direct(setup, "big"), unavailable);
+  assert.deepEqual(await direct(setup, "hog"), unavailable);
+  assert.deepEqual(await direct(setup, "stray"), {
+    state: "failed",
+    outputs: {},
+    diagnosticCode: "denied",
+  });
+  assert.deepEqual(setup.stray.seen, []);
+  // A host may put every publisher in a process.
+  const everyone = await loaded(t, () => [fixtureOperation("refuse")], {
+    isolation: "process",
+  });
+  assert.equal(
+    (
+      everyone.registry.provenance("pack:fixture-pack/refuse", "1.0.0") as {
+        isolation: string;
+      }
+    ).isolation,
+    "process",
+  );
+  assert.deepEqual(await direct(everyone, "refuse"), {
+    state: "failed",
+    outputs: {},
+    diagnosticCode: "conflict",
+  });
+});
+
+test("the isolation flags deny files, processes and workers, and do not restrict the network", async (t) => {
+  const server = await fixtureServer(t);
+  const { spawn } = await import("node:child_process");
+  const probe = `
+    const results = {};
+    const code = (reach) => { try { reach(); return "allowed"; } catch (error) { return error.code || error.name; } };
+    results.read = code(() => require("node:fs").readFileSync(process.execPath));
+    results.write = code(() => require("node:fs").writeFileSync("/tmp/operation-pack-probe", "x"));
+    results.spawn = code(() => require("node:child_process").spawnSync(process.execPath, ["-v"]));
+    results.worker = code(() => new (require("node:worker_threads").Worker)("1", { eval: true }));
+    results.eval = code(() => Function("return 1")());
+    const socket = require("node:net").connect(${JSON.stringify(new URL(server.origin).port)}, "127.0.0.1");
+    socket.on("connect", () => { results.net = "connected"; socket.destroy(); console.log(JSON.stringify(results)); });
+    socket.on("error", (error) => { results.net = error.code; console.log(JSON.stringify(results)); });
+  `;
+  const output = await new Promise<string>((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [...processIsolationArguments(32), "-e", probe],
+      { env: {}, stdio: ["ignore", "pipe", "ignore"] },
+    );
+    let text = "";
+    child.stdout.on("data", (chunk) => (text += chunk));
+    child.on("error", reject);
+    child.on("exit", () => resolve(text));
+  });
+  assert.deepEqual(JSON.parse(output), {
+    read: "ERR_ACCESS_DENIED",
+    write: "ERR_ACCESS_DENIED",
+    spawn: "ERR_ACCESS_DENIED",
+    worker: "ERR_ACCESS_DENIED",
+    eval: "EvalError",
+    // Node 22 has no network permission: documented, not relied on.
+    net: "connected",
+  });
 });

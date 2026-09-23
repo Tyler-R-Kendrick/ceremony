@@ -153,6 +153,11 @@ const packs = await prepareOperationPacks({
       notAfter: "2027-01-01T00:00:00Z",
       packs: ["fixture-pack"], // optional: the pack ids this key may sign
     },
+    {
+      keyId: "community-publisher",
+      publicKey: "-----BEGIN PUBLIC KEY-----\n…",
+      untrusted: true, // its packs always run in a child process
+    },
   ],
   revokedKeys: ["old-publisher"],
   isRevoked: revocationList("/etc/ceremony/revoked-publishers", {
@@ -162,6 +167,7 @@ const packs = await prepareOperationPacks({
     vault.read(pack, name, actor.tenantId),
   allowDestination: (pack, origin) => reviewed.has(`${pack} ${origin}`),
   concurrency: { maxConcurrent: 4, queueTimeoutMs: 5_000, maxQueued: 256 },
+  isolation: "worker", // or "process" for every publisher
 });
 createGitHubRuntime({
   // …
@@ -301,16 +307,46 @@ reaches any object from the realm that created it can climb to that realm's
 `Function` and run with its authority. The containment is:
 
 1. **Only primitives cross.** Input goes in as JSON text parsed inside the context. Requests and results come out as JSON text. The one worker function the context holds is captured in a closure the bundle cannot name. It type-checks its arguments before touching them and never returns or throws a worker object. No worker-realm object is reachable from the bundle. The tests try `constructor.constructor`, the `AsyncFunction` constructor, `eval`, `import()`, `WebAssembly.Module` and stack-frame inspection, and all of them are refused.
-2. **The worker has no loader.** Before the bundle runs, the bootstrap deletes the worker realm's `require` and `module` globals and replaces `process`, so even an escape into the worker realm finds no module loader there.
+2. **The worker has no loader.** Before the bundle runs, the bootstrap deletes the worker realm's `require`, `module` and `fetch` globals and replaces `process`, so even an escape into the worker realm finds no module loader there.
 3. **The capability surface is one function.** There are no timers, no `fetch`, no `console` and no filesystem. The only authority is `ceremony.fetch`, which the host serves under the rules above.
 
-The limits are real, and they are not a process boundary. A worker thread
-shares the host's process, so a V8 or Node vulnerability that breaks out of
-the context and the worker realm reaches the host. That is why only
-publishers the host trusts can load a pack at all, and why a host that runs
-packs from publishers it does not control should also run the server under
-OS-level isolation (a container, seccomp, a separate user). Timing side
-channels are not addressed.
+The limits are real, and in `worker` isolation they are not a process
+boundary. A worker thread shares the host's process, so a V8 or Node
+vulnerability that breaks out of the context and the worker realm reaches the
+host. Timing side channels are not addressed.
+
+### Process isolation
+
+In `process` isolation each invocation, and the export check at load, runs
+in a fresh Node child process instead of a worker. It uses the same
+bootstrap, context, timeout, kill, output cap and concurrency slot. The child
+is spawned from `process.execPath` with no shell, an empty environment, its
+standard input, output and error closed, and one JSON IPC channel as its only
+link to the host. The host sends the verified bundle over that channel and
+kills the child with `SIGKILL` at the deadline. The child's flags
+(`processIsolationArguments`) are:
+
+- `--permission`, with no `--allow-*` flag. The child cannot read or write any file, start a child process or worker thread, load a native addon or use WASI. File reads are not granted even for the bundle: the child gets the bytes the host already checked against the signed digest, so it never reopens a file that could have changed since.
+- `--disallow-code-generation-from-strings`, so `eval` and `Function` fail in the child's own realm as well as in the context.
+- `--max-old-space-size` set to the operation's memory limit. A child over it crashes and the step is `unavailable`.
+
+A publisher marked `untrusted: true` always runs in `process` isolation. A
+host can put every publisher there with `isolation: "process"`. The registry
+and catalogs report each operation's `isolation`.
+
+What Node 22's permission model does **not** restrict, as checked by
+`tests/operation-packs.test.ts` against the running Node:
+
+- **The network.** Node 22 has no network permission (`--allow-net` does not exist in this version), so sockets are not restricted by it. The test shows a permission-restricted child still connects to a loopback server. The handler's only network path is still `ceremony.fetch`: the context has no `require`, `process` or `fetch`, and the child realm has had those globals removed. An escape past both could open sockets directly.
+- **Already-open resources and the environment.** The child inherits no open descriptors besides the IPC channel and gets an empty environment. That comes from how the host spawns it, not from the permission model.
+- **CPU, time and memory.** These are limited by the host's deadline, `SIGKILL` and `--max-old-space-size`, not by permissions.
+- **Signals, or syscalls outside Node's own APIs.** The permission model checks Node's `fs`, `child_process`, `worker_threads`, addon and WASI entry points. It is not a seccomp filter, and Node documents it as not protecting against malicious code that finds another way in.
+
+A child process is an OS process boundary: the handler no longer shares the
+host's heap, and it holds no file or process authority. It still runs as the
+same OS user with the network reachable at the socket level. A host running
+packs from publishers it does not control should add OS-level isolation (a
+container, seccomp or a separate user) for full containment.
 
 ## Failures
 
@@ -343,10 +379,10 @@ A pack **cannot**:
 - run outside the run and connector context it was admitted into. `admits()`, per-connector reauthorization, cross-provider binding checks and replay rules are unchanged;
 - review or publish a recipe. That stays a person's action, and a recipe that uses a pack step is published like any other;
 - ask a person for input (no human handoff), or keep state between invocations;
-- reach the network except through `ceremony.fetch`, or reach the filesystem, environment, timers or other modules at all.
+- reach the network except through `ceremony.fetch`, or reach the filesystem, environment, timers or other modules at all. In `process` isolation, the file, process and worker restrictions are also enforced by Node's permission model.
 
 ## Where packs show up
 
-- `ceremony_operations` (MCP) and `GET /api/v1/teaching/recipes/operations` (HTTP) list every registered operation with its contract. A pack-provided operation has `source: { kind: "pack", pack, packVersion, publisher, effect, destinations }`; a built-in has `source: { kind: "host" }`.
+- `ceremony_operations` (MCP) and `GET /api/v1/teaching/recipes/operations` (HTTP) list every registered operation with its contract. A pack-provided operation has `source: { kind: "pack", pack, packVersion, publisher, effect, destinations, isolation }`; a built-in has `source: { kind: "host" }`.
 - `OperationRegistry.describe()` and `provenance(id, version)` give the same data to host code.
 - Arazzo operation-binding catalogs may bind a reference to a pack operation id.
