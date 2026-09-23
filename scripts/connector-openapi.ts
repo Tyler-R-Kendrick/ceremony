@@ -399,7 +399,11 @@ const operations: Operation[] = [
     description:
       "A reviewer's explicit decisions: destinations, operations, custody and settings. Letting an assistant read personal output, and pinning an OAuth issuer policy, are a person's decisions only.",
     capabilities: ["reviewer", "publisher"],
-    humanOnlyInputs: ["approvals.agentOutputConsent", "approvals.oauth"],
+    humanOnlyInputs: [
+      "approvals.agentOutputConsent",
+      "approvals.oauth",
+      "approvals.oauthProfiles",
+    ],
     request: "BindingApprovalRequest",
     success: { status: 201, schema: "BindingReference" },
   },
