@@ -655,6 +655,9 @@ export function withDeclaredAuth(
     ...(declared?.credentialVerification
       ? { credentialVerification: declared.credentialVerification }
       : {}),
+    // Declared with the connector, never discovered, so a refresh of the
+    // provider's metadata must not erase it.
+    ...(declared?.popupOrigins ? { popupOrigins: declared.popupOrigins } : {}),
   };
   return discoveredAuthSchema.parse({ ...found, ...kept });
 }
