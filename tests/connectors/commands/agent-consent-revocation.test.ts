@@ -223,7 +223,7 @@ test("an assistant can request revocation but only a person decides it", async (
 test("a person can decline a pending revocation request", async (t) => {
   const harness = await createHarness();
   t.after(() => harness.close());
-  const owner = human();
+  const owner = human({ capabilities: ["executor", "reviewer", "admin"] });
   const { connectionRef } = await activeConnection(harness, owner);
   const path = `/api/v1/connectors/connections/${encodeURIComponent(connectionRef)}`;
   const missing = await harness.fetch(`${path}/revoke-decline`, {
@@ -241,4 +241,52 @@ test("a person can decline a pending revocation request", async (t) => {
   );
   assert.equal(declined.lastOutcome, "revoke.declined");
   assert.equal(declined.lifecycle, "active");
+});
+
+test("declining a revocation request is an administrator's decision, under policy, on an open connection", async (t) => {
+  let refuse = false;
+  const harness = await createHarness({
+    policy: (base) => ({
+      ...base,
+      authorize: (actor, subject, action) =>
+        refuse && action === "revoke"
+          ? false
+          : base.authorize(actor, subject, action),
+    }),
+  });
+  t.after(() => harness.close());
+  const admin = human({ capabilities: ["executor", "reviewer", "admin"] });
+  const { connectionRef } = await activeConnection(harness, admin);
+  const path = `/api/v1/connectors/connections/${encodeURIComponent(connectionRef)}`;
+  await harness.fetch(`${path}/revoke-request`, { body: {}, session: SESSION });
+  const status = await json(await harness.fetch(path, { session: SESSION }));
+  const decline = (session: string, revision = status.revision) =>
+    harness.fetch(`${path}/revoke-decline`, {
+      body: { expectedRevision: revision },
+      session,
+    });
+
+  // The same person without administration can read the connection, and
+  // still cannot clear the request before an administrator sees it.
+  harness.register("member", human({ capabilities: ["executor"] }));
+  assert.equal((await decline("member")).status, 403);
+  // Nor can an administrator the host's policy refuses.
+  refuse = true;
+  assert.equal((await decline(SESSION)).status, 403);
+  refuse = false;
+  const pending = await json(await harness.fetch(path, { session: SESSION }));
+  assert.equal(pending.lastOutcome, "revoke.requested");
+
+  // A closed connection has nothing left to decline.
+  const disconnected = await json(
+    await harness.fetch(`${path}/disconnect`, {
+      body: { expectedRevision: pending.revision, scope: "local" },
+      session: SESSION,
+    }),
+  );
+  const closed = await decline(
+    SESSION,
+    (disconnected.connection as { revision: number }).revision,
+  );
+  assert.equal(closed.status, 409);
 });

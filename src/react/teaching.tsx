@@ -197,7 +197,97 @@ export type CeremonyReport = {
   authorizationEndpoint?: string;
   deviceAuthorizationEndpoint?: string;
   registrationEndpoint?: string;
+  /** A proposed credential check waiting for this person's approval. */
+  pendingCredentialVerification?: PendingCredentialVerification;
 };
+
+/** How an authored key, Basic or form connector proves a collected credential. */
+export type PendingCredentialVerification = {
+  digest: string;
+  declaration: {
+    url: string;
+    method?: string;
+    expectStatus?: number[];
+    placement: {
+      in: string;
+      name?: string;
+      prefix?: string;
+      usernameField?: string;
+      passwordField?: string;
+    };
+  };
+};
+
+function describePlacement(
+  placement: PendingCredentialVerification["declaration"]["placement"],
+) {
+  switch (placement.in) {
+    case "header":
+      return `Header ${placement.name ?? ""}${placement.prefix ? `, after "${placement.prefix}"` : ""}`;
+    case "query":
+      return `Query parameter ${placement.name ?? ""}`;
+    case "basic":
+      return "HTTP Basic authentication";
+    case "form":
+      return `Form fields ${placement.usernameField ?? "username"} and ${placement.passwordField ?? "password"}`;
+    default:
+      return placement.in;
+  }
+}
+
+/**
+ * The person's half of a proposed credential check. An author or their
+ * assistant proposes where a collected key is sent to prove it works; nothing
+ * uses that until the person who owns the connector reads it here and
+ * approves this exact declaration, by its digest.
+ */
+export function CredentialVerificationReview({
+  pending,
+  onApprove,
+  disabled = false,
+}: {
+  pending: PendingCredentialVerification;
+  onApprove: (digest: string) => void;
+  disabled?: boolean;
+}) {
+  const { declaration } = pending;
+  return (
+    <section className="ceremony-board" aria-label="Proposed credential check">
+      <h3>Proposed credential check</h3>
+      <p>
+        When you enter a key or password for this connector, it will be sent in
+        one request to the address below to prove it works. Approve only if this
+        is the provider you meant.
+      </p>
+      <dl>
+        <dt>Request</dt>
+        <dd>
+          {declaration.method ?? "GET"} <code>{declaration.url}</code>
+        </dd>
+        <dt>Credential placed in</dt>
+        <dd>{describePlacement(declaration.placement)}</dd>
+        {declaration.expectStatus?.length ? (
+          <>
+            <dt>Accepted status</dt>
+            <dd>{declaration.expectStatus.join(", ")}</dd>
+          </>
+        ) : null}
+        <dt>Digest</dt>
+        <dd>
+          <code>{pending.digest}</code>
+        </dd>
+      </dl>
+      <button
+        type="button"
+        className="primary"
+        disabled={disabled}
+        onClick={() => onApprove(pending.digest)}
+      >
+        Approve this credential check
+      </button>
+    </section>
+  );
+}
 
 export function CeremonyBoard({
   report,
@@ -1776,6 +1866,29 @@ export function TeachingConnection({
         )}
         {notice && <p role="status">{notice}</p>}
         <ConnectionEvidence report={report} serviceName={serviceName} />
+        {report?.pendingCredentialVerification ? (
+          <CredentialVerificationReview
+            pending={report.pendingCredentialVerification}
+            disabled={disabled}
+            onApprove={(digest) =>
+              void act(async () => {
+                await request(
+                  `/authoring/installed/${encodeURIComponent(connectorId)}/credential-verification/approve`,
+                  { digest },
+                );
+                if (!mounted.current) return;
+                setReport((current) => {
+                  if (!current) return current;
+                  const { pendingCredentialVerification: _approved, ...rest } =
+                    current;
+                  void _approved;
+                  return rest;
+                });
+                setNotice("Credential check approved.");
+              })
+            }
+          />
+        ) : null}
         <AccountTarget
           connectorId={connectorId}
           accountRequired={accountRequired}

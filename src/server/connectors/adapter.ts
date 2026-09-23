@@ -256,6 +256,15 @@ export interface ConnectorAdapter {
   /** Logical service key for directory grouping; grouping never merges grants. */
   readonly service: string;
   readonly support: SupportLevel;
+  /**
+   * `"definition"` when the adapter runs whatever description a person
+   * imported (the generic OpenAPI and provider-catalog adapters): its own
+   * suites prove the code path, not any provider behind an imported
+   * definition, so support evidence speaks for one definition at a time.
+   * Absent means `"adapter"`: one provider, and adapter-wide evidence speaks
+   * for every connection through it. See `SupportLabelScope`.
+   */
+  readonly evidenceScope?: "adapter" | "definition";
   readonly custody: readonly CredentialCustody[];
   readonly configuration: readonly ConfigurationRequirement[];
   /** Protocol profiles this adapter implements, e.g. ["openapi-3.1", "openapi-3.0"]. */
@@ -350,6 +359,13 @@ export type BindingReviewResult = {
   operations: BoundOperation[];
   /** Adapter-owned inert settings; merged under the reviewer's and pinned by the reviewed digest. */
   settings: Record<string, unknown>;
+  /**
+   * The OAuth issuer and every origin the adapter-owned settings let the
+   * grants contact. The command layer admits them exactly as it admits a
+   * reviewed issuer policy: a person only, and only what host policy's
+   * `allowIssuer` admits. Absent when the settings reach no issuer.
+   */
+  issuer?: { issuer: string; origins: string[] };
 };
 
 /** Trusted host construction only; a client argument never selects or adds an adapter. */

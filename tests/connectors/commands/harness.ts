@@ -30,6 +30,7 @@ import { memoryPorts } from "../doubles/ports.js";
 import {
   createFixtureAdapter,
   startFixtureProvider,
+  type FixtureAdapterOptions,
   type FixtureProvider,
   type FixtureProviderOptions,
 } from "../doubles/fixture-adapter.js";
@@ -321,6 +322,8 @@ export type Harness = Awaited<ReturnType<typeof createHarness>>;
 export async function createHarness(
   options: {
     provider?: FixtureProviderOptions;
+    /** Options for the registered fixture adapter itself. */
+    adapter?: FixtureAdapterOptions;
     policy?: (base: ConnectorPolicy) => ConnectorPolicy;
     now?: () => number;
     service?: Partial<ConnectorCommandServiceOptions>;
@@ -337,7 +340,7 @@ export async function createHarness(
   const definitions = memoryDefinitionStore();
   const artifacts = memoryArtifactStore();
   const registry = new ConnectorAdapterRegistry();
-  registry.register(createFixtureAdapter());
+  registry.register(createFixtureAdapter(options.adapter ?? {}));
   const configurationValues = new Map<string, Map<string, string>>();
   let configurationRevision = 1;
   const base = defaultConnectorPolicy({

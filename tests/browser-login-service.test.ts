@@ -17,6 +17,7 @@ import {
   createVerifierRegistry,
 } from "../src/server/browser-verification.js";
 import { compileLoginPlan, PlanRejected } from "../src/server/login-plan.js";
+import { recordedCeremonySchema } from "../src/core/recorded-ceremony.js";
 import {
   recordKinds,
   SQLiteCeremonyStore,
@@ -1190,6 +1191,105 @@ describe("SEED-CUSTODY: an authenticator enrolled through browser_login", () => 
     assert.throws(
       () => compile({ issued: { ...keepSeed, sink: "oauth-client" } }),
       (error: unknown) => !(error instanceof PlanRejected),
+    );
+  });
+});
+
+describe("a replay over a restored session", () => {
+  /** A signed-in view where the recording expected its first form. */
+  const signedIn: PageSnapshot = {
+    ...emptyPage,
+    path: `${origin}/account`,
+    title: "Your account",
+  };
+  const recording = recordedCeremonySchema.parse({
+    schemaVersion: 1,
+    id: "stub-sign-in",
+    title: "Stub sign-in",
+    goal: "sign-in",
+    entry: { origin, path: "/signin" },
+    origins: [origin],
+    roles: ["password"],
+    steps: [
+      {
+        id: "step-1",
+        page: { origin, path: "/signin" },
+        action: {
+          kind: "fill",
+          role: "password",
+          target: {
+            kind: "input",
+            type: "password",
+            name: "password",
+            label: "Password",
+            ordinal: 0,
+            of: 1,
+          },
+        },
+        optional: false,
+      },
+    ],
+    branches: [],
+    success: [],
+    recordedWith: "deterministic",
+  });
+  /** The stub, plus a saved state that restores and can be saved again. */
+  function restoring(answer: { status: number; body: string }) {
+    const backend = stubBackend(answer, {
+      url: async () => signedIn.path,
+      snapshot: async () => signedIn,
+    });
+    const launch = (async (...args: unknown[]) => {
+      const browser = await (backend.launch as (...a: unknown[]) => any)(
+        ...args,
+      );
+      const openContext = browser.openContext.bind(browser);
+      browser.openContext = async (...rest: unknown[]) => ({
+        ...(await openContext(...rest)),
+        saveState: async () => ({ cookies: [], origins: [] }),
+      });
+      return browser;
+    }) as never;
+    const recalled: string[] = [];
+    const states = {
+      recall: async (_actor: ActorContext, slot: string) => {
+        recalled.push(slot);
+        return { cookies: [], origins: [] };
+      },
+      remember: async () => {},
+    } as never;
+    const service = createBrowserLoginService({
+      sessions: createBrowserSessionRegistry({ store }),
+      verifiers: createVerifierRegistry([createFixtureVerifier({ origin })]),
+      credentials: { resolve: async () => "correct-horse" },
+      launch,
+      states,
+    });
+    return { service, recalled };
+  }
+
+  test("is verified when the restored session is already signed in", async () => {
+    const { service, recalled } = restoring({
+      status: 200,
+      body: '{"account":"ada"}',
+    });
+    const result = await service.login(actor, {
+      plan: planFor(),
+      replay: { recording },
+    });
+    assert.equal(recalled.length, 1, "a state was restored");
+    assert.equal(result.status, "verified", JSON.stringify(result));
+  });
+
+  test("still reports the drift when the provider does not confirm a session", async () => {
+    const { service } = restoring({ status: 401, body: "{}" });
+    const result = await service.login(actor, {
+      plan: planFor(),
+      replay: { recording },
+    });
+    assert.deepEqual(
+      [result.status, result.status === "blocked" && result.reason],
+      ["blocked", "recording-drift"],
     );
   });
 });

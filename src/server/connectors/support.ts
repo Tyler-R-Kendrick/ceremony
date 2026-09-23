@@ -8,6 +8,7 @@ import {
   type SupportLabel,
   type SupportLabelResult,
 } from "../../core/connectors/index.js";
+import type { ConnectorAdapter } from "./adapter.js";
 import type { ApprovedDestination } from "./binding.js";
 import { ConnectorError } from "./errors.js";
 import type { Clock } from "./ports.js";
@@ -36,7 +37,16 @@ import { recordedSupportEvidence } from "./recorded-evidence.js";
  * this is rechecked at approval, at connect and at every invocation, because
  * evidence expires between them. A binding with no destinations at all is
  * treated as production: the gate fails closed, never open.
+ *
+ * For whom. A generic adapter (`evidenceScope: "definition"`) is labelled
+ * per definition wherever a label admits or promotes something: the gate
+ * and a registration pass the binding's definition, so an imported
+ * description nobody exercised is `unverified` there, whatever the generic
+ * code path's own suites earned. The catalog row describes the code path.
  */
+
+/** What the labeler needs to know about an adapter. */
+export type SupportSubject = Pick<ConnectorAdapter, "id" | "evidenceScope">;
 
 export interface SupportLabelOptions {
   /** Entries beyond the recorded ones: a host's own live runs or attended certifications. */
@@ -52,16 +62,29 @@ export interface SupportLabelOptions {
 
 export interface SupportLabeler {
   readonly minimumForProduction?: SupportLabel;
-  /** The label and its basis for one adapter, as of now. */
-  describe(adapterId: string, configured: boolean): SupportLabelResult;
-  label(adapterId: string, configured: boolean): SupportLabel;
+  /**
+   * The label and its basis for one adapter as of now: adapter-wide, or for
+   * one definition when `definitions` names it (`definitionRef`,
+   * `sha256:<normalizedDigest>`).
+   */
+  describe(
+    adapter: SupportSubject,
+    configured: boolean,
+    definitions?: readonly string[],
+  ): SupportLabelResult;
+  label(
+    adapter: SupportSubject,
+    configured: boolean,
+    definitions?: readonly string[],
+  ): SupportLabel;
   /** Whether a binding with these destinations is subject to the production minimum. */
   isProduction(destinations: readonly ApprovedDestination[]): boolean;
-  /** Throws `denied` when the opt-in minimum applies and the adapter's label is below it. */
+  /** Throws `denied` when the opt-in minimum applies and the definition's label is below it. */
   require(
-    adapterId: string,
+    adapter: SupportSubject,
     destinations: readonly ApprovedDestination[],
     configured: boolean,
+    definitions: readonly string[],
   ): void;
 }
 
@@ -86,10 +109,16 @@ export function createSupportLabeler(
     asOf: options.now(),
   });
   const entries = [...recorded, ...host];
-  const describe = (adapterId: string, configured: boolean) =>
-    computeSupportLabel(adapterId, entries, {
+  const describe = (
+    adapter: SupportSubject,
+    configured: boolean,
+    definitions?: readonly string[],
+  ) =>
+    computeSupportLabel(adapter.id, entries, {
       asOf: options.now(),
       configured,
+      definitionScoped: adapter.evidenceScope === "definition",
+      ...(definitions ? { definitions } : {}),
     });
   const isProduction = (destinations: readonly ApprovedDestination[]) =>
     destinations.length === 0 ||
@@ -99,11 +128,19 @@ export function createSupportLabeler(
   return {
     ...(minimum ? { minimumForProduction: minimum } : {}),
     describe,
-    label: (adapterId, configured) => describe(adapterId, configured).label,
+    label: (adapter, configured, definitions) =>
+      describe(adapter, configured, definitions).label,
     isProduction,
-    require(adapterId, destinations, configured) {
+    require(adapter, destinations, configured, definitions) {
       if (!minimum || !isProduction(destinations)) return;
-      if (!supportLabelAtLeast(describe(adapterId, configured).label, minimum))
+      let label: SupportLabel;
+      try {
+        label = describe(adapter, configured, definitions).label;
+      } catch {
+        // A clock that is not a finite instant proves nothing: refuse.
+        throw new ConnectorError("denied", { detail: "support.clock" });
+      }
+      if (!supportLabelAtLeast(label, minimum))
         throw new ConnectorError("denied", {
           detail: "support.below-minimum",
         });

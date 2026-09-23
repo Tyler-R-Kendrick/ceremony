@@ -18,6 +18,7 @@ import { createHttpCeremonyPage } from "../doubles/http-page.js";
 import { createScriptedInterpreter } from "../doubles/scripted-interpreter.js";
 import {
   assertFillsMatchLabels,
+  fillMismatch,
   fillMismatches,
   recordDecisions,
   type Decision,
@@ -418,5 +419,35 @@ test("the fill check catches a value in the wrong field", () => {
         ],
       ),
     /no label/,
+  );
+});
+
+test("the fill check refuses a sign-in code in a code field nobody signs in with", () => {
+  for (const field of [
+    { label: "ZIP code" },
+    { label: "Promo code" },
+    { label: "Referral code (optional)" },
+    { label: "Code", autocomplete: "postal-code" },
+  ])
+    for (const role of ["verification-code", "totp-code"] as const)
+      assert.match(
+        fillMismatch(role, {
+          index: 0,
+          kind: "input",
+          type: "text",
+          ...field,
+        }) ?? "",
+        /not a code field/,
+        `${role} into ${field.label}`,
+      );
+  assert.equal(
+    fillMismatch("totp-code", {
+      index: 0,
+      kind: "input",
+      type: "text",
+      label: "Authentication code",
+      autocomplete: "one-time-code",
+    }),
+    undefined,
   );
 });

@@ -241,8 +241,8 @@ export interface CeremonyRunOptions {
    * password, so a later snapshot or note reproducing it fails the attempt.
    * The values are never in the result, the transcript or anything the
    * interpreter is given; the transcript records a `kept` step naming the
-   * kinds. While any declared
-   * value is still unread, a claim of completion is not accepted.
+   * kinds. While any declared value is still unread, neither a claim of
+   * completion nor an arrival at the callback completes the attempt.
    *
    * A kept `totp-seed` also answers the page that showed it. Enrolment asks
    * for a code from the authenticator just set up before it turns the factor
@@ -611,20 +611,11 @@ export async function runCeremony(
       // A secret too short to recognise could not be guarded afterwards, so
       // it is not one this driver will carry.
       if (!value || value.length > 4096 || (secret && value.length < 8)) return;
-      // A value this attempt already holds is not one the provider issued.
-      // A field the driver filled with a password and the page then made
-      // read-only would otherwise read back as a "client secret" and send the
-      // password to the plan's sink. Checked before this read's own value is
-      // guarded, so a secret is compared only with what came before it.
-      if (
-        guarded.some(
-          (held) =>
-            held.length >= 4 &&
-            (value.includes(held) ||
-              (value.length >= 4 && held.includes(value))),
-        )
-      )
-        return;
+      // A field showing something the driver typed is not an issued value,
+      // whatever it is labelled: keeping it would hand the password to the
+      // plan's next step, which may send it to another origin. This holds for
+      // an ID as much as a secret, since an ID is carried unguarded.
+      if (guarded.includes(value) || contains(value, guarded)) return;
       // A setup key that is not a usable seed would be kept, typed as codes
       // that never match, and counted against the account's lockout; it is
       // not taken at all instead.
@@ -1027,6 +1018,9 @@ export async function runCeremony(
           steps,
         });
       if (code) {
+        // A code is not what an `issued` plan came for: with a declared value
+        // still unread, arriving here is no more a completion than a claim is.
+        if (!kept) return finish({ status: "unverified", steps });
         const state = parsed.searchParams.get("state");
         const callback: CeremonyCallback = { code };
         if (state !== null) callback.state = state;

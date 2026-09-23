@@ -37,6 +37,11 @@ import type {
 } from "../../src/server/browser-driver.js";
 import type { CeremonyInterpreter } from "../../src/server/browser-interpreter.js";
 import {
+  redactionTracker,
+  removeUnlessFinished,
+  type Redaction,
+} from "./redaction.js";
+import {
   createPlaywrightCeremonyPage,
   type PlaywrightPageLike,
 } from "../../src/server/browser-page.js";
@@ -129,10 +134,15 @@ export type DemoSession = {
    * value a provider page itself displays (an issued client secret, a setup
    * key) or one the driver types in plain sight (an authenticator code): the
    * page is left alone and the box is drawn into the composited video,
-   * starting a little before the element was first seen so no captured frame
-   * shows it.
+   * starting no later than the last poll that did not see it there.
+   * `revealedBy` is the text of the button that puts the value on the page:
+   * the boxes then start no later than that click, and a take in which the
+   * value was revealed but never located is refused.
    */
-  redact(selectors: string | readonly string[] | undefined): void;
+  redact(
+    selectors: string | readonly string[] | undefined,
+    revealedBy?: string,
+  ): void;
   /**
    * Render a stage prop off camera: a side card drawn from the demo's own
    * state rather than from the caption vocabulary, such as the screen of the
@@ -468,20 +478,39 @@ export async function recordDemo(
     raw = recorder.getTempVideoPath();
 
     let posterFrame: number | undefined;
-    type Box = { x: number; y: number; w: number; h: number };
-    const redactions: (Box & { start: number; end: number })[] = [];
-    let redacting: { timer: NodeJS.Timeout } | undefined;
-    /** Boxes on screen now, by selector and match. */
-    const openBoxes = new Map<string, Box & { start: number }>();
-    const closeBox = (key: string) => {
-      const box = openBoxes.get(key);
-      if (box) redactions.push({ ...box, end: timeline.getFrameCount() });
-      openBoxes.delete(key);
+    const redactions: Redaction[] = [];
+    /** A redacted value revealed by an action but never found on screen. */
+    let unlocatedRedaction = false;
+    let redacting:
+      | {
+          selectors: readonly string[];
+          revealedBy?: string;
+          /** One tracker per selector and match, by `selector:match`. */
+          trackers: Map<string, ReturnType<typeof redactionTracker>>;
+          /** When the last completed poll was asked. */
+          asked: number;
+          /** Whether a reveal was applied and nothing was found after it. */
+          awaiting: boolean;
+          timer: NodeJS.Timeout;
+          busy: boolean;
+        }
+      | undefined;
+    const stopRedacting = () => {
+      if (!redacting) return;
+      clearInterval(redacting.timer);
+      for (const tracker of redacting.trackers.values()) {
+        tracker.stop();
+        redactions.push(...tracker.boxes);
+      }
+      if (redacting.awaiting) unlocatedRedaction = true;
+      redacting = undefined;
     };
-    const closeBoxes = () => {
-      for (const key of [...openBoxes.keys()]) closeBox(key);
-    };
-    const pollRedaction = async (selectors: readonly string[]) => {
+    const pollRedaction = async () => {
+      const watching = redacting;
+      // One poll at a time, so each result is read against the one before.
+      if (!watching || watching.busy) return;
+      watching.busy = true;
+      const asked = timeline.getFrameCount();
       const found = await page
         .evaluate((queries: readonly string[]) => {
           const boxes: Record<
@@ -501,33 +530,23 @@ export async function recordDemo(
             }),
           );
           return boxes;
-        }, selectors)
-        // A page in the middle of navigating answers nothing; its boxes stay
-        // up until a read says otherwise.
-        .catch(() => undefined);
-      if (!found) return;
-      for (const key of [...openBoxes.keys()]) if (!found[key]) closeBox(key);
-      for (const [key, rect] of Object.entries(found)) {
-        const open = openBoxes.get(key);
-        if (
-          open &&
-          Math.abs(rect.x - open.x) < 1 &&
-          Math.abs(rect.y - open.y) < 1 &&
-          Math.abs(rect.w - open.w) < 1 &&
-          Math.abs(rect.h - open.h) < 1
-        )
-          continue;
-        closeBox(key);
-        // Back-dated: a frame may have been captured between the page
-        // painting the value and this read. A box over the page before the
-        // value arrived hides nothing that matters; a missed frame would.
-        // A box that moved (a scroll) was being watched already, so its new
-        // place needs less of a margin than a field seen for the first time.
-        openBoxes.set(key, {
-          ...rect,
-          start: Math.max(0, timeline.getFrameCount() - (open ? 8 : 12)),
-        });
+        }, watching.selectors)
+        .catch(() => ({}) as Record<string, never>);
+      watching.busy = false;
+      if (redacting !== watching) return;
+      for (const [key, tracker] of watching.trackers)
+        tracker.seen(found[key] ?? null, asked);
+      for (const [key, box] of Object.entries(found)) {
+        if (watching.trackers.has(key)) continue;
+        // A match seen for the first time was not there at the last poll,
+        // so its box starts no later than that poll, as a tracked one's does.
+        const tracker = redactionTracker(() => timeline.getFrameCount());
+        tracker.seen(null, watching.asked);
+        tracker.seen(box, asked);
+        watching.trackers.set(key, tracker);
       }
+      if (Object.keys(found).length > 0) watching.awaiting = false;
+      watching.asked = asked;
     };
     let current: Extract<CaptionEvent, { kind: "step" }> | undefined;
     let line: CaptionEvent | undefined;
@@ -546,6 +565,20 @@ export async function recordDemo(
       kind: "fill" | "click" | "check",
       handle: ElementHandle,
     ) => {
+      // The click that puts a redacted value on the page anchors its box, so
+      // the box covers it from here even if every poll after it stalls.
+      const revealedBy = redacting?.revealedBy;
+      if (kind === "click" && revealedBy !== undefined) {
+        const text = await handle
+          .evaluate((element: Element) => element.textContent ?? "")
+          .catch(() => "");
+        if (text.replace(/\s+/g, " ").trim() === revealedBy && redacting) {
+          for (const tracker of redacting.trackers.values())
+            tracker.revealing();
+          redacting.asked = timeline.getFrameCount();
+          redacting.awaiting = true;
+        }
+      }
       // Scroll only when the control is near an edge or under the caption
       // row, and then to the middle, the way a person scrolls a tall form
       // while filling it in; a control already in view leaves the page still.
@@ -626,26 +659,22 @@ export async function recordDemo(
         openPanel = { key, png: image.png, start: timeline.getFrameCount() };
       },
       hold: (ms) => pause(ms),
-      redact(selectors) {
-        if (redacting) {
-          clearInterval(redacting.timer);
-          redacting = undefined;
-          closeBoxes();
-        }
+      redact(selectors, revealedBy) {
+        stopRedacting();
         if (!selectors) return;
         const list = typeof selectors === "string" ? [selectors] : selectors;
         if (list.length === 0) return;
-        let busy = false;
-        const timer = setInterval(() => {
-          // One read at a time: a slow page must not stack them up.
-          if (busy) return;
-          busy = true;
-          void pollRedaction(list).finally(() => {
-            busy = false;
-          });
-        }, 40);
+        const timer = setInterval(() => void pollRedaction(), 40);
         timer.unref();
-        redacting = { timer };
+        redacting = {
+          selectors: list,
+          ...(revealedBy !== undefined ? { revealedBy } : {}),
+          trackers: new Map(),
+          asked: timeline.getFrameCount(),
+          awaiting: false,
+          timer,
+          busy: false,
+        };
       },
       async prop(key, html, text) {
         propBrowser ??= await chromium.launch();
@@ -832,14 +861,20 @@ export async function recordDemo(
           `${entry.id}: a protected value reached the transcript`,
         );
     }
+    if (unlocatedRedaction)
+      throw new RetryableTake(
+        `${entry.id}: a value to redact was revealed and never located`,
+      );
     if (fillChecks === 0)
       throw new Error(`${entry.id}: no driver run was checked for its fills`);
     if (!outcome.ok)
       throw new Error(`${entry.id}: the run did not show what it set out to`);
 
-    await compose(raw, timeline.toJSON(), video);
     const ffmpeg = await ensureFfmpeg();
-    overlayPanels(ffmpeg, video, panelSpans, redactions);
+    await removeUnlessFinished(video, async () => {
+      await compose(raw!, timeline.toJSON(), video);
+      overlayPanels(ffmpeg, video, panelSpans, redactions);
+    });
     // Where every box went, by frame, beside the video: what a frame-by-frame
     // check of the redaction starts from. Positions and frame numbers only.
     writeFileSync(

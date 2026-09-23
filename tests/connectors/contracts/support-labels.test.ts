@@ -200,14 +200,134 @@ test("the rule table is total, ordered and the only source of the ladder", () =>
   assert.ok(!supportLabelAtLeast("unverified", "fixture"));
 });
 
-test("a legacy evidence level maps to the weakest target it could mean", () => {
+test("a legacy evidence level earns at most an in-process fixture", () => {
+  // Regression: legacy local and live levels used to map to local-double and
+  // recorded-live, so an undated, unattributed claim could raise a label
+  // above `fixture`, which only an explicit dated entry may do.
   assert.equal(legacyCheckTarget("not-tested"), undefined);
-  assert.equal(legacyCheckTarget("unit"), "in-process-fixture");
-  assert.equal(legacyCheckTarget("protocol-fixture"), "in-process-fixture");
-  assert.equal(legacyCheckTarget("local-integration"), "local-double");
-  assert.equal(legacyCheckTarget("browser-integration"), "local-double");
-  assert.equal(legacyCheckTarget("live-authorized"), "recorded-live");
-  assert.equal(legacyCheckTarget("deployed-authorized"), "recorded-live");
+  for (const level of [
+    "unit",
+    "protocol-fixture",
+    "local-integration",
+    "browser-integration",
+    "live-authorized",
+    "deployed-authorized",
+  ] as const)
+    assert.equal(legacyCheckTarget(level), "in-process-fixture", level);
+});
+
+test("a clock that is not a finite instant fails closed instead of admitting everything", () => {
+  // Regression: with asOf = NaN every date comparison was false, so a future
+  // attended entry read `certified`.
+  const future = [at("attended-live", "2099-01-01")];
+  for (const asOf of [Number.NaN, Number.POSITIVE_INFINITY, -Infinity]) {
+    assert.throws(
+      () => computeSupportLabel(ADAPTER, future, { asOf, configured: true }),
+      RangeError,
+    );
+    assert.throws(() => supportEvidenceProblems(future, { asOf }), RangeError);
+    assert.throws(() => parseSupportEvidence(future, { asOf }), RangeError);
+  }
+});
+
+const DEFINITION = "definition:0123456789abcdef0123456789abcdef01234567";
+const OTHER = "definition:fedcba9876543210fedcba9876543210fedcba98";
+
+const scoped: Array<{
+  name: string;
+  entries: SupportEvidence[];
+  definitions?: string[];
+  definitionScoped: boolean;
+  label: SupportLabel;
+}> = [
+  {
+    name: "a generic adapter's code path reads its adapter-wide local evidence",
+    entries: [at("local-double", "2026-09-20")],
+    definitionScoped: true,
+    label: "local",
+  },
+  {
+    name: "a generic adapter's code path is never live: no provider was named",
+    entries: [
+      at("local-double", "2026-09-20"),
+      at("recorded-live", "2026-09-20"),
+    ],
+    definitionScoped: true,
+    label: "local",
+  },
+  {
+    name: "definition evidence does not describe a generic code path",
+    entries: [at("recorded-live", "2026-09-20", { definition: DEFINITION })],
+    definitionScoped: true,
+    label: "unverified",
+  },
+  {
+    name: "an unexercised definition of a generic adapter is unverified",
+    entries: [
+      at("local-double", "2026-09-20"),
+      at("recorded-live", "2026-09-20", { definition: OTHER }),
+    ],
+    definitions: [DEFINITION],
+    definitionScoped: true,
+    label: "unverified",
+  },
+  {
+    name: "a generic adapter's definition earns what its own entries earn",
+    entries: [
+      at("local-double", "2026-09-20"),
+      at("recorded-live", "2026-09-20", { definition: DEFINITION }),
+    ],
+    definitions: [DEFINITION],
+    definitionScoped: true,
+    label: "live",
+  },
+  {
+    name: "a vendor adapter's definition keeps its adapter-wide evidence",
+    entries: [
+      at("local-double", "2026-09-20"),
+      at("recorded-live", "2026-09-20", { definition: OTHER }),
+    ],
+    definitions: [DEFINITION],
+    definitionScoped: false,
+    label: "local",
+  },
+  {
+    name: "a vendor adapter's matching definition entry counts too",
+    entries: [at("recorded-live", "2026-09-20", { definition: DEFINITION })],
+    definitions: [DEFINITION],
+    definitionScoped: false,
+    label: "live",
+  },
+];
+
+for (const row of scoped)
+  test(`support label scope: ${row.name}`, () => {
+    const result = computeSupportLabel(ADAPTER, row.entries, {
+      asOf: ASOF,
+      configured: true,
+      definitionScoped: row.definitionScoped,
+      ...(row.definitions ? { definitions: row.definitions } : {}),
+    });
+    assert.equal(result.label, row.label);
+  });
+
+test("an entry names its definition by reference or digest, never by URL", () => {
+  assert.deepEqual(
+    supportEvidenceProblems(
+      [
+        { ...good, definition: DEFINITION },
+        { ...good, definition: `sha256:${"a".repeat(64)}` },
+      ],
+      { asOf: ASOF },
+    ),
+    [],
+  );
+  for (const definition of ["https://items.example/openapi.json", "", "a b"])
+    assert.equal(
+      supportEvidenceProblems([{ ...good, definition }], { asOf: ASOF }).length,
+      1,
+      definition,
+    );
 });
 
 const good = {
