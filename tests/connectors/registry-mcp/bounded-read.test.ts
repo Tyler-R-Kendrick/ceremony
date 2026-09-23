@@ -37,8 +37,32 @@ import { buildBinding } from "../fixtures/builders.js";
 
 const CHUNK = 64 * 1024;
 
-/** Lets the server notice a cancelled reader before its counter is read. */
-const settled = () => new Promise<void>((resolve) => setTimeout(resolve, 50));
+/*
+ * The counters below are only final once the server has seen its reply end.
+ * The reader's cancel returns as soon as the client tears its socket down, but
+ * the server learns of it later, on its own turn of the event loop, when the
+ * close reaches its side of the connection. A fixed pause before reading the
+ * counters only usually covers that gap, and not under load, so each check
+ * waits for the reply's own `close` instead. A reader that never let go leaves
+ * the server blocked on backpressure and the reply open, which the deadline
+ * reports as a failure rather than a hang.
+ */
+async function replyEnded(server: { closed: Promise<void> }) {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      server.closed,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("the reply was never closed")),
+          10_000,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /**
  * A server that answers every request by writing filler until the reader stops
@@ -56,6 +80,10 @@ async function flooding(options: {
 }) {
   let flushed = 0;
   let closedEarly = false;
+  let markClosed!: () => void;
+  const closed = new Promise<void>((resolve) => {
+    markClosed = resolve;
+  });
   const server = createServer((_request, response: ServerResponse) => {
     response.writeHead(200, {
       "content-type": options.contentType ?? "application/json",
@@ -71,6 +99,7 @@ async function flooding(options: {
     response.on("close", () => {
       if (!response.writableFinished) closedEarly = true;
       stop();
+      markClosed();
     });
     void (async () => {
       const filler = Buffer.alloc(CHUNK, 0x78);
@@ -101,6 +130,8 @@ async function flooding(options: {
     origin,
     url: `${origin}/`,
     flushed: () => flushed,
+    /** Settles when the reply has closed, by being cut off or by finishing. */
+    closed,
     /** True when the reply was cut off rather than being allowed to finish. */
     closedEarly: () => closedEarly,
     async close() {
@@ -137,7 +168,7 @@ test("the shared registry reader truncates a chunked body, and what the server g
       readBoundedBytes(response, ceiling, "registries.test.too-large"),
       rejects("registries.test.too-large"),
     );
-    await settled();
+    await replyEnded(server);
     assert.ok(
       server.flushed() < offer / 4,
       `the server wrote ${server.flushed()} of the ${offer} bytes it stood ready to send`,
@@ -173,7 +204,7 @@ test("a declared content-length over the ceiling is refused before the body is r
     readBoundedBytes(response, ceiling, "registries.test.too-large"),
     rejects("registries.test.too-large"),
   );
-  await settled();
+  await replyEnded(server);
   // The refusal came from the header, so nothing near the ceiling was ever
   // read, and the body was cancelled rather than abandoned: a reader that only
   // threw would leave the server writing to an open socket.
@@ -218,7 +249,7 @@ test("each registry reader routes through the shared bound and reports its own d
     const server = await flooding({ offer });
     t.after(() => server.close());
     await assert.rejects(reader.read(server), rejects(reader.detail));
-    await settled();
+    await replyEnded(server);
     assert.ok(
       server.flushed() < offer / 4,
       `${reader.detail}: the server wrote ${server.flushed()} of ${offer} bytes`,
@@ -270,7 +301,7 @@ test("the docker catalog reader holds its own ceiling while the document arrives
     createDockerMcpCatalogAdapter().discover!(ctx, {}),
     rejects("docker.catalog.too-large"),
   );
-  await settled();
+  await replyEnded(server);
   assert.ok(
     server.flushed() > ceiling,
     `the ceiling was never reached: only ${server.flushed()} bytes were written`,
