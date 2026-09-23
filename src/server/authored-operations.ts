@@ -1738,10 +1738,14 @@ export async function authoredCredentialStored(
   store: AsyncCeremonyStore,
   actor: ActorContext,
   runId: string,
-  options: { verified?: boolean } = {},
+  options: { verified?: boolean; nodeId?: string } = {},
 ) {
   const credential = await readAuthoredCredential(store, actor, runId);
-  return Boolean(credential && (!options.verified || credential.verified));
+  return Boolean(
+    credential &&
+    (!options.verified || credential.verified) &&
+    (options.nodeId === undefined || credential.nodeId === options.nodeId),
+  );
 }
 
 /** Origins the authored provider itself declared; a verification request may go only to one of them. */
@@ -2836,6 +2840,7 @@ export function registerAuthoredOperations(
             options.store,
             context.actor,
             context.runId,
+            { nodeId: context.nodeId },
           );
         if (
           operation.id === "authored.verify-access" &&

@@ -700,7 +700,11 @@ export async function authoredHuman(
   const recoveryResponse = accountRecovery();
   if (recoveryResponse) return recoveryResponse;
   if (pending.node.operationId === "authored.collect-credential") {
-    if (await authoredCredentialStored(store, context.actor, context.runId)) {
+    if (
+      await authoredCredentialStored(store, context.actor, context.runId, {
+        nodeId: pending.node.id,
+      })
+    ) {
       await advance();
       return Response.redirect(returnUrl, 303);
     }

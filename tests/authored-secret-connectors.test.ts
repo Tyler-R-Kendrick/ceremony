@@ -50,6 +50,8 @@ async function fixture(options: {
   verificationUrl?: string;
   accept: (request: Request) => boolean;
   status?: number;
+  /** A composed run: two secret ceremonies, one after the other. */
+  twice?: boolean;
 }) {
   const store = new SQLiteCeremonyStore(":memory:", {
     current: "test",
@@ -126,6 +128,26 @@ async function fixture(options: {
           session: { from: "output", node: "secret", name: "session" },
         },
       },
+      ...(options.twice
+        ? [
+            {
+              id: "secret2",
+              operationId: "authored.collect-credential",
+              operationVersion: "1.0.0",
+              dependsOn: ["access"],
+              bindings: {},
+            },
+            {
+              id: "access2",
+              operationId: "authored.verify-access",
+              operationVersion: "1.0.0",
+              dependsOn: ["secret2"],
+              bindings: {
+                session: { from: "output", node: "secret2", name: "session" },
+              },
+            },
+          ]
+        : []),
     ],
     {},
   );
@@ -150,6 +172,7 @@ async function fixture(options: {
     signal: new AbortController().signal,
   };
   const humanUrl = `${origin}/api/v1/teaching/novel/${run.id}/human`;
+  let pendingSecret = "secret";
   const human = async (init?: RequestInit) => {
     const record = await store.transaction((tx) =>
       tx.get<RunRecord>({ tenant: actor.tenantId, kind: "run", id: run.id }),
@@ -161,7 +184,7 @@ async function fixture(options: {
       record,
       new Request(humanUrl, init),
       origin,
-      () => advance("secret"),
+      () => advance(pendingSecret),
       { connectorId: "novel", name: "Novel", fetch: fetcher },
     );
   };
@@ -176,7 +199,18 @@ async function fixture(options: {
     ]);
     return JSON.stringify({ snapshot, records });
   };
-  return { store, commands, run, advance, human, requests, visible };
+  return {
+    store,
+    commands,
+    run,
+    advance,
+    human,
+    requests,
+    visible,
+    next(nodeId: string) {
+      pendingSecret = nodeId;
+    },
+  };
 }
 
 const form = (values: Record<string, string>) => ({
@@ -433,5 +467,31 @@ test("the discovered-auth schema accepts only declared placements and HTTPS veri
       },
     }).success,
     false,
+  );
+});
+
+test("a composed run collects each secret on its own step", async (t) => {
+  const f = await fixture({
+    kind: "api-key",
+    placement: { in: "header", name: "X-Api-Key" },
+    accept: (request) =>
+      ["key-one", "key-two"].includes(request.headers.get("x-api-key") ?? ""),
+    twice: true,
+  });
+  t.after(() => f.store.close());
+  await f.human(form({ token: "key-one" }));
+  await f.advance("access");
+  f.next("secret2");
+  await f.advance("secret2");
+  // The first step's stored key must not make the second step's form vanish.
+  const page = await (await f.human()).text();
+  assert.match(page, /name="token"/);
+  await f.human(form({ token: "key-two" }));
+  await f.advance("access2");
+  const snapshot = await f.commands.snapshot(actor, f.run.id);
+  assert.equal(snapshot.status, "complete");
+  assert.deepEqual(
+    f.requests.map((request) => request.headers.get("x-api-key")),
+    ["key-one", "key-two"],
   );
 });
