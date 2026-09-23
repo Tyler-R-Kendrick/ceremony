@@ -61,12 +61,12 @@ Lifecycle is not one dimension. Local disconnect, broker deletion and upstream r
 | `google-integration-connectors` | implemented / missing / protocol-fixture | unsupported                              | reconnect: unsupported; disconnect: implemented; revoke: unsupported    |
 | `hasura-ndc`                    | implemented / protocol-fixture           | unsupported                              | reconnect: unsupported; disconnect: implemented; revoke: unsupported    |
 | `mcp-registry`                  | implemented / protocol-fixture           | unsupported                              | reconnect: unsupported; disconnect: unsupported; revoke: unsupported    |
-| `mcp-remote`                    | implemented / protocol-fixture           | unsupported                              | reconnect: implemented; disconnect: implemented; revoke: unsupported    |
+| `mcp-remote`                    | implemented / protocol-fixture           | unsupported                              | reconnect: implemented; disconnect: implemented; revoke: implemented    |
 | `merge`                         | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | reconnect: implemented; disconnect: implemented; revoke: unsupported    |
 | `microsoft-custom-connector`    | not reported                             | not reported                             | reconnect: not reported; disconnect: not reported; revoke: not reported |
 | `nango`                         | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | reconnect: implemented; disconnect: implemented; revoke: unsupported    |
 | `open-service-broker`           | implemented / protocol-fixture           | unsupported                              | reconnect: unsupported; disconnect: implemented; revoke: unsupported    |
-| `openapi-http`                  | unsupported                              | unsupported                              | reconnect: implemented; disconnect: implemented; revoke: unsupported    |
+| `openapi-http`                  | unsupported                              | unsupported                              | reconnect: implemented; disconnect: implemented; revoke: implemented    |
 | `pipedream-connect`             | implemented / missing / protocol-fixture | unsupported                              | reconnect: implemented; disconnect: implemented; revoke: unsupported    |
 | `pulsemcp`                      | implemented / missing / protocol-fixture | unsupported                              | reconnect: unsupported; disconnect: unsupported; revoke: unsupported    |
 | `smithery`                      | unsupported                              | unsupported                              | reconnect: implemented; disconnect: implemented; revoke: unsupported    |
@@ -327,14 +327,16 @@ Module: `src/server/connectors/mcp/index.ts` (`createMcpRemoteAdapter`).
 - import: A live server is not a portable definition; registry import belongs to the registry adapter.
 - configure: Configuration is the binding's pinned profile, endpoint and operations.
 - authorize: Delegated to the host OAuth profile; client registration follows this revision's order: pre-registered, dynamic.
-- authorize: The default profile runs authorization code with PKCE only under an issuer policy pinned in the binding and named by the server's protected-resource metadata; tokens are not refreshed by this adapter.
+- authorize: The default profile runs authorization code with PKCE only under an issuer policy pinned in the binding and named by the server's protected-resource metadata.
+- authorize: Its tokens are refreshed once, single-flight, when custody finds them expired or the server answers 401, and only when a refresh token is held; a custom OAuth hook or broker renews its own.
 - authorize: Dynamic Client Registration is documented in this revision.
 - verify: Server identity is not attested beyond the TLS origin.
 - invoke: stdio transports are not supported: a hosted connector does not launch local processes or run packages.
 - events: Change notifications through the bounded GET stream where the server offers one; no webhook delivery.
 - reconnect: Reconnect re-runs authorization against the same pinned resource.
-- disconnect: Local only: MCP defines no disconnect or revocation operation.
-- revoke: MCP has no revocation operation; revoking a grant belongs to the authorization server profile.
+- disconnect: MCP defines no disconnect or revocation operation; a local disconnect never contacts the server or its authorization server.
+- disconnect: An upstream disconnect revokes the default profile's grant at the authorization server (RFC 7009) only when the reviewed issuer policy sets revocation to on-upstream-disconnect and the issuer advertises a revocation endpoint.
+- revoke: Revocation is the authorization server's (RFC 7009), for the default OAuth profile's grant only, under the reviewed issuer policy; an issuer answers 200 for tokens it no longer knows, so success is its statement.
 - export: Export of a server description belongs to the registry adapter.
 - delegate: No sampling, no roots, no task extension: this client offers a server no host capabilities.
 
@@ -419,8 +421,10 @@ Module: `src/server/connectors/formats/openapi/index.ts` (`createOpenApiHttpAdap
 - invoke: A description cannot establish that a non-GET operation is safe or idempotent.
 - events: Webhooks and callbacks are imported as descriptions; delivery verification belongs to the events profile.
 - reconnect: Reconnect re-runs the bound profile's authorization and replaces host-held credentials locally; an OpenAPI description declares no upstream reconnect operation.
-- disconnect: Local disconnect only; an OpenAPI description declares no upstream unlink operation.
-- revoke: An OpenAPI description declares no revocation endpoint; upstream revocation is not attempted.
+- disconnect: A local disconnect releases host-held credentials only and never contacts the provider; an OpenAPI description declares no upstream unlink operation.
+- disconnect: An upstream disconnect revokes an OAuth grant (RFC 7009) only when the reviewed issuer policy sets revocation to on-upstream-disconnect and the issuer advertises a revocation endpoint; otherwise it reports not-attempted or unsupported.
+- revoke: Only OAuth grants, at the issuer's advertised RFC 7009 endpoint, when the reviewed issuer policy allows it; an issuer answers 200 for tokens it no longer knows, so success is the issuer's statement.
+- revoke: API key, HTTP basic and HTTP bearer values have no revocation protocol here; they are released locally and must be revoked at the provider.
 - export: Export emits the approved description only; losses are reported as compatibility issues.
 - delegate: There is no third party to delegate to in this profile.
 
