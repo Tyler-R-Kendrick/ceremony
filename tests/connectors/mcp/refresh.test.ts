@@ -45,7 +45,9 @@ async function tokenEndpoint() {
   const revoked: string[] = [];
   const grants: Array<Record<string, string>> = [];
   let issued = 0;
-  const server = await startHttpFixture((request) => {
+  /** "drop" closes the connection once the refresh request has arrived. */
+  const behaviour = { mode: "normal" as "normal" | "drop" };
+  const server = await startHttpFixture((request, raw) => {
     const form = Object.fromEntries(
       new URLSearchParams(request.body.toString("utf8")),
     );
@@ -57,6 +59,10 @@ async function tokenEndpoint() {
     }
     if (request.url.pathname !== "/token") return undefined;
     grants.push(form);
+    if (behaviour.mode === "drop") {
+      raw.req.socket.destroy();
+      return undefined;
+    }
     const presented = form["refresh_token"] ?? "";
     if (form["grant_type"] !== "refresh_token" || !refreshTokens.has(presented))
       return { status: 400, body: { error: "invalid_grant" } };
@@ -76,7 +82,7 @@ async function tokenEndpoint() {
       },
     };
   });
-  return { server, grants, revoked };
+  return { server, grants, revoked, behaviour };
 }
 
 type Setup = {
@@ -403,6 +409,35 @@ test("a verification refresh the issuer refuses is a denial by fixed code, which
     );
     assertNoTokens(state, result);
   }
+});
+
+test("an issuer that cannot be reached during verification leaves the connection pending, not reconnect-required", async (t) => {
+  const state = await setup(t, {
+    material: { access_token: "mcp-stale-token", refresh_token: REFRESH },
+    expiresAt: Date.now() - 1000,
+  });
+  await state.as.server.close();
+  const result = await verify(state);
+  assert.equal(result.state, "pending");
+  assert.equal(result.code, "mcp.credential-renewal-unavailable");
+  assertNoTokens(state, result);
+});
+
+test("a refresh whose outcome is unknown is indeterminate, never a refusal", async (t) => {
+  const state = await setup(t, {
+    material: { access_token: "mcp-stale-token", refresh_token: REFRESH },
+    expiresAt: Date.now() - 1000,
+  });
+  state.as.behaviour.mode = "drop";
+  const result = await verify(state);
+  assert.equal(state.as.grants.length, 1, "the request reached the issuer");
+  assert.equal(result.state, "indeterminate");
+  assert.equal(result.code, "mcp.credential-renewal-indeterminate");
+  // The refresh token may have been spent; it is not presented again.
+  const again = await verify(state);
+  assert.equal(again.state, "indeterminate");
+  assert.equal(state.as.grants.length, 1);
+  assertNoTokens(state, result, again);
 });
 
 test("verification without a refresh token or issuer policy keeps today's answer and asks nobody", async (t) => {

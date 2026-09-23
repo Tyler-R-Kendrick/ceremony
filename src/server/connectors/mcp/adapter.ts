@@ -281,15 +281,20 @@ async function callRenewing(
 /**
  * Renews the default profile's token after a verification attempt the token
  * caused to fail: custody found it expired, or the server answered 401 to it.
- * `failed` means the issuer refused the refresh; its own code stays in the
- * journal the refresh wrote, and nothing about it reaches the caller.
+ * A renewal that did not succeed is classified, because only one kind means a
+ * person must reconnect: `refused` (the issuer rejected the grant, or it is
+ * not ours to use). `unavailable` (the issuer could not be reached, nothing
+ * was spent) is worth retrying later, and `unknown` (cancelled, raced, or a
+ * request whose outcome was lost, so the refresh token may be spent) is
+ * reported as such rather than guessed at. The refresh's own code stays in
+ * the journal it wrote; nothing about it reaches the caller.
  */
 async function renewAfterVerifyFailure(
   ctx: AdapterCallContext,
   options: McpRemoteAdapterOptions,
   error: unknown,
   presented: Presented,
-): Promise<"renewed" | "not-renewed" | "failed"> {
+): Promise<"renewed" | "not-renewed" | RenewalFailure> {
   if (!renewable(ctx, options)) return "not-renewed";
   const stillStale = credentialExpired(error)
     ? heldTokenStale(ctx)
@@ -303,10 +308,45 @@ async function renewAfterVerifyFailure(
     return (await renew(ctx, options, endpointFor(ctx), stillStale))
       ? "renewed"
       : "not-renewed";
-  } catch {
-    return "failed";
+  } catch (failure) {
+    return renewalFailure(failure);
   }
 }
+
+type RenewalFailure = "refused" | "unavailable" | "unknown";
+
+function renewalFailure(failure: unknown): RenewalFailure {
+  if (!(failure instanceof ConnectorError)) return "unknown";
+  if (failure.code === "upstream-unavailable") return "unavailable";
+  if (
+    failure.code === "cancelled" ||
+    failure.code === "indeterminate" ||
+    failure.code === "conflict"
+  )
+    return "unknown";
+  return "refused";
+}
+
+/** The verification answer for a renewal that did not succeed. */
+const renewalOutcome: Record<RenewalFailure, CompletionResult> = {
+  // The command layer makes a denied verification reconnect-required.
+  refused: {
+    state: "denied",
+    claims: [],
+    code: "mcp.credential-renewal-failed",
+  },
+  // Pending leaves the connection as it was, to be verified again later.
+  unavailable: {
+    state: "pending",
+    claims: [],
+    code: "mcp.credential-renewal-unavailable",
+  },
+  unknown: {
+    state: "indeterminate",
+    claims: [],
+    code: "mcp.credential-renewal-indeterminate",
+  },
+};
 
 function settingsOf(binding: RuntimeBinding): McpBindingSettings {
   const raw = (binding.settings as Record<string, unknown>).mcp;
@@ -1241,9 +1281,11 @@ export function createMcpRemoteAdapter(
        * Verification is where an expired access token is usually first
        * noticed: a reconnect or a poll over a stored credential lands here,
        * and so does `connector_verify`. So the default profile's token is
-       * renewed once and discovery retried once, as `invoke` does. A refresh
-       * the issuer refuses is a denial with a fixed code, which the command
-       * layer turns into the reconnect state a person resolves.
+       * renewed once and discovery retried once, as `invoke` does. Only a
+       * refresh the issuer refuses is a denial, which the command layer turns
+       * into the reconnect state a person resolves; an issuer outage is
+       * pending and a lost outcome indeterminate, so neither sends a person
+       * to reconnect a grant that may still be good.
        */
       const presented: Presented = {};
       // Built outside the try: a binding with nothing to call is refused as
@@ -1262,13 +1304,8 @@ export function createMcpRemoteAdapter(
           error,
           presented,
         );
-        if (renewal === "failed")
-          return {
-            state: "denied",
-            claims: [],
-            code: "mcp.credential-renewal-failed",
-          };
         if (renewal === "not-renewed") return verifyFailure(ctx, error);
+        if (renewal !== "renewed") return { ...renewalOutcome[renewal] };
         try {
           discovery = await discover();
         } catch (retried) {
