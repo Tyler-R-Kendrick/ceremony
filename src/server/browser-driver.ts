@@ -1324,6 +1324,7 @@ export async function runRecordedCeremony(
         const recorded = step.action.consent ?? [];
         if (
           live.marketing ||
+          live.unlabelled ||
           live.kinds.length !== recorded.length ||
           live.kinds.some((kind) => !recorded.includes(kind))
         )

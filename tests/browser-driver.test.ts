@@ -544,7 +544,9 @@ test("the heuristic stops at provider walls and does not fill unavailable or cro
       }),
       available: ["password", "password-confirm"],
     }),
-    { action: "check", element: 6 },
+    // A required box that says nothing cannot be told from a terms box, so
+    // it is the person's to tick rather than a form detail.
+    { action: "blocked", reason: "consent-required" },
   );
 });
 
@@ -3361,18 +3363,22 @@ test("CONSENT: a checkbox is read for the legal acts ticking it performs", () =>
   assert.deepEqual(read("I agree to the Terms of Service"), {
     kinds: ["terms"],
     marketing: false,
+    unlabelled: false,
   });
   assert.deepEqual(read("I accept the terms and the privacy policy"), {
     kinds: ["terms", "privacy"],
     marketing: false,
+    unlabelled: false,
   });
   assert.deepEqual(read("I confirm I am 16 or older"), {
     kinds: ["age"],
     marketing: false,
+    unlabelled: false,
   });
   assert.deepEqual(read("I confirm I am old enough to use this service"), {
     kinds: ["age"],
     marketing: false,
+    unlabelled: false,
   });
   // A bare "I agree" is read as terms: the reading that asks rather than ticks.
   assert.deepEqual(read("I agree").kinds, ["terms"]);
@@ -3380,7 +3386,11 @@ test("CONSENT: a checkbox is read for the legal acts ticking it performs", () =>
   assert.equal(read("Subscribe to our newsletter").marketing, true);
   // Bundled with the terms, a newsletter is still a newsletter.
   const bundled = read("I agree to the Terms and to receive marketing emails");
-  assert.deepEqual(bundled, { kinds: ["terms"], marketing: true });
+  assert.deepEqual(bundled, {
+    kinds: ["terms"],
+    marketing: true,
+    unlabelled: false,
+  });
   assert.equal(consentCovers(bundled, ["terms", "privacy", "age"]), false);
   // However the opt-in is worded, bundled into the terms sentence it is
   // still an opt-in, and no advance consent covers it.
@@ -3415,6 +3425,94 @@ test("CONSENT: a checkbox is read for the legal acts ticking it performs", () =>
     ]),
     true,
   );
+});
+
+test("CONSENT: a terms box is recognised however it is worded or wherever its words sit", async () => {
+  // Wordings the terms reading used to miss.
+  for (const label of [
+    "By creating an account you accept our ToS",
+    "I have read the Terms",
+    "I accept all of the above",
+    "Agree",
+  ])
+    assert.ok(checkboxConsent({ label }).kinds.includes("terms"), label);
+  // A name that says terms, with nothing else to go on.
+  for (const name of ["accept_tos", "agree-terms", "tos"])
+    assert.ok(checkboxConsent({ name }).kinds.includes("terms"), name);
+
+  // Words beside the box, or in the element it is described by, are what it
+  // is described by: the snapshot carries them as its label.
+  const boxOf = (body: string) => {
+    const { document } = parseHTML(
+      `<!doctype html><html><head><title>Sign up</title></head><body><form>${body}<button>Create</button></form></body></html>`,
+    );
+    document.documentElement.setAttribute(
+      "data-ceremony-href",
+      "https://provider.example/signup",
+    );
+    return snapshotDocument(
+      document as unknown as Document,
+      snapshotSelectors,
+    ).elements.find((element) => element.kind === "checkbox")!;
+  };
+  for (const body of [
+    `<input type="checkbox" name="agree" required><span>I agree to the Terms of Service</span>`,
+    `<div><input type="checkbox" id="c1" name="x" required></div><div>I have read the <a href="/t">Terms</a></div>`,
+    `<label><input type="checkbox" name="x" required> By creating an account you accept our <a href="/t">ToS</a></label>`,
+    `<input type="checkbox" name="x" required aria-describedby="d"><p id="d">I agree to the Terms</p>`,
+    `<input type="checkbox" name="x" required>I agree to the Terms of Service`,
+  ]) {
+    const box = boxOf(body);
+    assert.ok(checkboxConsent(box).kinds.includes("terms"), body);
+    assert.equal(consentCovers(checkboxConsent(box), []), false, body);
+  }
+  // Text beside the box that belongs to another control is not its label.
+  assert.equal(
+    boxOf(
+      `<input type="checkbox" name="x"><label>Email <input type="email"></label>`,
+    ).label,
+    undefined,
+  );
+
+  // A required box that says nothing is never ticked as a form detail: not
+  // by the heuristic, and not by the driver for any interpreter.
+  const interpret = createHeuristicInterpreter();
+  const bare = snapshot({
+    path: "https://provider.example/signup",
+    elements: [
+      { index: 0, kind: "checkbox", name: "x", required: true },
+      { index: 1, kind: "button", text: "Create account" },
+    ],
+  });
+  for (const consents of [[], ["terms", "privacy", "age"]] as const)
+    assert.deepEqual(
+      await interpret({
+        goal: "registration",
+        snapshot: bare,
+        available: [],
+        history: [],
+        consents,
+      }),
+      { action: "blocked", reason: "consent-required" },
+    );
+  let ticked = false;
+  const rogue = await runCeremony({
+    page: {
+      ...inertPage("https://provider.example/signup"),
+      snapshot: async () => bare,
+      check: async () => {
+        ticked = true;
+      },
+    },
+    goal: "registration",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({}),
+    interpreter: async () => ({ action: "check", element: 0 }),
+    consents: ["terms", "privacy", "age"],
+    maxSteps: 4,
+  });
+  assert.equal(ticked, false);
+  assert.equal(rogue.status === "blocked" && rogue.reason, "consent-required");
 });
 
 test("CONSENT: the heuristic never ticks a marketing opt-in, and a required one is a person's", async () => {

@@ -69,7 +69,7 @@ When the provider no longer matches the recording, the replay stops before actin
 
 - `element-missing`: the step's page matched, but no control fits the fingerprint.
 - `element-ambiguous`: more controls fit than were recorded.
-- `consent-changed`: a recorded tick's box was found, but it now accepts something other than the reviewed `consent` kinds (a privacy policy added, a newsletter bundled in). Consent is never generalised: the box has to accept exactly what was recorded. A replay under a plan without the person's [advance consent](browser-login-sessions.md#consent) to every recorded kind hands the box to a person, as a live login does.
+- `consent-changed`: a recorded tick's box was found, but it now accepts something other than the reviewed `consent` kinds (a privacy policy added, a newsletter bundled in), or no longer says anything a person could read. Consent is never generalised: the box has to accept exactly what was recorded. A replay under a plan without the person's [advance consent](browser-login-sessions.md#consent) to every recorded kind hands the box to a person, as a live login does.
 - `unexpected-page`: the next required step's page did not appear. If a click recorded as `navigation` left the page where it was, the report names that click.
 - `undeclared-origin` and `missing-role`: refused before a page is opened.
 

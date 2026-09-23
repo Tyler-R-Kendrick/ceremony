@@ -340,6 +340,17 @@ sales", "keep me informed", "hear about new features"): the box is read for
 receiving mail, messages or news, being contacted, product updates, tips,
 features and data sharing, and any of them makes it an opt-in, not terms.
 
+A box is read by everything that describes it: its label, the element its
+`aria-describedby` names, and - when it has no label - the text right beside
+it (or beside its wrapper), which the snapshot carries as its label; and its
+`name`, so `accept_tos` reads as terms. Terms wording includes "ToS", "terms
+of use", "accept our", a bare "agree" and "I have read". A **required box that
+says nothing a person could read** (no label, caption or placeholder, at most a
+`name`) cannot be told from a terms box, so it is never ticked as a form
+detail: it is the person's (`consent`), whatever consent the plan carries. A
+required box whose words name none of these, such as "I understand this token
+grants access", is still an ordinary form detail and is ticked.
+
 `consents` is the person's to set and nobody else's. The compiler refuses it
 with `consent-not-delegable` unless the host identified the caller as the
 person (`actorKind: "human"`), and the MCP `browser_login` and

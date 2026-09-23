@@ -648,6 +648,57 @@ export function snapshotDocument(
     if (autocomplete && entry.kind === "input")
       entry.autocomplete = autocomplete;
     if (label) entry.label = label;
+    // What a checkbox agrees to is often not in its label. The terms may sit
+    // in the element `aria-describedby` names, or in plain text beside the
+    // box with no `<label>` at all - "<input type=checkbox><span>I agree to
+    // the Terms</span>" - which left the box unnamed and read as agreeing to
+    // nothing. For a checkbox those words are what it is described by, so
+    // they are part of what the snapshot says about it.
+    if (entry.kind === "checkbox") {
+      const described = trim(
+        (control.getAttribute("aria-describedby") ?? "")
+          .split(/\s+/)
+          .filter(Boolean)
+          .map((id) => doc.getElementById(id)?.textContent ?? "")
+          .join(" "),
+        200,
+      );
+      const beside = (): string => {
+        // The text right after the box, or - when the box is alone in its
+        // wrapper - right after the wrapper. Never a control's own words.
+        const after = (node: Node | null): string => {
+          for (let next = node; next; next = next.nextSibling) {
+            if (next.nodeType === 3) {
+              const words = trim(next.textContent, 200);
+              if (words) return words;
+              continue;
+            }
+            if (next.nodeType !== 1) continue;
+            const element = next as Element;
+            if (
+              /^(input|select|textarea|button)$/i.test(element.tagName) ||
+              element.querySelector("input,select,textarea,button")
+            )
+              return "";
+            return trim(element.textContent, 200);
+          }
+          return "";
+        };
+        const own = after(control.nextSibling);
+        if (own) return own;
+        const parent = control.parentElement;
+        return parent &&
+          parent.children.length === 1 &&
+          !/^(form|body|label)$/i.test(parent.tagName)
+          ? after(parent.nextSibling)
+          : "";
+      };
+      const words = trim(
+        [label || beside(), described].filter(Boolean).join(" "),
+        200,
+      );
+      if (words) entry.label = words;
+    }
     if (placeholder) entry.placeholder = placeholder;
     if (entry.kind === "button" || entry.kind === "link") {
       const caption =
@@ -996,6 +1047,12 @@ export type CheckboxConsent = {
    * anything else. Never ticked by an agent, whatever the plan says.
    */
   marketing: boolean;
+  /**
+   * The box says nothing a person could read - no label, no caption, at
+   * most a `name`. What ticking it agrees to cannot be told, so it is the
+   * person's to tick, never a form detail.
+   */
+  unlabelled: boolean;
 };
 
 /**
@@ -1012,7 +1069,7 @@ const consentWords: Readonly<Record<ConsentKind, RegExp>> = {
   // A bare "I agree" or "I accept" is read as terms: it is the conservative
   // reading, since it asks a person rather than ticking.
   terms:
-    /terms|conditions|\beula\b|user agreement|acceptable use|\bi (agree|accept)\b|\bagree to\b|\baccept the\b/i,
+    /terms|conditions|\btos\b|\beula\b|user agreement|acceptable use|\bagree\b|\baccept (our|the|all)\b|\bi accept\b|i have read|i('ve| have) (read|reviewed)/i,
   privacy: /privacy|data (processing|protection)|personal data|cookie/i,
   age: /old enough|years of age|\b(1[3-9]|2[01]) ?(\+|years|or (older|over))|of (legal )?age|age of (majority|consent)|\b(over|at least) (1[3-9]|2[01])\b|minimum age/i,
 };
@@ -1030,12 +1087,16 @@ const consentWords: Readonly<Record<ConsentKind, RegExp>> = {
 export function checkboxConsent(
   element: Pick<SnapshotElement, "label" | "text" | "name" | "placeholder">,
 ): CheckboxConsent {
+  // Separators read as spaces, so a `name` such as `accept_tos` or
+  // `agree-terms` says what it is as plainly as a label would.
   const text = [element.label, element.text, element.name, element.placeholder]
     .filter((part): part is string => typeof part === "string")
-    .join(" ");
+    .join(" ")
+    .replace(/[_\-.:[\]]+/g, " ");
   return {
     kinds: consentKinds.filter((kind) => consentWords[kind].test(text)),
     marketing: marketingWords.test(text),
+    unlabelled: !(element.label || element.text || element.placeholder),
   };
 }
 
@@ -1048,13 +1109,15 @@ export function consentCovers(
   given: readonly ConsentKind[],
 ): boolean {
   return (
-    !consent.marketing && consent.kinds.every((kind) => given.includes(kind))
+    !consent.marketing &&
+    !consent.unlabelled &&
+    consent.kinds.every((kind) => given.includes(kind))
   );
 }
 
 /** Whether ticking this box is a person's decision rather than a form detail. */
 export function needsConsent(consent: CheckboxConsent): boolean {
-  return consent.marketing || consent.kinds.length > 0;
+  return consent.marketing || consent.unlabelled || consent.kinds.length > 0;
 }
 
 /**
