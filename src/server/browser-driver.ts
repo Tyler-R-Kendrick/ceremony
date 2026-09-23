@@ -591,6 +591,10 @@ export async function runCeremony(
       // A secret too short to recognise could not be guarded afterwards, so
       // it is not one this driver will carry.
       if (!value || value.length > 4096 || (secret && value.length < 8)) return;
+      // Nor is anything this attempt typed. A page that prints the password
+      // back beside the label a plan named is showing the caller's own
+      // secret, not issuing one, and it goes to no sink under another name.
+      if (contains(value, guarded)) return;
       issued.set(kind, value);
       if (secret && !guarded.includes(value)) guarded.push(value);
     }
@@ -670,6 +674,9 @@ export async function runCeremony(
         ? undefined
         : snapshot.elements[action.element];
     if (!element) return unusable();
+    // A block the page shows a value in - a `<code>` with a new token in it -
+    // is something to read, never something to act on.
+    if (element.type === "code") return unusable();
 
     if (action.action === "fill") {
       const role = action.role;

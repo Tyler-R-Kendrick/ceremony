@@ -114,7 +114,17 @@ export const derivedRoleOf: Readonly<Record<HeldCredentialKind, CeremonyRole>> =
  * goes to the plan's own sink — in a run, straight into a run-bound
  * `common.oauth-client` record — and nowhere else.
  */
-export const issuedValueKinds = ["client-id", "client-secret"] as const;
+export const issuedValueKinds = [
+  "client-id",
+  "client-secret",
+  /**
+   * A personal access token a provider just generated, shown once - often in
+   * a `<code>` or `<pre>` block beside a copy button rather than in a field.
+   * Kept only into `credential-custody`: it is a credential for the person's
+   * account, not part of an OAuth client.
+   */
+  "access-token",
+] as const;
 export const issuedValueKindSchema = z.enum(issuedValueKinds);
 export type IssuedValueKind = z.infer<typeof issuedValueKindSchema>;
 /**
@@ -125,6 +135,7 @@ export type IssuedValueKind = z.infer<typeof issuedValueKindSchema>;
  */
 export const secretIssuedValueKinds: readonly IssuedValueKind[] = [
   "client-secret",
+  "access-token",
 ];
 
 /**
@@ -188,6 +199,13 @@ export const issuedDeclarationSchema = z
       context.addIssue({
         code: "custom",
         message: "An oauth-client sink keeps a client-id",
+      });
+    // An access token is the person's credential, not part of a client: it
+    // goes to custody and nowhere else.
+    if (kinds.has("access-token") && declaration.sink !== "credential-custody")
+      context.addIssue({
+        code: "custom",
+        message: "An access-token is kept only by a credential-custody sink",
       });
   });
 export type IssuedDeclaration = z.infer<typeof issuedDeclarationSchema>;
@@ -531,6 +549,74 @@ export function snapshotDocument(
     if (onElement) onElement(control, entry.index);
     elements.push(entry);
   }
+  // Values a page shows rather than asks for. A provider that has just
+  // generated a personal access token often prints it in a `<code>` or
+  // `<pre>` block beside a copy button, not in a field. Such a block is
+  // described like a read-only field - its label and whether it shows
+  // anything, never its text - and only when it is labelled: by
+  // `aria-label`, `aria-labelledby`, a `<label for>`, or a heading or label
+  // right before it. An unlabelled block is page prose, and not described.
+  //
+  // A label that contains the block's own text is no label: it would carry
+  // the value into the snapshot. A wrapping `<label>` always would, so it is
+  // not consulted here at all.
+  const shownLabel = (block: Element): string => {
+    const own = (element: Element): string => {
+      const aria = trim(element.getAttribute("aria-label"), 200);
+      if (aria) return aria;
+      const labelledBy = element.getAttribute("aria-labelledby");
+      if (labelledBy) {
+        const named = labelledBy
+          .split(/\s+/)
+          .filter(Boolean)
+          .map((id) => doc.getElementById(id)?.textContent ?? "")
+          .filter(Boolean)
+          .join(" ");
+        if (named) return trim(named, 200);
+      }
+      const id = element.getAttribute("id");
+      if (id && /^[A-Za-z][\w:.-]*$/.test(id)) {
+        const explicit = doc.querySelector(`label[for="${id}"]`);
+        if (explicit) return trim(explicit.textContent, 200);
+      }
+      return "";
+    };
+    const inner =
+      block.tagName.toLowerCase() === "pre"
+        ? block.querySelector("code")
+        : null;
+    let label = own(block) || (inner ? own(inner) : "");
+    if (!label) {
+      const before = block.previousElementSibling;
+      if (before && /^(h[1-6]|label)$/i.test(before.tagName))
+        label = trim(before.textContent, 200);
+    }
+    const shown = trim(block.textContent, 4096);
+    return shown.length >= 4 && label.includes(shown) ? "" : label;
+  };
+  for (const block of Array.from(doc.querySelectorAll("pre,code"))) {
+    if (elements.length >= 60) break;
+    if (block.tagName.toLowerCase() === "code" && block.closest("pre"))
+      continue;
+    const style =
+      typeof globalThis.getComputedStyle === "function"
+        ? globalThis.getComputedStyle(block)
+        : undefined;
+    if (style && (style.display === "none" || style.visibility === "hidden"))
+      continue;
+    const label = shownLabel(block);
+    if (!label) continue;
+    const entry: SnapshotElement = {
+      index: elements.length,
+      kind: "input",
+      type: "code",
+      label,
+      readOnly: true,
+      filled: trim(block.textContent, 1).length > 0,
+    };
+    if (onElement) onElement(block, entry.index);
+    elements.push(entry);
+  }
   function snapshotControl(
     control: Element,
     index: number,
@@ -794,13 +880,15 @@ export const elementUsableSource = `((element) => {
 export const readOnlyValueSource = `((element) => {
   if (!element || !element.isConnected) return null;
   const tag = String(element.tagName || '').toLowerCase();
-  if (tag !== 'input' && tag !== 'textarea') return null;
-  if (element.readOnly !== true || element.disabled === true) return null;
-  if (String(element.type || '').toLowerCase() === 'hidden') return null;
+  const block = tag === 'code' || tag === 'pre';
+  if (tag !== 'input' && tag !== 'textarea' && !block) return null;
+  if (!block && (element.readOnly !== true || element.disabled === true)) return null;
+  if (!block && String(element.type || '').toLowerCase() === 'hidden') return null;
   const rects = typeof element.getClientRects === 'function' ? element.getClientRects() : [];
   if (rects.length === 0) return null;
   const style = typeof getComputedStyle === 'function' ? getComputedStyle(element) : undefined;
   if (style && (style.visibility === 'hidden' || style.display === 'none')) return null;
+  if (block) return String(element.textContent || '').trim();
   return typeof element.value === 'string' ? element.value : null;
 })`;
 

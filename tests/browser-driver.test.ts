@@ -9,6 +9,7 @@ import {
   deviceVerificationField,
   needsConsent,
   driverActionSchema,
+  issuedDeclarationSchema,
   secretRoles,
   snapshotDocument,
   snapshotSelectors,
@@ -22,6 +23,7 @@ import {
   CeremonySecretLeak,
   type CeremonyPage,
   type HumanParticipationRequest,
+  type IssuedValues,
 } from "../src/server/browser-driver.js";
 import { compileRecording } from "../src/core/recorded-ceremony.js";
 import type { RecordedTraceEntry } from "../src/core/recorded-ceremony.js";
@@ -4175,3 +4177,206 @@ test("the interpreter prompt offers choosing, names the plan's choices and kept 
     /keeps what these read-only fields show/,
   );
 });
+
+/* -------------------------------------------------------------------------- */
+/* Issued values shown in a code block                                        */
+/* -------------------------------------------------------------------------- */
+
+const shownToken = "pat_0f3e9a1c7b5d2e8f4a6c1b3d5e7f9a0b";
+
+/** A document showing `shownToken` in whatever markup a provider chose. */
+function tokenDocument(block: string) {
+  const { document } = parseHTML(
+    `<!doctype html><html><head><title>Token created</title></head><body>
+       <h1>Copy your new token</h1>${block}
+       <button type="button">Copy</button></body></html>`,
+  );
+  document.documentElement.setAttribute(
+    "data-ceremony-href",
+    "https://provider.example/tokens",
+  );
+  return document;
+}
+
+test("ISSUED-CODE: a code block is described by its label, never by its text, and only when labelled", () => {
+  const shown = (block: string) => {
+    const snapshot = snapshotDocument(
+      tokenDocument(block) as unknown as Document,
+      snapshotSelectors,
+    );
+    assert.equal(
+      JSON.stringify(snapshot).includes(shownToken),
+      false,
+      `the value reached the snapshot: ${block}`,
+    );
+    return snapshot.elements.filter((element) => element.type === "code");
+  };
+  const described = (label: string) => [
+    {
+      index: 1,
+      kind: "input",
+      type: "code",
+      label,
+      readOnly: true,
+      filled: true,
+    },
+  ];
+  for (const [block, label] of [
+    [
+      `<code aria-label="Personal access token">${shownToken}</code>`,
+      "Personal access token",
+    ],
+    [
+      `<p id="c">New token</p><pre aria-labelledby="c">${shownToken}</pre>`,
+      "New token",
+    ],
+    // A `<pre><code>` pair is one block, labelled on either.
+    [`<pre><code aria-label="API key">${shownToken}</code></pre>`, "API key"],
+    [
+      `<h2>Personal access token</h2><pre><code>${shownToken}</code></pre>`,
+      "Personal access token",
+    ],
+    [`<label for="t">Token</label><code id="t">${shownToken}</code>`, "Token"],
+  ] as const)
+    assert.deepEqual(shown(block), described(label), block);
+  // Unlabelled is prose. A wrapping label, or one that carries the value
+  // itself, would put the token in the snapshot, so it labels nothing.
+  for (const block of [
+    `<p>Your token:</p><code>${shownToken}</code>`,
+    `<label>Token <code>${shownToken}</code></label>`,
+    `<p id="c">Token ${shownToken}</p><code aria-labelledby="c">${shownToken}</code>`,
+  ])
+    assert.deepEqual(shown(block), [], block);
+});
+
+test("ISSUED-CODE: the driver keeps a token shown in a code block, into custody, and never acts on the block", async () => {
+  const kept: IssuedValues[] = [];
+  const snapshots: PageSnapshot[] = [];
+  const page = createHttpPageFor(
+    tokenDocument(
+      `<h2>Personal access token</h2><pre><code>${shownToken}</code></pre>`,
+    ),
+  );
+  const result = await runCeremony({
+    page,
+    goal: "obtain-credential",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({}),
+    interpreter: async (input) => {
+      snapshots.push(structuredClone(input.snapshot));
+      return createHeuristicInterpreter()(input);
+    },
+    issued: {
+      fields: { "access-token": "Personal access token" },
+      keep: async (values) => {
+        kept.push(values);
+      },
+    },
+    verify: async () => true,
+  });
+  assert.equal(result.status, "completed");
+  assert.deepEqual(kept, [{ "access-token": shownToken }]);
+  assert.equal(JSON.stringify([result, snapshots]).includes(shownToken), false);
+  // A model pointing at the block to click or fill it is refused, twice over.
+  const pointed = await runCeremony({
+    page: createHttpPageFor(
+      tokenDocument(
+        `<h2>Personal access token</h2><pre><code>${shownToken}</code></pre>`,
+      ),
+    ),
+    goal: "obtain-credential",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({ "display-name": "x" }),
+    interpreter: async ({ snapshot: current }) => {
+      const block = current.elements.find((element) => element.type === "code");
+      return { action: "fill", element: block!.index, role: "display-name" };
+    },
+  });
+  assert.equal(
+    pointed.status === "blocked" && pointed.reason,
+    "unsupported-page",
+  );
+});
+
+test("ISSUED-CODE: a page printing the attempt's own password beside the label keeps nothing", async () => {
+  const password = "pw-typed-secret-7c2e";
+  const kept: IssuedValues[] = [];
+  const result = await runCeremony({
+    page: createHttpPageFor(
+      tokenDocument(
+        `<h2>Personal access token</h2><pre><code>${password}</code></pre>`,
+      ),
+    ),
+    goal: "obtain-credential",
+    allowedOrigins: ["https://provider.example"],
+    secrets: createSecrets({}),
+    protectedValues: [password],
+    interpreter: async () => ({ action: "done" }),
+    issued: {
+      fields: { "access-token": "Personal access token" },
+      keep: async (values) => {
+        kept.push(values);
+      },
+    },
+    verify: async () => true,
+  });
+  assert.deepEqual(kept, []);
+  assert.notEqual(result.status, "completed");
+});
+
+test("ISSUED-CODE: an access token is kept only by custody, never as part of a client", () => {
+  const declared = (sink: string) =>
+    issuedDeclarationSchema.safeParse({
+      sink,
+      fields: [{ kind: "access-token", label: "Personal access token" }],
+    }).success;
+  assert.equal(declared("credential-custody"), true);
+  assert.equal(declared("oauth-client"), false);
+  assert.equal(
+    issuedDeclarationSchema.safeParse({
+      sink: "oauth-client",
+      fields: [
+        { kind: "client-id", label: "Client ID" },
+        { kind: "access-token", label: "Personal access token" },
+      ],
+    }).success,
+    false,
+  );
+});
+
+/**
+ * A page over one fixed document: the snapshot is the production one, and a
+ * read or an action resolves the element the snapshot described.
+ */
+function createHttpPageFor(document: ReturnType<typeof tokenDocument>) {
+  let elements: Element[] = [];
+  const href = "https://provider.example/tokens";
+  const page: CeremonyPage = {
+    url: async () => href,
+    goto: async () => {},
+    snapshot: async () => {
+      elements = [];
+      return snapshotDocument(
+        document as unknown as Document,
+        snapshotSelectors,
+        (element, index) => {
+          elements[index] = element;
+        },
+      );
+    },
+    readIssued: async (element) => {
+      const found = elements[element.index];
+      const tag = found?.tagName.toLowerCase();
+      return tag === "code" || tag === "pre"
+        ? (found!.textContent ?? "").trim()
+        : undefined;
+    },
+    fill: async () => {
+      throw new Error("Nothing on this page may be filled");
+    },
+    click: async () => {},
+    check: async () => {},
+    settle: async () => {},
+  };
+  return page;
+}

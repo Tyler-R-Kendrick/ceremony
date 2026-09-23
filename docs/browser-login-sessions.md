@@ -264,10 +264,25 @@ secret". A draft declares that in `issued`:
 ```
 
 Each field is named by the **exact label** of the read-only input that shows
-it, and each kind (`client-id`, `client-secret`) appears once, under one label;
-an unknown kind, a repeated label or kind, more fields than kinds, a label
-shaped like a value, or an `oauth-client` sink without a `client-id` is refused
-by the schema. The declaration is compiled into the plan and its digest.
+it, and each kind (`client-id`, `client-secret`, `access-token`) appears once,
+under one label; an unknown kind, a repeated label or kind, more fields than
+kinds, a label shaped like a value, an `oauth-client` sink without a
+`client-id`, or an `access-token` kept by anything but `credential-custody` is
+refused by the schema. The declaration is compiled into the plan and its
+digest.
+
+A newly generated personal access token is often not in a field at all but in
+a `<code>` or `<pre>` block beside a copy button. Such a block is described in
+the snapshot like a read-only field (`kind: "input"`, `type: "code"`,
+`readOnly`, `filled`) when it is labelled by `aria-label`, `aria-labelledby`, a
+`<label for>`, or a heading or label right before it, and never by its text; a
+label that contains the block's text, or a wrapping `<label>`, labels nothing,
+because it would carry the value into the snapshot. `issued` names it by that
+label (`{ "sink": "credential-custody", "fields": [{ "kind": "access-token",
+"label": "Personal access token" }] }`) and the same rules apply: every field
+from one page or none, the value guarded like a typed password once read, and
+the driver never fills, clicks or ticks the block. A value that contains
+anything the attempt typed is not kept under any label.
 
 `sink` is a **kind the host registered**, never a callback: `oauth-client`
 (the host mints a run-bound `common.oauth-client` handle with

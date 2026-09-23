@@ -116,6 +116,8 @@ export type ScenarioState = {
   address?: string;
   client?: string;
   resource?: string;
+  /** What the plan's custody sink was handed, to compare with what was issued. */
+  kept?: string;
 };
 
 /** Everything `runCeremony` needs, minus the page, which the runner supplies. */
@@ -1236,7 +1238,8 @@ export const authScenarios: readonly AuthScenario[] = [
   },
   {
     id: "access-token-issued-for-private-collection",
-    title: "an agent causes a token to be issued but never carries its value",
+    title:
+      "an agent causes a token to be issued, and only the custody sink receives its value",
     family: "API key / personal access token",
     flowKind: "api-key",
     goal: "obtain-credential",
@@ -1245,21 +1248,35 @@ export const authScenarios: readonly AuthScenario[] = [
     // issue one without it, and a browser refuses to submit the form.
     provides: ["username", "password", "display-name"],
     behavior: () => ({ seed: 79 }),
-    plan: ({ provider, identity }) => ({
-      entryUrl: `${provider.origin}/tokens`,
-      goal: "obtain-credential",
-      secrets: withDisplayName(signInSecrets(identity), "Ceremony access"),
-      allowedOrigins: [provider.origin],
-      protectedValues: [identity.password],
-      // The ceremony's outcome is that a token now exists. Its value is shown
-      // on the page for a person to place in a private collector; nothing the
-      // agent holds or records may contain it.
-      verify: async () => provider.issuedTokens().length === 1,
-    }),
+    plan: ({ provider, identity }) => {
+      const state: ScenarioState = {};
+      return {
+        entryUrl: `${provider.origin}/tokens`,
+        goal: "obtain-credential",
+        secrets: withDisplayName(signInSecrets(identity), "Ceremony access"),
+        allowedOrigins: [provider.origin],
+        protectedValues: [identity.password],
+        // The token is shown once, in a labelled `<code>` block beside a
+        // copy button. The plan names that label; the driver reads the block
+        // and hands the value to the private collector's sink. Nothing the
+        // agent holds or records may contain it.
+        issued: {
+          fields: { "access-token": "Personal access token" },
+          keep: async (values) => {
+            const token = values["access-token"];
+            if (token !== undefined) state.kept = token;
+          },
+        },
+        state,
+        verify: async () => provider.issuedTokens().length === 1,
+      };
+    },
     expect: { status: "completed" },
-    confirm: async ({ provider }, result) => {
+    confirm: async ({ provider }, result, state) => {
       const [issued] = provider.issuedTokens();
       if (!issued) throw new Error("No token was issued");
+      if (state.kept !== issued)
+        throw new Error("The custody sink must receive the issued token");
       if (JSON.stringify(result.transcript).includes(issued))
         throw new Error("The token value reached the transcript");
     },

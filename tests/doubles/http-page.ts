@@ -173,9 +173,12 @@ export function createHttpCeremonyPage(
     // What a read-only field displays, under the rule the Playwright adapter
     // ships into the page: an editable, hidden or disabled control is never
     // read, so nothing the driver typed can come back out as an issued value.
+    // A labelled `<code>` or `<pre>` block shows its text.
     readIssued: async (element) => {
       const control = resolve(element);
       const tag = control.tagName.toLowerCase();
+      if (tag === "code" || tag === "pre")
+        return (control.textContent ?? "").trim();
       const type = (control.getAttribute("type") ?? "").toLowerCase();
       if (
         (tag !== "input" && tag !== "textarea") ||

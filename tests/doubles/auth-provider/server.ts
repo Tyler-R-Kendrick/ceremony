@@ -64,6 +64,13 @@ export type ProviderBehavior = {
    */
   offerNewsletter?: boolean;
   /**
+   * How the page that shows a newly generated personal access token names
+   * the `<code>` block it is in: `aria-label` on the block,
+   * `aria-labelledby` a heading elsewhere, or (the default) a heading right
+   * before it. Always beside a copy button, as providers ship it.
+   */
+  tokenLabel?: "aria-label" | "aria-labelledby" | "heading";
+  /**
    * Registration asks for a country or region from a required `<select>`,
    * whose first option is an empty "Select a country". The account is not
    * created without one of the listed regions.
@@ -1539,13 +1546,23 @@ export async function startAuthProvider(
         );
       const issued = `pat_${randomBytes(20).toString("hex")}`;
       tokens.set(issued, session.email);
+      const labelling = behavior.tokenLabel ?? "heading";
+      const block =
+        labelling === "aria-label"
+          ? `<pre><code data-token aria-label="Personal access token">${issued}</code></pre>`
+          : labelling === "aria-labelledby"
+            ? `<p id="token-caption">Personal access token</p>
+               <div class="token"><pre data-token aria-labelledby="token-caption">${issued}</pre></div>`
+            : `<h2>Personal access token</h2>
+               <pre><code data-token>${issued}</code></pre>`;
       return send(
         200,
         markup.page(
           "Access tokens",
           `<h1>Copy your new token</h1>
            <p>This value is shown once. Copy it into the application now.</p>
-           <code data-token>${issued}</code>`,
+           ${block}
+           <button type="button" data-copy>Copy</button>`,
         ),
       );
     }

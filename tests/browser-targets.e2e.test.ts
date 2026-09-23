@@ -79,11 +79,23 @@ function pageFor(pathname: string, origin: string): string {
 
 let provider: Recorder;
 let elsewhere: Recorder;
+/** A page showing a newly generated token in a labelled `<code>` block. */
+let shows: Recorder;
+const shownToken = "pat_4c1e9b7f2a60d8e35b17c9a0f4d2e6b8";
 const browsers = new Map<string, ManagedBrowser>();
 
 before(async () => {
   provider = await recorder((origin) => pageFor("/race", origin));
   elsewhere = await recorder(() => "<!doctype html><title>Elsewhere</title>");
+  shows = await recorder(
+    () => `<!doctype html><title>Token created</title>
+      <h1>Copy your new token</h1>
+      <h2>Personal access token</h2>
+      <pre><code>${shownToken}</code></pre>
+      <button type="button">Copy</button>
+      <code>npm install ceremony</code>
+      <code hidden aria-label="Old token">pat_hidden_never_read_0000</code>`,
+  );
   for (const engine of browserEngines)
     browsers.set(engine, await launchManagedBrowser(engine));
 });
@@ -92,6 +104,7 @@ after(async () => {
   for (const browser of browsers.values()) await browser.dispose();
   await provider.close();
   await elsewhere.close();
+  await shows.close();
 });
 
 /**
@@ -316,6 +329,36 @@ for (const engine of browserEngines) {
         assert.ok(refusal, "a formaction override must be refused");
         assert.equal(refusal.reason, "unapproved-recipient");
         assert.equal(elsewhere.received.length, before);
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("ISSUED-CODE: a labelled code block is read by its label, and its text is never in the snapshot", async () => {
+      const context = await browsers.get(engine)!.openContext();
+      try {
+        const { page } = await context.openPage();
+        await page.goto(`${shows.origin}/token`);
+        const snapshot = await page.snapshot();
+        assert.equal(JSON.stringify(snapshot).includes(shownToken), false);
+        // Only the labelled, visible block is described; prose code and a
+        // hidden block are not.
+        const blocks = snapshot.elements.filter(
+          (element) => element.type === "code",
+        );
+        assert.deepEqual(blocks, [
+          {
+            index: blocks[0]!.index,
+            kind: "input",
+            type: "code",
+            label: "Personal access token",
+            readOnly: true,
+            filled: true,
+          },
+        ]);
+        assert.equal(await page.readIssued!(blocks[0]!), shownToken);
+        // Nothing can be done to it but read it.
+        await assert.rejects(page.fill(blocks[0]!, "typed"));
       } finally {
         await context.close();
       }
