@@ -10,6 +10,7 @@ import {
   type PageSnapshot,
 } from "../../src/core/browser-contracts.js";
 import type { CeremonyPage } from "../../src/server/browser-driver.js";
+import { StaleTargetError } from "../../src/server/browser-targets.js";
 
 const run = promisify(execFile);
 
@@ -166,6 +167,37 @@ export function createAgentBrowserPage(
     },
     check: async (element) => {
       await call("check", selector(element.index));
+    },
+    // The driver chooses by the label a person sees; the CLI's `select`
+    // chooses by the option's `value`. So the label is looked up in the
+    // page, with the snapshot's own whitespace rule, and the CLI is handed
+    // the value that label carries. A label the control does not offer is
+    // refused as the Playwright adapter refuses it, never guessed at.
+    select: async (element, option) => {
+      if (element.kind !== "select")
+        throw new StaleTargetError("stale-element");
+      // An object, as the snapshot is, so the CLI's JSON output is read the
+      // same way.
+      const { value } = JSON.parse(
+        await call(
+          "eval",
+          `(() => {
+            const field = document.querySelector(${JSON.stringify(
+              selector(element.index),
+            )});
+            if (!field || field.tagName.toLowerCase() !== "select") return { value: null };
+            const wanted = ${JSON.stringify(option)};
+            const match = Array.from(field.options).find(
+              (candidate) =>
+                (candidate.textContent || "").replace(/\\s+/g, " ").trim() === wanted,
+            );
+            return { value: match ? match.value : null };
+          })()`,
+        ),
+      ) as { value: unknown };
+      if (typeof value !== "string")
+        throw new StaleTargetError("stale-element");
+      await call("select", selector(element.index), value);
     },
     click: async (element) => {
       await call("click", selector(element.index));
