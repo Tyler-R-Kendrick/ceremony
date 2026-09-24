@@ -252,7 +252,55 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
       return tx ? check(tx) : store.transaction(check);
     },
   );
-  const recipes = new RecipeService(store, registry);
+  const listConnectors = async (actor: ActorContext) => [
+    ...connections.keys(),
+    ...(await authoring.listManifests(actor)).map((item) => item.id),
+  ];
+  /**
+   * How a context resolver says a connector is not usable by this actor now:
+   * an authorization refusal, or the reference host's "choose a target
+   * first" answers, which `teaching-http` returns as 409.
+   */
+  const contextRefusal = (error: unknown) =>
+    error instanceof AuthorizationError ||
+    (error instanceof Error &&
+      ["account-required", "jira-site-required"].includes(error.message));
+  /**
+   * The connectors a draft's steps may be placed under: every connector the
+   * host resolves a context for, for this actor, with the provider and
+   * profile it resolves to. A connector whose context is refused now (not
+   * authorized, no target selected) could not run a step either, so it is
+   * not a candidate. It is listed as unavailable rather than
+   * silently dropped, so a reviewer sees which connectors were not weighed.
+   */
+  const connectorCatalog = async (actor: ActorContext) => {
+    const connectors = [];
+    const unavailable = [];
+    for (const connectorId of new Set(await listConnectors(actor))) {
+      const installed = Boolean(
+        await authoring.getInstalled(actor, connectorId),
+      );
+      try {
+        const context = await options.context(actor, connectorId, installed);
+        connectors.push({
+          connectorId,
+          provider: context.provider,
+          profile: context.profile,
+        });
+      } catch (error) {
+        // Only a refusal narrows the choice. Any other failure (a timeout, a
+        // storage error) fails the save: dropping that connector could turn
+        // a choice between two accounts into an automatic placement.
+        if (!contextRefusal(error)) throw error;
+        unavailable.push(connectorId);
+      }
+    }
+    return { connectors, unavailable };
+  };
+  const recipes = new RecipeService(store, registry, {
+    list: connectorCatalog,
+    admits: (context, id, version) => commands.admits(context, id, version),
+  });
   const authoring = new ConnectorDrafts(store, {
     fetch:
       options.authoringFetch ??
@@ -584,10 +632,7 @@ export function createTeachingRuntime(options: TeachingRuntimeOptions) {
     identity,
     origin,
     connectors: Object.freeze([...connections.keys()]),
-    listConnectors: async (actor: ActorContext) => [
-      ...connections.keys(),
-      ...(await authoring.listManifests(actor)).map((item) => item.id),
-    ],
+    listConnectors,
     commands,
     recipes,
     authoring,

@@ -199,7 +199,20 @@ export function createScriptedInterpreter(
     // A rejected code is refilled once: a newer message may have arrived.
     const retryCode =
       patterns.badCode.test(alerts) || patterns.mismatch.test(alerts);
-    const candidates = retryCode ? available_ : unfilled;
+    // A device code field the page filled from a link is one this caller
+    // still has to answer: with its own code, or by asking a person.
+    const typedHere = history.some(
+      (entry) => entry.action === "fill" && entry.path === snapshot.path,
+    );
+    const prefilledDevice = available_.filter(
+      (element) =>
+        element.filled === true &&
+        !typedHere &&
+        roleOf(element, available_) === "user-code",
+    );
+    const candidates = retryCode
+      ? available_
+      : [...unfilled, ...prefilledDevice];
 
     let awaited: SnapshotElement | undefined;
     for (const element of candidates) {
@@ -223,7 +236,7 @@ export function createScriptedInterpreter(
       if (!has(role)) {
         // The code a device shows is on the device, not in this caller's
         // hands; only a person holding it can enter it.
-        if (role === "user-code" && element.filled !== true)
+        if (role === "user-code")
           return act({ action: "blocked", reason: "device-code-required" });
         // A confirmation field with no code on offer means the confirmation
         // arrives out of band; waiting is the only honest move.
@@ -231,7 +244,12 @@ export function createScriptedInterpreter(
           awaited = element;
         continue;
       }
-      if (element.filled === true && !retryCode) continue;
+      if (
+        element.filled === true &&
+        !retryCode &&
+        !prefilledDevice.includes(element)
+      )
+        continue;
       return act({ action: "fill", element: element.index, role });
     }
     if (awaited && count(history, "wait") < 4)

@@ -564,6 +564,14 @@ export const discoveredAuthSchema = z.object({
   /** How a collected key or password is checked against the provider. */
   credentialVerification: credentialVerificationSchema.optional(),
   /**
+   * Origins at which a window the provider's sign-in page opens is where the
+   * login continues - "Sign in with ..." in a popup. Declared with the
+   * connector and never discovered from a page. Each is also a navigation
+   * origin for the isolated browser, which adopts a window only at one of
+   * these and refuses every other window before its first request.
+   */
+  popupOrigins: z.array(z.url()).max(4).optional(),
+  /**
    * A proposed declaration waiting for a person. It is never used to verify
    * anything; `approveAuthoredCredentialVerification` promotes it, by digest.
    */
@@ -682,6 +690,9 @@ export function withDeclaredAuth(
     ...(declared?.credentialVerification
       ? { credentialVerification: declared.credentialVerification }
       : {}),
+    // Declared with the connector, never discovered, so a refresh of the
+    // provider's metadata must not erase it.
+    ...(declared?.popupOrigins ? { popupOrigins: declared.popupOrigins } : {}),
   };
   return discoveredAuthSchema.parse({ ...found, ...kept });
 }
@@ -2303,7 +2314,11 @@ export function registerAuthoredOperations(
               discovery?.issuer,
               discovery?.authorizationEndpoint,
               context.origin,
+              ...(discovery?.popupOrigins ?? []),
             ].filter((value): value is string => Boolean(value)),
+            ...(discovery?.popupOrigins?.length
+              ? { popupOrigins: discovery.popupOrigins }
+              : {}),
             preferredUsername: intent.identifier,
             ...(registering
               ? {
@@ -2774,7 +2789,11 @@ export function registerAuthoredOperations(
                 attemptDiscovery.issuer ?? "",
                 attemptDiscovery.authorizationEndpoint ?? "",
                 context.origin,
+                ...(attemptDiscovery.popupOrigins ?? []),
               ].filter(Boolean),
+              ...(attemptDiscovery.popupOrigins?.length
+                ? { popupOrigins: attemptDiscovery.popupOrigins }
+                : {}),
               onEvent: log,
               vault: {
                 stage: (account) =>

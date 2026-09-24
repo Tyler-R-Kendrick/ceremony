@@ -11,8 +11,13 @@ function discover(directory, suffix) {
   );
 }
 const mode = process.argv[2] ?? "all";
+// tests/workflow/ runs under its own compiler, and tests/python-client/ needs
+// the pinned Python generator: each has its own CI job, so the default run
+// neither skips them nor fails on them.
 const all = discover("tests", ".test.ts").filter(
-  (file) => !file.startsWith("tests/workflow/"),
+  (file) =>
+    !file.startsWith("tests/workflow/") &&
+    !file.startsWith("tests/python-client/"),
 );
 const patterns = {
   all: /.*/,

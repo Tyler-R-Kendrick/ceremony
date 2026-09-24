@@ -1,6 +1,12 @@
 import { z } from "zod";
 import { encodePathSegment } from "../../../../core/connectors/index.js";
 import type { AdapterCallContext } from "../../adapter.js";
+import {
+  grantClientCredentials,
+  issuerPolicy,
+  resolveAuthorizationServer,
+  resolveClientRegistration,
+} from "../../auth/index.js";
 import { destinationUrl, type ApprovedDestination } from "../../binding.js";
 import { ConnectorError } from "../../errors.js";
 import type { CredentialMaterial, CredentialScope } from "../../ports.js";
@@ -11,7 +17,6 @@ import {
   sha256Hex,
   type PipedreamEnvironment,
 } from "./identity.js";
-import { oauthTokenSchema } from "./wire.js";
 
 /*
  * The wire layer. Every request goes to the binding's approved `api`
@@ -19,8 +24,9 @@ import { oauthTokenSchema } from "./wire.js";
  * signal; every project-scoped request carries the configured environment
  * header; every authenticated request runs inside the custody port's `use`
  * with the project access token, which is minted through the documented
- * client-credentials grant, cached by reference only, rotated under a single
- * flight, and never returned to a caller. Responses are read within a byte
+ * client-credentials grant - by the shared OAuth engine, whose JSON request
+ * encoding this provider's token endpoint needs - cached by reference only,
+ * rotated under a single flight, and never returned to a caller. Responses are read within a byte
  * limit and reduced to a status, headers and parsed JSON; upstream text never
  * becomes an error message.
  */
@@ -137,6 +143,28 @@ type Wire = {
 
 class WorkFailure {
   constructor(readonly error: unknown) {}
+}
+
+/**
+ * The engine's failure, in this provider's vocabulary. A refusal is the
+ * provider rejecting this client; an answer that is not a token response is
+ * malformed; anything that never reached the provider, or timed out, is the
+ * provider being unavailable. Nothing the provider said is repeated.
+ */
+function pipedreamOAuthFailure(error: unknown): unknown {
+  if (!(error instanceof ConnectorError)) return error;
+  const detail = error.detail ?? "";
+  if (error.code === "upstream-rejected")
+    return new ConnectorError("upstream-rejected", {
+      detail: detail.endsWith(".invalid-response")
+        ? "pipedream.oauth.malformed"
+        : "pipedream.oauth.rejected",
+    });
+  if (error.code === "upstream-unavailable")
+    return new ConnectorError("upstream-unavailable", {
+      detail: "pipedream.oauth.unavailable",
+    });
+  return error;
 }
 
 export function upstreamFailure(status: number): ConnectorError {
@@ -316,11 +344,10 @@ export class PipedreamClient {
     headers: Headers,
     body: string | undefined,
     wire: Wire,
-    token?: string,
+    token: string,
   ): Promise<PipedreamResponse> {
     const requestHeaders = new Headers(headers);
-    if (token !== undefined)
-      requestHeaders.set("authorization", `Bearer ${token}`);
+    requestHeaders.set("authorization", `Bearer ${token}`);
     const signal = AbortSignal.any([
       this.ctx.signal,
       AbortSignal.timeout(wire.timeoutMs),
@@ -524,7 +551,17 @@ export class PipedreamClient {
     return entry;
   }
 
-  /** POST /v1/oauth/token with the documented client-credentials JSON body. */
+  /**
+   * POST /v1/oauth/token: the documented client-credentials grant, through
+   * the shared engine.
+   *
+   * The engine builds, journals and reads the request like every other
+   * client-credentials grant; this provider's definition says only that its
+   * token endpoint takes a JSON body, with the client's id and secret in it
+   * (`client_secret_post`, JSON-encoded). The endpoint is the binding's
+   * approved `api` destination, pinned with discovery off, and the client is
+   * the one this deployment configured.
+   */
   private async mint(): Promise<{
     material: CredentialMaterial;
     expiresAt: number;
@@ -536,43 +573,85 @@ export class PipedreamClient {
       throw new ConnectorError("configuration-required", {
         detail: "pipedream.configuration.missing",
       });
-    const response = await this.transport(
-      this.url("/v1/oauth/token"),
-      new Headers({
-        accept: "application/json",
-        "content-type": "application/json",
-      }),
-      JSON.stringify({
-        grant_type: "client_credentials",
-        client_id: this.config.clientId,
-        client_secret: secret,
-      }),
-      {
-        method: "POST",
-        timeoutMs: this.timeouts.token,
-        consequential: false,
-        bodyLimit: 64 * 1024,
+    const token = this.url("/v1/oauth/token");
+    const allowLoopbackHttp = this.destination.network === "loopback-fixture";
+    const policy = issuerPolicy({
+      issuer: token.origin,
+      discovery: "disabled",
+      allowLoopbackHttp,
+      endpoints: { token: token.href },
+      registration: {
+        allowed: ["pre-registered"],
+        clientIdConfiguration: pipedreamConfigurationNames.clientId,
+        clientSecretConfiguration: pipedreamConfigurationNames.clientSecret,
+        clientAuthentication: "client_secret_post",
       },
-    );
-    if (response.status !== 200)
-      throw response.status === 400 ||
-        response.status === 401 ||
-        response.status === 403
-        ? new ConnectorError("upstream-rejected", {
-            detail: "pipedream.oauth.rejected",
-          })
-        : upstreamFailure(response.status);
-    const parsed = oauthTokenSchema.safeParse(response.json);
-    if (!parsed.success)
+    });
+    const server = await resolveAuthorizationServer(policy, {
+      fetch: this.ctx.environment.fetch,
+      signal: this.ctx.signal,
+      now: this.ctx.environment.now,
+      tenantId: this.ctx.actor.tenantId,
+    });
+    const client = await resolveClientRegistration({
+      actor: this.ctx.actor,
+      policy,
+      server,
+      // No redirect happens in this grant; the client is simply the
+      // configured one, and this is the only address it could name.
+      redirectUri: `${this.ctx.environment.origin}/api/v1/connectors/callback`,
+      hostOrigin: this.ctx.environment.origin,
+      configuration: this.ctx.environment.configuration,
+      fetch: this.ctx.environment.fetch,
+      signal: this.ctx.signal,
+      now: this.ctx.environment.now,
+    });
+    let granted: Awaited<ReturnType<typeof grantClientCredentials>>;
+    try {
+      granted = await grantClientCredentials(
+        {
+          ...this.ctx,
+          signal: AbortSignal.any([
+            this.ctx.signal,
+            AbortSignal.timeout(this.timeouts.token),
+          ]),
+        },
+        {
+          server,
+          client,
+          policy,
+          scopes: [],
+          scope: this.tokenScope(),
+          requestEncoding: "json",
+        },
+      );
+    } catch (error) {
+      // Throttled at the token endpoint is throttled everywhere: hold every
+      // request for this project, as a 429 anywhere else does.
+      const status = (
+        error instanceof ConnectorError
+          ? (error.cause as { status?: unknown } | undefined)
+          : undefined
+      )?.status;
+      if (status === 429) {
+        this.hold(null);
+        throw new ConnectorError("rate-limited", {
+          detail: "pipedream.rate-limited",
+        });
+      }
+      throw pipedreamOAuthFailure(error);
+    }
+    if (granted.expiresAt === undefined)
       throw new ConnectorError("upstream-rejected", {
         detail: "pipedream.oauth.malformed",
       });
     const now = this.ctx.environment.now();
     return {
-      material: { access_token: parsed.data.access_token },
-      expiresAt:
-        now +
-        Math.max(5_000, parsed.data.expires_in * 1000 - TOKEN_EXPIRY_SKEW_MS),
+      material: granted.material,
+      expiresAt: Math.max(
+        now + 5_000,
+        granted.expiresAt - TOKEN_EXPIRY_SKEW_MS,
+      ),
     };
   }
 }

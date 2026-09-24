@@ -341,6 +341,17 @@ function authSchema(options: ParseOptions) {
        * an `audience`. Values may fill declared connection fields only.
        */
       tokenParams: parameterRecord(RESERVED_TOKEN_PARAMETERS).default({}),
+      /**
+       * Static extra parameters for refresh requests only (Nango's
+       * `refresh_params`), under the same rules as `tokenParams`: nothing the
+       * refresh grant owns - its grant type, the refresh token, client
+       * authentication, scope, resource - can be named.
+       *
+       * Optional with no default, unlike `tokenParams`: an entry digested
+       * before this field existed must digest the same after, or every
+       * binding approved against it would stop resolving.
+       */
+      refreshParams: parameterRecord(RESERVED_TOKEN_PARAMETERS).optional(),
       tokenRequestAuth: z
         .enum(["client_secret_basic", "client_secret_post", "none"])
         .default("client_secret_post"),
@@ -478,6 +489,7 @@ export function entrySchemaFor(options: ParseOptions = {}) {
         values.push(
           ...Object.values(auth.authorizationParams),
           ...Object.values(auth.tokenParams),
+          ...Object.values(auth.refreshParams ?? {}),
         );
         if (auth.issuer && referencedFields(auth.issuer).fields.length)
           fail("catalog.issuer.templated");
@@ -743,6 +755,7 @@ export function requiredFields(entry: ProviderCatalogEntry): string[] {
     templates.push(
       ...Object.values(auth.authorizationParams),
       ...Object.values(auth.tokenParams),
+      ...Object.values(auth.refreshParams ?? {}),
     );
   }
   if (auth.mode === "oauth2-client-credentials")

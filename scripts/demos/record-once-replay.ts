@@ -146,6 +146,8 @@ export async function record(session: DemoSession) {
         "agent",
       ),
       allowedOrigins: [provider.origin],
+      // The advance consent the title card states.
+      consents: session.entry.consents ?? [],
       protectedValues: [firstAccount.password],
       verify: () => provider.verifyAccess(first),
       onApplied: (entry) => {
@@ -225,6 +227,8 @@ export async function record(session: DemoSession) {
         "replay",
       ),
       allowedOrigins: [provider.origin],
+      // The advance consent the title card states.
+      consents: session.entry.consents ?? [],
       protectedValues: [secondAccount.password],
       verify: () => provider.verifyAccess(second),
       onApplied: session.applied,

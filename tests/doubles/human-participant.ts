@@ -1,4 +1,7 @@
-import { deviceVerificationField } from "../../src/core/browser-contracts.js";
+import {
+  checkboxConsent,
+  deviceVerificationField,
+} from "../../src/core/browser-contracts.js";
 import type {
   CeremonyPage,
   HumanParticipation,
@@ -116,6 +119,20 @@ export function createHumanParticipant(
           chose = true;
         }
         return chose ? "completed" : "unavailable";
+      }
+      // A person reads the terms they were asked about and ticks them
+      // themselves - that tick is theirs, which is the whole point of asking.
+      // The newsletter stays as they found it, and the agent submits.
+      if (request.reason === "consent") {
+        let ticked = false;
+        for (const element of snapshot.elements) {
+          if (element.kind !== "checkbox" || element.filled) continue;
+          const consent = checkboxConsent(element);
+          if (consent.marketing || consent.kinds.length === 0) continue;
+          await page.check(element);
+          ticked = true;
+        }
+        return ticked ? "completed" : "unavailable";
       }
 
       const control = snapshot.elements.find(

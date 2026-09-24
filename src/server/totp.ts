@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 
 /**
  * Time-based one-time passwords (RFC 6238), computed from a seed the host
@@ -8,8 +8,10 @@ import { createHmac } from "node:crypto";
  * for it: a person reading their phone. A host that *holds* the enrolment seed
  * — because the account is a service account it enrolled itself — can compute
  * the same code, and this module is that computation and nothing else. It does
- * not fetch, store or log anything, so the only way a seed or a code leaves it
- * is through the caller that asked.
+ * not fetch or log anything and keeps no seed or code, so the only way either
+ * leaves it is through the caller that asked. The one thing it remembers is
+ * which time step it last issued a code for, per seed digest, so that it never
+ * issues the same code twice (`nextTotpCode`).
  *
  * The seed is the long-lived secret here, not the code. A code is valid for one
  * period; a seed mints every future code. Callers treat it accordingly: it is
@@ -150,6 +152,74 @@ export function parseTotpSeed(held: string): TotpParameters {
 /** The code a held seed produces at `atMs`. */
 export function totpCode(held: string, atMs: number): string {
   return totp(parseTotpSeed(held), atMs);
+}
+
+/**
+ * The last time step this process issued a code for, per seed. Keyed by a
+ * digest of the seed's parameters, never the seed, and bounded.
+ */
+const issuedSteps = new Map<string, number>();
+const issuedLimit = 1024;
+
+/** The clock did not reach a new period while a code was waited for. */
+export class TotpClockStalled extends Error {
+  constructor() {
+    super("The clock did not reach a new TOTP period");
+    this.name = "TotpClockStalled";
+  }
+}
+
+/**
+ * The code to type now, never one this process already issued.
+ *
+ * A verifier accepts a code once: RFC 6238 section 5.2 has it refuse a code
+ * for a time step it already accepted one for. Two answers from one seed in
+ * the same period - the code that confirmed an enrolment, then the first
+ * sign-in; two sign-ins in a row - would send the same code twice, and the
+ * second is refused. So when the current period's code was already issued,
+ * this waits for the next period, as a person reading an authenticator
+ * would, and issues that one. A code is recorded when it is issued, whether
+ * or not it was then submitted, because nothing here can tell.
+ *
+ * The record is this process's only: another process holding the same seed
+ * does not see it, and its code may be refused instead.
+ */
+export async function nextTotpCode(
+  held: string,
+  options: {
+    now?: () => number;
+    sleep?: (ms: number) => Promise<void>;
+  } = {},
+): Promise<string> {
+  const now = options.now ?? Date.now;
+  const sleep =
+    options.sleep ??
+    ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const parameters = parseTotpSeed(held);
+  const key = createHash("sha256")
+    .update(parameters.secret)
+    .update(
+      `/${parameters.algorithm}/${parameters.digits}/${parameters.period}`,
+    )
+    .digest("hex");
+  const periodMs = parameters.period * 1000;
+  // Two waits reach the next period on any clock that moves.
+  for (let waits = 0; ; waits++) {
+    const at = now();
+    const step = Math.floor(at / periodMs);
+    const last = issuedSteps.get(key);
+    if (last === undefined || step > last) {
+      issuedSteps.delete(key);
+      issuedSteps.set(key, step);
+      if (issuedSteps.size > issuedLimit)
+        issuedSteps.delete(issuedSteps.keys().next().value!);
+      return totp(parameters, at);
+    }
+    if (waits >= 2) throw new TotpClockStalled();
+    // A little past the boundary, so a clock that lags this one's by a few
+    // milliseconds is in the new period too.
+    await sleep((last + 1) * periodMs - at + 250);
+  }
 }
 
 /**

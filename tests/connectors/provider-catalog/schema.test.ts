@@ -310,6 +310,17 @@ test("the entry refuses reserved parameters, credential headers and undeclared f
         },
       }),
     ]),
+    ...["refresh_token", "grant_type", "client_secret", "scope"].map(
+      (name): [string, ProviderCatalogEntryInput] => [
+        `reserved refresh parameter ${name}`,
+        oauthEntry({
+          auth: {
+            ...(oauthEntry().auth as object),
+            refreshParams: { [name]: "chosen-elsewhere" },
+          },
+        }),
+      ],
+    ),
     [
       "unknown key",
       { ...oauthEntry(), extra: true } as ProviderCatalogEntryInput,

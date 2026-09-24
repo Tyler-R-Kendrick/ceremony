@@ -58,6 +58,19 @@ export type ProviderBehavior = {
   /** Registration requires accepting terms before the account is created. */
   requireTerms?: boolean;
   /**
+   * Registration offers an optional "send me product news and offers" box,
+   * and remembers who ticked it. A marketing opt-in is never an agent's to
+   * tick, so a scenario can check nobody did.
+   */
+  offerNewsletter?: boolean;
+  /**
+   * How the page that shows a newly generated personal access token names
+   * the `<code>` block it is in: `aria-label` on the block,
+   * `aria-labelledby` a heading elsewhere, or (the default) a heading right
+   * before it. Always beside a copy button, as providers ship it.
+   */
+  tokenLabel?: "aria-label" | "aria-labelledby" | "heading";
+  /**
    * Registration asks for a country or region from a required `<select>`,
    * whose first option is an empty "Select a country". The account is not
    * created without one of the listed regions.
@@ -71,6 +84,23 @@ export type ProviderBehavior = {
    * and what a caller holding the seed can answer.
    */
   totpSeed?: string;
+  /**
+   * Every account must have an authenticator app. One without an enrolled
+   * seed is sent to "Set up two-factor authentication" before its session is
+   * complete - right after its address is confirmed at registration, or at
+   * its next sign-in. The page shows a fresh RFC 6238 seed as a setup key and
+   * turns the factor on only for a code from it; from then on that account's
+   * sign-in asks for a code from its own seed.
+   */
+  enrollTotp?: boolean;
+  /**
+   * Accept an authenticator code again within its window. Off by default:
+   * RFC 6238 section 5.2 has a verifier refuse a code once one for the same
+   * or a later time step was accepted, so a second sign-in in the same
+   * thirty seconds needs the next code. Only for fixtures that sign in to
+   * one account many times in a row and are not about the second factor.
+   */
+  acceptReusedTotp?: boolean;
   /**
    * Sign-in asks for the identifier alone, then shows the password on its
    * own page - the identifier-first shape most large providers use.
@@ -170,7 +200,14 @@ export type MailMessage = {
   at: number;
 };
 
-export type Account = SeedAccount & { verified: boolean; totp: string };
+export type Account = SeedAccount & {
+  verified: boolean;
+  totp: string;
+  /** The authenticator seed this account enrolled, under `enrollTotp`. */
+  totpSeed?: string;
+  /** The last time step a code from its seed was accepted for. */
+  totpStep?: number;
+};
 
 export type ProviderDouble = {
   origin: string;
@@ -202,12 +239,34 @@ export type ProviderDouble = {
   };
   deviceUrl(userCode: string): string;
   issueDeviceCode(): string;
+  /**
+   * Ask for device authorization over HTTP, as a device does (RFC 8628
+   * section 3.1). The device shows `user_code` and `verification_uri`.
+   */
+  requestDevice(
+    clientId: string,
+    scope?: string,
+  ): Promise<{
+    device_code: string;
+    user_code: string;
+    verification_uri: string;
+    verification_uri_complete: string;
+    expires_in: number;
+    interval: number;
+  }>;
+  /** Poll the token endpoint once with a device code, as the device does. */
+  pollDevice(
+    clientId: string,
+    deviceCode: string,
+  ): Promise<{ status: number; body: Record<string, unknown> }>;
   /** User codes issued so far, oldest first: what each device showed. */
   issuedDeviceCodes(): readonly string[];
   /** Which account approved a device's user code, if one has. */
   deviceApprovedBy(userCode: string): string | undefined;
   /** The region an address registered with, when registration asked. */
   regionOf(email: string): string | undefined;
+  /** Addresses whose registration ticked the newsletter box. */
+  newsletterSubscribers(): readonly string[];
   account(email: string): Account | undefined;
   accounts(): readonly Account[];
   mailbox: {
@@ -326,6 +385,37 @@ const hashSecret = (secret: string) =>
 const digits = (length: number) =>
   Array.from({ length }, () => randomInt(0, 10)).join("");
 
+/**
+ * The time step whose code from this seed `code` is, looking one period
+ * either side of now as providers allow for clock skew, or `undefined`.
+ */
+const totpStepOf = (seed: string, code: string): number | undefined => {
+  for (const skew of [-30_000, 0, 30_000]) {
+    const at = Date.now() + skew;
+    if (totpCode(seed, at) === code) return Math.floor(at / 30_000);
+  }
+  return undefined;
+};
+
+/**
+ * An RFC 8628 user code: eight characters from twenty consonants (section
+ * 6.1), so it cannot spell a word and survives being read off a TV.
+ */
+function newUserCode(): string {
+  const alphabet = "BCDFGHJKLMNPQRSTVWXZ";
+  return Array.from({ length: 8 }, () => alphabet[randomInt(20)]).join("");
+}
+
+/** A fresh 160-bit enrolment seed in RFC 4648 base32, as setup pages show. */
+function newTotpSeed(): string {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let bits = "";
+  for (const byte of randomBytes(20)) bits += byte.toString(2).padStart(8, "0");
+  return (bits.match(/.{5}/g) ?? [])
+    .map((chunk) => alphabet[parseInt(chunk, 2)])
+    .join("");
+}
+
 export async function startAuthProvider(
   behavior: ProviderBehavior = {},
 ): Promise<ProviderDouble> {
@@ -343,7 +433,15 @@ export async function startAuthProvider(
       verified: seeded.verified ?? true,
       totp: digits(6),
     });
-  const sessions = new Map<string, { email: string; factors: number }>();
+  /**
+   * A session, and how far it is. `factors` below 2 is a second factor still
+   * owed; `setup` means that factor is an authenticator not yet enrolled, and
+   * `seed` is the one its setup page is showing.
+   */
+  const sessions = new Map<
+    string,
+    { email: string; factors: number; setup?: boolean; seed?: string }
+  >();
   const pending = new Map<string, PendingRegistration>();
   const requests = new Map<string, AuthorizationRequest>();
   const grants = new Map<
@@ -358,9 +456,30 @@ export async function startAuthProvider(
       actor: string;
     }
   >();
-  const devices = new Map<string, { approved: boolean; email?: string }>();
+  /**
+   * Devices by user code (upper case, no separator). One that came through
+   * the device authorization endpoint carries its client and device code, and
+   * is approved only on a consent screen naming that client; one from
+   * `issueDeviceCode` is approved by entering its code.
+   */
+  const devices = new Map<
+    string,
+    {
+      approved: boolean;
+      email?: string;
+      denied?: boolean;
+      clientId?: string;
+      deviceCode?: string;
+      scope?: string;
+      expiresAt?: number;
+    }
+  >();
+  /** Device consent screens shown, by request id, to the code they are for. */
+  const deviceConsents = new Map<string, string>();
   /** Region chosen at registration, by address. */
   const regions = new Map<string, string>();
+  const newsletter = new Set<string>();
+  const newsletterField = "news_opt_in";
   /** Identifier-first: which account a browser named before its password. */
   const identified = new Map<string, string>();
   /** Challenge tokens issued, and the browsers that have cleared one. */
@@ -497,11 +616,24 @@ export async function startAuthProvider(
       response.writeHead(302, { location, ...withCookies(headers) });
       response.end();
     };
-    const openSession = (email: string, factors: number) => {
+    const openSession = (email: string, factors: number, setup = false) => {
       const id = randomBytes(16).toString("hex");
-      sessions.set(id, { email, factors });
+      sessions.set(id, setup ? { email, factors, setup } : { email, factors });
       return `sid=${id}; Path=/; HttpOnly`;
     };
+    /** Where a session still owed an authenticator's enrolment goes. */
+    const setupPath = (target: string) =>
+      `/mfa/setup?next=${encodeURIComponent(target)}`;
+    /**
+     * An account whose address was just confirmed: signed in, or - when every
+     * account needs an authenticator - first sent to set one up.
+     */
+    const confirmedSession = (email: string) =>
+      behavior.enrollTotp
+        ? redirect(setupPath(next), {
+            "set-cookie": openSession(email, 1, true),
+          })
+        : redirect(next, { "set-cookie": openSession(email, 2) });
 
     const challengePage = (status = 200) => {
       // The widget is the real obstacle; the form beside it is what a person
@@ -642,6 +774,9 @@ export async function startAuthProvider(
             ...(error ? { error } : {}),
             inUse: error === markup.messages.emailInUse,
             ...(behavior.requireRegion ? { regions: regionList } : {}),
+            ...(behavior.offerNewsletter
+              ? { newsletter: newsletterField }
+              : {}),
           }),
         );
       const fields = markup.arrange("sign-up", [
@@ -690,6 +825,14 @@ export async function startAuthProvider(
           : []),
         ...(behavior.requireTerms
           ? [markup.checkbox(markup.labels.terms, markup.names.terms)]
+          : []),
+        ...(behavior.offerNewsletter
+          ? [
+              markup.checkbox(
+                "Send me product news and special offers",
+                newsletterField,
+              ),
+            ]
           : []),
       ]);
       send(
@@ -777,18 +920,39 @@ export async function startAuthProvider(
             ),
           );
 
-    /** Whether a submitted second factor is the one this account expects. */
-    const codeAccepted = (account: Account, code: string) =>
-      behavior.totpSeed
-        ? [-30_000, 0, 30_000].some(
-            (skew) => totpCode(behavior.totpSeed!, Date.now() + skew) === code,
-          )
-        : code === account.totp;
+    /**
+     * Whether a submitted second factor is the one this account expects, and
+     * if so, spend it: a code from a seed is accepted once, and never after
+     * a code for the same or a later time step (RFC 6238 section 5.2).
+     */
+    const acceptCode = (account: Account, code: string) => {
+      const seed = account.totpSeed ?? behavior.totpSeed;
+      if (!seed) return code === account.totp;
+      const step = totpStepOf(seed, code);
+      if (step === undefined) return false;
+      if (
+        !behavior.acceptReusedTotp &&
+        account.totpStep !== undefined &&
+        step <= account.totpStep
+      )
+        return false;
+      account.totpStep = step;
+      return true;
+    };
 
-    /** A verified account's password was accepted: the second factor, or in. */
+    /**
+     * A verified account's password was accepted: the second factor, its
+     * enrolment, or in. An account that enrolled an authenticator is asked
+     * for a code from it whatever `requireMfa` says.
+     */
     const signedIn = (found: Account) => {
-      const cookie = openSession(found.email, behavior.requireMfa ? 1 : 2);
-      if (behavior.requireMfa) {
+      const owed = behavior.requireMfa === true || found.totpSeed !== undefined;
+      if (!owed && behavior.enrollTotp)
+        return redirect(setupPath(next), {
+          "set-cookie": openSession(found.email, 1, true),
+        });
+      const cookie = openSession(found.email, owed ? 1 : 2);
+      if (owed) {
         const id = cookie.slice("sid=".length, cookie.indexOf(";"));
         return mfaPage(id, next);
       }
@@ -810,14 +974,23 @@ export async function startAuthProvider(
       return confirmPage(token, next, markup.messages.unverified);
     };
 
+    /** The page a person sees once a device they are connecting is approved. */
+    const deviceConnected = (email: string) =>
+      markup.pages
+        ? markup.pages.deviceConnected()
+        : markup.page(
+            "Device connected",
+            `<h1>You are signed in</h1><p data-account="${markup.escape(email)}">The device is now approved.</p>`,
+          );
+
     const dashboard = (email: string) =>
       send(
         200,
         markup.page(
           "Account",
           `<h1>You are signed in</h1>
-           <p data-account="${markup.escape(email)}">Signed in as ${markup.escape(email)}.</p>
-           <form method="post" action="/signout"><button type="submit">Sign out</button></form>`,
+           <p class="subtitle" data-account="${markup.escape(email)}">Signed in as ${markup.escape(email)}.</p>
+           <form method="post" action="/signout"><button type="submit" class="btn btn-secondary btn-block">Sign out</button></form>`,
         ),
       );
 
@@ -904,7 +1077,8 @@ export async function startAuthProvider(
     if (url.pathname === "/") {
       const session = sessionOf(request);
       if (!session) return redirect("/signin");
-      if (behavior.requireMfa && session.factors < 2) return redirect("/mfa");
+      if (session.factors < 2)
+        return redirect(session.setup ? setupPath("/") : "/mfa");
       return dashboard(session.email);
     }
 
@@ -977,18 +1151,69 @@ export async function startAuthProvider(
       return json(200, { account: account?.username ?? session.email });
     }
 
+    // An authenticator is set up here before the session is complete. The
+    // seed is generated once per session and shown until a code from it
+    // arrives; only then is it the account's, and the factor on.
+    if (url.pathname === "/mfa/setup") {
+      const session = sessionOf(request);
+      if (!session) return redirect(`/signin?next=${encodeURIComponent(next)}`);
+      const account = accounts.get(session.email.toLowerCase());
+      if (!session.setup || !account) return redirect(next);
+      const seed = (session.seed ??= newTotpSeed());
+      if (method === "POST") {
+        const step = totpStepOf(
+          seed,
+          (body.get(markup.names.code) ?? "").trim(),
+        );
+        if (step !== undefined) {
+          // The code that turned the factor on is spent like any other.
+          account.totpSeed = seed;
+          account.totpStep = step;
+          session.factors = 2;
+          delete session.setup;
+          delete session.seed;
+          return redirect(next);
+        }
+      }
+      const error = method === "POST" ? markup.messages.badCode : undefined;
+      const setupKey = seed.match(/.{1,4}/g)!.join(" ");
+      const action = setupPath(next);
+      if (markup.pages)
+        return send(
+          200,
+          markup.pages.enrollAuthenticator({
+            action,
+            setupKey,
+            account: account.email,
+            ...(error ? { error } : {}),
+          }),
+        );
+      return send(
+        200,
+        markup.page(
+          "Set up two-factor authentication",
+          `${markup.alert(error)}
+           <h1>Set up two-factor authentication</h1>
+           <p>Add this key to your authenticator app, then enter the code it shows.</p>
+           <form method="post" action="${action}">
+             <label for="setup_key">Setup key</label> <input id="setup_key" type="text" value="${setupKey}" readonly>
+             ${markup.field(markup.labels.totp, markup.names.code, "text", "required")}
+             <button type="submit">${markup.captions.submitCode}</button>
+           </form>`,
+        ),
+      );
+    }
+
     if (url.pathname === "/mfa") {
       const session = sessionOf(request);
       if (!session) return redirect("/signin");
+      if (session.setup) return redirect(setupPath(next));
       if (method === "GET") {
         const id = cookies(request)["sid"] ?? "";
         return mfaPage(id, next);
       }
       const account = accounts.get(session.email.toLowerCase());
-      if (
-        !account ||
-        !codeAccepted(account, body.get(markup.names.code) ?? "")
-      ) {
+      if (!account || !acceptCode(account, body.get(markup.names.code) ?? "")) {
         const id = cookies(request)["sid"] ?? "";
         return mfaPage(id, next, markup.messages.badCode);
       }
@@ -1019,6 +1244,8 @@ export async function startAuthProvider(
       if (accounts.has(email))
         return signUpPage(next, markup.messages.emailInUse);
       if (behavior.requireRegion) regions.set(email, region);
+      if (behavior.offerNewsletter && body.get(newsletterField) === "yes")
+        newsletter.add(email);
       const username = email.split("@")[0] ?? email;
       if (verification === "none") {
         accounts.set(email, {
@@ -1028,7 +1255,7 @@ export async function startAuthProvider(
           verified: true,
           totp: digits(6),
         });
-        return redirect(next, { "set-cookie": openSession(email, 2) });
+        return confirmedSession(email);
       }
       const token = randomBytes(12).toString("hex");
       const code = digits(6);
@@ -1057,7 +1284,7 @@ export async function startAuthProvider(
           verified: true,
           totp: digits(6),
         });
-        return redirect(next, { "set-cookie": openSession(record.email, 2) });
+        return confirmedSession(record.email);
       }
       const token = url.searchParams.get("p") ?? "";
       const record = pending.get(token);
@@ -1073,7 +1300,7 @@ export async function startAuthProvider(
         verified: true,
         totp: digits(6),
       });
-      return redirect(next, { "set-cookie": openSession(record.email, 2) });
+      return confirmedSession(record.email);
     }
 
     if (url.pathname === "/authorize") {
@@ -1100,7 +1327,8 @@ export async function startAuthProvider(
           );
       }
       const session = sessionOf(request);
-      if (!session || (behavior.requireMfa && session.factors < 2))
+      if (session?.setup) return redirect(setupPath(url.pathname + url.search));
+      if (!session || session.factors < 2)
         return redirect(
           `/signin?next=${encodeURIComponent(url.pathname + url.search)}`,
         );
@@ -1198,6 +1426,41 @@ export async function startAuthProvider(
       return redirect(target.href);
     }
 
+    // RFC 8628 section 3.4-3.5: the device polls with its device code until a
+    // person has approved or refused it. The token is issued once, to the
+    // client the code was issued to; after that the code is spent.
+    if (
+      url.pathname === "/token" &&
+      method === "POST" &&
+      body.get("grant_type") === "urn:ietf:params:oauth:grant-type:device_code"
+    ) {
+      const presented = body.get("device_code") ?? "";
+      const entry = [...devices.entries()].find(
+        ([, device]) => presented !== "" && device.deviceCode === presented,
+      );
+      const device = entry?.[1];
+      if (!device || device.clientId !== body.get("client_id"))
+        return json(400, { error: "invalid_grant" });
+      if (device.expiresAt !== undefined && Date.now() > device.expiresAt)
+        return json(400, { error: "expired_token" });
+      if (device.denied) return json(400, { error: "access_denied" });
+      if (!device.approved || !device.email)
+        return json(400, { error: "authorization_pending" });
+      delete device.deviceCode;
+      const token = `at_${randomBytes(16).toString("hex")}`;
+      accessTokens.set(token, {
+        sub: device.email,
+        clientId: device.clientId,
+        scope: device.scope ?? "",
+      });
+      return json(200, {
+        access_token: token,
+        token_type: "Bearer",
+        expires_in: 3600,
+        scope: device.scope ?? "",
+      });
+    }
+
     if (url.pathname === "/token" && method === "POST") {
       // Under a registry, the client authenticates before anything about the
       // code is looked at, and a code redeems only for the client it was
@@ -1287,73 +1550,150 @@ export async function startAuthProvider(
       return json(200, { sub: session.email, email: session.email });
     }
 
+    // RFC 8628 section 3.1: a device asks to be authorized. It gets a device
+    // code to poll with and a short user code to show, which a person enters
+    // at the verification URI; the complete URI carries the code in its query
+    // for devices that can show a link or a QR code.
+    if (url.pathname === "/device_authorization" && method === "POST") {
+      const client = body.get("client_id") ?? "";
+      if (!client) return json(400, { error: "invalid_client" });
+      const userCode = newUserCode();
+      const deviceCode = randomBytes(32).toString("base64url");
+      devices.set(userCode, {
+        approved: false,
+        clientId: client,
+        deviceCode,
+        scope: body.get("scope") ?? "",
+        expiresAt: Date.now() + 600_000,
+      });
+      const shown = `${userCode.slice(0, 4)}-${userCode.slice(4)}`;
+      return json(200, {
+        device_code: deviceCode,
+        user_code: shown,
+        verification_uri: `${origin}/device`,
+        verification_uri_complete: `${origin}/device?user_code=${shown}`,
+        expires_in: 600,
+        interval: 5,
+      });
+    }
+
     if (url.pathname === "/device") {
+      // The code a `verification_uri_complete` link carries, when it has the
+      // shape of one: it pre-fills the field for the person to check against
+      // the device, and survives the detour through sign-in. Anything else in
+      // the query is not echoed into the page.
+      const linked = /^[A-Z0-9]{4}-?[A-Z0-9]{4}$|^[A-Z0-9]{4,8}$/i.test(
+        url.searchParams.get("user_code") ?? "",
+      )
+        ? url.searchParams.get("user_code")!.toUpperCase()
+        : undefined;
+      const here = linked
+        ? `/device?user_code=${encodeURIComponent(linked)}`
+        : "/device";
       const session = sessionOf(request);
-      if (!session)
-        return redirect(`/signin?next=${encodeURIComponent("/device")}`);
+      if (!session || session.factors < 2)
+        return redirect(`/signin?next=${encodeURIComponent(here)}`);
       // A realistic layout renders the verification page whole, in its own
-      // shell; the randomized one assembles it from parts below.
-      if (markup.pages) {
-        if (method === "GET")
-          return send(
-            200,
-            markup.pages.device({ action: "/device", account: session.email }),
-          );
-        const entered = (body.get(markup.names.userCode) ?? "")
-          .replace(/[\s-]/g, "")
-          .toUpperCase();
-        const device = devices.get(entered);
-        if (!device)
-          return send(
-            200,
-            markup.pages.device({
+      // shell; the randomized one assembles it from parts. Pre-filling is
+      // only a convenience: the device is approved by a POST, which a person
+      // makes by pressing the button, never by opening the link.
+      const form = (error?: string) =>
+        markup.pages
+          ? markup.pages.device({
               action: "/device",
               account: session.email,
-              error: markup.messages.badCode,
-            }),
-          );
-        device.approved = true;
-        device.email = session.email;
-        return send(200, markup.pages.deviceConnected());
-      }
-      if (method === "GET")
-        return send(
-          200,
-          markup.page(
-            "Connect a device",
-            `<h1>Enter the code shown on your device</h1>
-             <form method="post" action="/device">
-               ${markup.field(markup.labels.userCode, markup.names.userCode, "text", "required")}
-               <button type="submit">${markup.captions.approve}</button>
-             </form>`,
-          ),
-        );
+              ...(error ? { error } : {}),
+              ...(linked && method === "GET" ? { userCode: linked } : {}),
+            })
+          : markup.page(
+              "Connect a device",
+              `${markup.alert(error)}
+               <h1>Enter the code shown on your device</h1>
+               <form method="post" action="/device">
+                 ${markup.field(
+                   markup.labels.userCode,
+                   markup.names.userCode,
+                   "text",
+                   linked && method === "GET"
+                     ? `required value="${markup.escape(linked)}"`
+                     : "required",
+                 )}
+                 <button type="submit">${markup.captions.approve}</button>
+               </form>`,
+            );
+      if (method === "GET") return send(200, form());
       const entered = (body.get(markup.names.userCode) ?? "")
-        .trim()
+        .replace(/[\s-]/g, "")
         .toUpperCase();
       const device = devices.get(entered);
-      if (!device)
+      if (
+        !device ||
+        device.approved ||
+        device.denied ||
+        (device.expiresAt !== undefined && Date.now() > device.expiresAt)
+      )
+        return send(200, form(markup.messages.badCode));
+      // A device that asked through the endpoint names a client, and a
+      // person approves that client on a consent screen: the code only says
+      // which device, not what it may do.
+      if (device.clientId !== undefined) {
+        const requestId = randomBytes(8).toString("hex");
+        deviceConsents.set(requestId, entered);
+        const application = registry.get(device.clientId)?.name;
+        if (markup.pages)
+          return send(
+            200,
+            markup.pages.consent({
+              requestId,
+              clientId: device.clientId,
+              scope: device.scope ?? "",
+              account: session.email,
+              actor: "",
+              ...(application ? { application } : {}),
+              action: "/device/consent",
+              device: true,
+            }),
+          );
         return send(
           200,
           markup.page(
-            "Connect a device",
-            `${markup.alert(markup.messages.badCode)}
-             <h1>Enter the code shown on your device</h1>
-             <form method="post" action="/device">
-               ${markup.field(markup.labels.userCode, markup.names.userCode, "text", "required")}
-               <button type="submit">${markup.captions.approve}</button>
+            "Authorize",
+            `<h1>${markup.headings.consent}</h1>
+             <p>${markup.escape(application ?? device.clientId)} on your device is requesting ${markup.escape(device.scope || "access")}.</p>
+             <form method="post" action="/device/consent">
+               <input type="hidden" name="r" value="${requestId}">
+               <button type="submit" name="decision" value="allow">${markup.captions.approve}</button>
+               <button type="submit" name="decision" value="deny">${markup.captions.deny}</button>
              </form>`,
           ),
         );
+      }
       device.approved = true;
       device.email = session.email;
-      return send(
-        200,
-        markup.page(
-          "Device connected",
-          `<h1>You are signed in</h1><p data-account="${markup.escape(session.email)}">The device is now approved.</p>`,
-        ),
-      );
+      return send(200, deviceConnected(session.email));
+    }
+
+    if (url.pathname === "/device/consent" && method === "POST") {
+      const session = sessionOf(request);
+      const requestId = body.get("r") ?? "";
+      const userCode = deviceConsents.get(requestId);
+      const device = userCode ? devices.get(userCode) : undefined;
+      if (!session || session.factors < 2 || !device)
+        return redirect("/device");
+      deviceConsents.delete(requestId);
+      if (body.get("decision") !== "allow") {
+        device.denied = true;
+        return send(
+          200,
+          markup.page(
+            "Device not connected",
+            `<h1>Device not connected</h1><p>You cancelled the request. The device was not given access.</p>`,
+          ),
+        );
+      }
+      device.approved = true;
+      device.email = session.email;
+      return send(200, deviceConnected(session.email));
     }
 
     // A person clears the widget in the same browser they were handed. The
@@ -1384,7 +1724,7 @@ export async function startAuthProvider(
       url.pathname.startsWith(`${oauthAppsPath}/`)
     ) {
       const session = sessionOf(request);
-      if (!session || (behavior.requireMfa && session.factors < 2))
+      if (!session || session.factors < 2)
         return redirect(
           `/signin?next=${encodeURIComponent(url.pathname + url.search)}`,
         );
@@ -1516,13 +1856,23 @@ export async function startAuthProvider(
         );
       const issued = `pat_${randomBytes(20).toString("hex")}`;
       tokens.set(issued, session.email);
+      const labelling = behavior.tokenLabel ?? "heading";
+      const block =
+        labelling === "aria-label"
+          ? `<pre><code data-token aria-label="Personal access token">${issued}</code></pre>`
+          : labelling === "aria-labelledby"
+            ? `<p id="token-caption">Personal access token</p>
+               <div class="token"><pre data-token aria-labelledby="token-caption">${issued}</pre></div>`
+            : `<h2>Personal access token</h2>
+               <pre><code data-token>${issued}</code></pre>`;
       return send(
         200,
         markup.page(
           "Access tokens",
           `<h1>Copy your new token</h1>
            <p>This value is shown once. Copy it into the application now.</p>
-           <code data-token>${issued}</code>`,
+           ${block}
+           <button type="button" data-copy>Copy</button>`,
         ),
       );
     }
@@ -1850,6 +2200,33 @@ export async function startAuthProvider(
       return device?.approved ? device.email : undefined;
     },
     regionOf: (email) => regions.get(email.toLowerCase()),
+    requestDevice: async (client, scope = "openid profile") => {
+      const response = await fetch(`${origin}/device_authorization`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ client_id: client, scope }).toString(),
+      });
+      if (!response.ok) throw new Error("Device authorization was refused");
+      return (await response.json()) as Awaited<
+        ReturnType<ProviderDouble["requestDevice"]>
+      >;
+    },
+    pollDevice: async (client, deviceCode) => {
+      const response = await fetch(`${origin}/token`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+          device_code: deviceCode,
+          client_id: client,
+        }).toString(),
+      });
+      return {
+        status: response.status,
+        body: (await response.json()) as Record<string, unknown>,
+      };
+    },
+    newsletterSubscribers: () => [...newsletter],
     issueDeviceCode: () => {
       const code = randomBytes(3).toString("hex").toUpperCase();
       devices.set(code, { approved: false });

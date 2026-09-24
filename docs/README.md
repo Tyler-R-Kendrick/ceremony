@@ -14,6 +14,7 @@
 - [Connector dialects and versions](specifications/connector-dialects.md): which document dialects and protocol revisions are read, which subset of each can execute, and how to migrate when one moves.
 - [Connector support matrix](specifications/connector-support-matrix.md): per-adapter, per-dimension support, generated from the adapters and the ledgers.
 - [Provider catalog](provider-catalog.md): providers described as data, Nango `providers.yaml` import, and declared endpoints approved at binding review.
+- [Operation packs](operation-packs.md): new recipe steps from a signed, host-loaded manifest and a sandboxed handler — format, signing, trust configuration, sandbox limits, and what a pack can and cannot do.
 
 ## Develop and operate
 

@@ -9,6 +9,15 @@ import {
   type CaptionEvent,
   type PanelEvent,
 } from "../scripts/demos/captions.js";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import {
+  deviceScreen,
+  pollInterval,
+  startDevice,
+  type DeviceScreen,
+} from "../scripts/demos/device.js";
+import type { ProviderDouble } from "./doubles/auth-provider/server.js";
 import { outcomeFacts } from "../scripts/demos/story.js";
 import type { CeremonyResult } from "../src/server/browser-driver.js";
 
@@ -74,6 +83,7 @@ const events: CaptionEvent[] = [
   { kind: "click", actor: "agent", control: "button", phase: "consent" },
   { kind: "click", actor: "agent", control: "link", phase: "no-account" },
   { kind: "check", actor: "agent" },
+  { kind: "check", actor: "agent", consent: ["terms", "privacy"] },
   { kind: "wait", actor: "agent" },
   { kind: "claim-done", actor: "agent" },
   { kind: "inbox", stage: "provisioned" },
@@ -90,6 +100,29 @@ const events: CaptionEvent[] = [
   { kind: "decision", what: "no-account-register" },
   { kind: "recording", stage: "replayed" },
   { kind: "step", index: 3, total: 7, phase: "verify-email" },
+  { kind: "step", index: 3, total: 6, phase: "enroll-authenticator" },
+  { kind: "fill", actor: "agent", role: "totp-code", source: "totp-seed" },
+  { kind: "fill", actor: "agent", role: "user-code", source: "plan" },
+  { kind: "fill", actor: "person", role: "user-code", source: "device-screen" },
+  { kind: "click", actor: "agent", control: "button", phase: "device-code" },
+  {
+    kind: "click",
+    actor: "agent",
+    control: "button",
+    phase: "enroll-authenticator",
+  },
+  { kind: "blocked", reason: "device-code-required" },
+  { kind: "handoff", what: "device-code" },
+  { kind: "decision", what: "code-in-plan" },
+  { kind: "decision", what: "no-code-hand-off" },
+  { kind: "device", stage: "requested" },
+  { kind: "device", stage: "polling" },
+  { kind: "device", stage: "connected" },
+  { kind: "custody", stage: "seed-kept" },
+  { kind: "custody", stage: "code-derived" },
+  { kind: "provider", says: "setup-authenticator" },
+  { kind: "provider", says: "device-connected" },
+  { kind: "provider", says: "device-consent" },
 ];
 
 test("DEMO-CAPTIONS: no caption prints a password, code, link, token or address", () => {
@@ -124,6 +157,21 @@ test("DEMO-CAPTIONS: captions name the role and the actor", () => {
     caption({ kind: "step", index: 4, total: 7, phase: "verify-email" }),
     "Step 4/7 · verify email via inbox",
   );
+  // A tick that accepts terms says what, by kind, and that it was consented
+  // to; a kind nobody wrote a name for is dropped rather than echoed.
+  assert.equal(
+    caption({ kind: "check", actor: "agent", consent: ["terms", "privacy"] }),
+    "Agent: accept the terms and privacy policy (consented)",
+  );
+  assert.equal(
+    caption({ kind: "check", actor: "agent", consent: ["newsletter"] }),
+    "Agent: tick a required checkbox",
+  );
+  assert.equal(
+    caption({ kind: "blocked", reason: "consent-required" }),
+    "Driver: stopped — the person has to accept",
+  );
+
   // Reading issued values is the driver's doing: the agent never sees them.
   assert.equal(
     caption({ kind: "connector", stage: "secret-kept" }),
@@ -142,6 +190,9 @@ test("DEMO-CAPTIONS: panels and chain summaries carry no values either", () => {
     { kind: "chain", chain: [...phases], current: "verified", finished: true },
     { kind: "inbox", stage: "provisioned" },
     { kind: "inbox", stage: "received" },
+    { kind: "custody", stage: "empty" },
+    { kind: "custody", stage: "held" },
+    { kind: "custody", stage: "used" },
   ];
   for (const event of panels) {
     const drawn = panel(event);
@@ -164,6 +215,59 @@ test("DEMO-CAPTIONS: panels and chain summaries carry no values either", () => {
   for (const line of chainSummary([...phases])) assertClean(line, "chain");
 });
 
+test("DEMO-CAPTIONS: a device's wall is reported as a hand-off, never guessed past", () => {
+  assert.equal(
+    caption({ kind: "blocked", reason: "device-code-required" }),
+    "Agent: the device's code is not in the plan",
+  );
+  assert.equal(
+    caption({
+      kind: "fill",
+      actor: "person",
+      role: "user-code",
+      source: "device-screen",
+    }),
+    "Person: fill device code (read off the device)",
+  );
+  assert.equal(
+    caption({
+      kind: "fill",
+      actor: "agent",
+      role: "totp-code",
+      source: "totp-seed",
+    }),
+    "Agent: fill authenticator code (from held seed)",
+  );
+});
+
+test("DEMO-DEVICE: the simulated device says it is simulated, and prints no token", () => {
+  const device = {
+    name: "Driftwood Terminal",
+    userCode: "BCDF-GHJK",
+    verificationUri: "http://127.0.0.1:4000/device",
+    interval: 5,
+    product: "Acme Accounts",
+  };
+  for (const screen of ["requested", "polling", "connected"] as const) {
+    const drawn = deviceScreen(device, screen, "owner@ceremony.invalid");
+    assert.deepEqual(drawn.text.slice(0, 2), [
+      "Simulated device",
+      "not a real product",
+    ]);
+    assert.ok(drawn.html.includes("Simulated device"));
+    // What a device shows a person: the code and the URL, with no query.
+    assert.ok(drawn.text.includes("BCDF-GHJK"));
+    assert.ok(drawn.text.includes("127.0.0.1:4000/device"));
+    for (const line of drawn.text)
+      assert.ok(!line.includes(canaries.token) && !line.includes("?"), line);
+  }
+  assert.ok(
+    deviceScreen(device, "connected", "owner@ceremony.invalid").text.includes(
+      "Access token saved (not shown).",
+    ),
+  );
+});
+
 test("DEMO-CAPTIONS: the end card reports counts and closed names, not transcript notes", () => {
   const result = {
     status: "blocked",
@@ -180,4 +284,70 @@ test("DEMO-CAPTIONS: the end card reports counts and closed names, not transcrip
   } as unknown as CeremonyResult;
   for (const line of outcomeFacts(result))
     for (const value of values) assert.ok(!line.includes(value), line);
+});
+
+test("DEMO-DEVICE: a device told to slow down polls five seconds slower, from then on", () => {
+  let interval = 5;
+  interval = pollInterval(interval, "authorization_pending");
+  assert.equal(interval, 5);
+  interval = pollInterval(interval, "slow_down");
+  assert.equal(interval, 10);
+  interval = pollInterval(interval, "authorization_pending");
+  assert.equal(interval, 10, "the longer interval is kept");
+  assert.equal(pollInterval(interval, "slow_down"), 15);
+});
+
+test("DEMO-DEVICE: the connected screen names the account userinfo returned, drawn after the poll", async (t) => {
+  // The provider's userinfo, answering for the one token it issued.
+  const token = "at_canary-device-token-5b1e";
+  const server = createServer((request, response) => {
+    const own = request.headers.authorization === `Bearer ${token}`;
+    response.writeHead(own ? 200 : 401, { "content-type": "application/json" });
+    response.end(own ? '{"sub":"userinfo-subject@ceremony.invalid"}' : "{}");
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  let polls = 0;
+  const provider = {
+    origin,
+    requestDevice: async () => ({
+      device_code: "dc-canary-device-code-9f2a",
+      user_code: "BCDF-GHJK",
+      verification_uri: `${origin}/device`,
+      verification_uri_complete: `${origin}/device?user_code=BCDF-GHJK`,
+      expires_in: 600,
+      interval: 0,
+    }),
+    pollDevice: async () =>
+      ++polls < 2
+        ? { status: 400, body: { error: "authorization_pending" } }
+        : { status: 200, body: { access_token: token } },
+    // Nothing the device reads comes from here: an account list that says
+    // someone else must not be what the screen shows.
+    accounts: () => [{ email: "somebody-else@ceremony.invalid" }],
+  } as unknown as ProviderDouble;
+
+  const screens: { screen: DeviceScreen; account?: string }[] = [];
+  const protectedValues: string[] = [];
+  let drawnBeforeConnected = false;
+  const device = await startDevice(provider, {
+    protect: (value) => protectedValues.push(value),
+    onScreen: async (screen, account) => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      screens.push(account === undefined ? { screen } : { screen, account });
+      if (screen === "connected") drawnBeforeConnected = true;
+    },
+  });
+  t.after(() => device.stop());
+  const who = await device.connected;
+  assert.equal(who, "userinfo-subject@ceremony.invalid");
+  assert.ok(drawnBeforeConnected, "the connected screen is ready first");
+  assert.deepEqual(screens.at(-1), {
+    screen: "connected",
+    account: "userinfo-subject@ceremony.invalid",
+  });
+  assert.equal(device.connectedAs(), "userinfo-subject@ceremony.invalid");
+  assert.ok(protectedValues.includes(token));
+  assert.ok(protectedValues.includes("dc-canary-device-code-9f2a"));
 });
