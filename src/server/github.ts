@@ -10,12 +10,30 @@ import {
   type AuthAdapter,
 } from "./controller.js";
 import { CeremonyDatabase } from "./storage.js";
+import type { HumanTakeoverRoute } from "./cloudflare.js";
 import {
   runArazzo,
   validateConnectorWorkflows,
   type ArazzoDocument,
   type WorkflowStepEvent,
 } from "./arazzo.js";
+
+/**
+ * GitHub's remote-browser takeover, for `RemoteHumanBrowser.request`: the
+ * GitHub ceremony's own human route, the path its private continuation
+ * cookie is scoped to, and GitHub as the origin the person is handed. This
+ * is the part that used to be fixed inside the Cloudflare browser; every
+ * other connector passes its own.
+ */
+export function githubHumanTakeover(id: string): HumanTakeoverRoute {
+  return {
+    path: `/api/live/github/${id}/human`,
+    cookiePath: `/api/live/github/${id}`,
+    destination: "https://github.com",
+    instructions:
+      "Review the GitHub App, sign in if needed, and approve the intended account and repositories. Never enter secrets in chat. Wait for the ceremony's verification result before selecting Done.",
+  };
+}
 
 export const githubWorkflows: ArazzoDocument = {
   arazzo: "1.0.1",

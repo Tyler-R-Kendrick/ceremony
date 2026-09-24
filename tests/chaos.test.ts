@@ -11,6 +11,7 @@ import {
   githubAppManifest,
 } from "../src/server/github.js";
 import { CloudflareHumanBrowser } from "../src/server/cloudflare.js";
+import { githubHumanTakeover } from "../src/server/github.js";
 import { pollDeviceToken } from "../src/server/authored-operations.js";
 
 for (const fault of ["disconnect", "timeout", 429, 500, 503] as const)
@@ -194,7 +195,12 @@ test("chaos: remote browser outage permits retry without exposing provider crede
   });
   for (let i = 0; i < 2; i++)
     await assert.rejects(
-      browser.request("alice", "run", "synthetic-cookie"),
+      browser.request(
+        "alice",
+        "run",
+        "synthetic-cookie",
+        githubHumanTakeover("run"),
+      ),
       (error: unknown) => {
         assert.ok(error instanceof Error);
         assert.match(error.message, /Continue in your own browser/);

@@ -191,6 +191,7 @@ async function confidentialFixture(
           clientId: "confidential-client",
           tokenEndpointAuthMethod: method,
           authorizationParams: { audience: "https://api.provider.example" },
+          popupOrigins: ["https://id.provider.example"],
           codeChallengeMethods: ["S256"],
           documents: [],
           methods: ["oauth-code"],
@@ -412,4 +413,6 @@ test("a native discovery refresh keeps the author's declared client settings", a
   assert.deepEqual(saved?.authorizationParams, {
     audience: "https://api.provider.example",
   });
+  // A declared sign-in window is the author's, not the provider's metadata.
+  assert.deepEqual(saved?.popupOrigins, ["https://id.provider.example"]);
 });

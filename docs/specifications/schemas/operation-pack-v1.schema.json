@@ -1,0 +1,249 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "manifest": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": { "type": "number", "const": 1 },
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,39}$" },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d{1,4}\\.\\d{1,4}\\.\\d{1,4}$"
+        },
+        "title": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "description": { "type": "string", "maxLength": 1000 },
+        "publisher": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+        },
+        "bundle": {
+          "type": "object",
+          "properties": {
+            "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "bytes": { "type": "integer", "minimum": 1, "maximum": 1048576 }
+          },
+          "required": ["sha256", "bytes"],
+          "additionalProperties": false
+        },
+        "operations": {
+          "minItems": 1,
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,47}$" },
+              "version": {
+                "type": "string",
+                "pattern": "^\\d{1,4}\\.\\d{1,4}\\.\\d{1,4}$"
+              },
+              "title": { "type": "string", "minLength": 1, "maxLength": 100 },
+              "description": { "type": "string", "maxLength": 1000 },
+              "scope": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": { "type": "string", "const": "neutral" }
+                    },
+                    "required": ["kind"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": { "type": "string", "const": "provider" },
+                      "provider": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                      },
+                      "profile": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                      }
+                    },
+                    "required": ["kind", "provider", "profile"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "inputs": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                },
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "contract": {
+                      "type": "string",
+                      "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                    },
+                    "required": { "type": "boolean" }
+                  },
+                  "required": ["contract", "required"],
+                  "additionalProperties": false
+                }
+              },
+              "outputs": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                },
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "contract": {
+                      "type": "string",
+                      "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                    },
+                    "required": { "type": "boolean" }
+                  },
+                  "required": ["contract", "required"],
+                  "additionalProperties": false
+                }
+              },
+              "effect": { "type": "string", "enum": ["read", "write"] },
+              "destinations": {
+                "maxItems": 16,
+                "type": "array",
+                "items": { "type": "string", "maxLength": 200 }
+              },
+              "credentials": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                },
+                "additionalProperties": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "source": { "type": "string", "const": "oauth-client" },
+                        "input": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                        }
+                      },
+                      "required": ["source", "input"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "source": { "type": "string", "const": "host" },
+                        "name": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                        },
+                        "placement": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": { "type": "string", "const": "bearer" }
+                              },
+                              "required": ["kind"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": { "type": "string", "const": "header" },
+                                "name": {
+                                  "type": "string",
+                                  "pattern": "^[A-Za-z0-9-]{1,64}$"
+                                }
+                              },
+                              "required": ["kind", "name"],
+                              "additionalProperties": false
+                            }
+                          ]
+                        }
+                      },
+                      "required": ["source", "name", "placement"],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "verify": { "type": "boolean" },
+              "replay": { "type": "string", "const": "read-only" },
+              "fixtures": {
+                "minItems": 1,
+                "maxItems": 16,
+                "type": "array",
+                "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+              },
+              "limits": {
+                "type": "object",
+                "properties": {
+                  "timeoutMs": {
+                    "type": "integer",
+                    "minimum": 100,
+                    "maximum": 30000
+                  },
+                  "memoryMb": {
+                    "type": "integer",
+                    "minimum": 8,
+                    "maximum": 128
+                  },
+                  "outputBytes": {
+                    "type": "integer",
+                    "minimum": 2,
+                    "maximum": 65536
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "name",
+              "version",
+              "title",
+              "description",
+              "scope",
+              "inputs",
+              "outputs",
+              "effect",
+              "destinations",
+              "credentials",
+              "verify",
+              "fixtures"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "id",
+        "version",
+        "title",
+        "description",
+        "publisher",
+        "bundle",
+        "operations"
+      ],
+      "additionalProperties": false
+    },
+    "signature": {
+      "type": "object",
+      "properties": {
+        "algorithm": { "type": "string", "const": "ed25519" },
+        "keyId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$" },
+        "value": { "type": "string", "pattern": "^[A-Za-z0-9+/]{86}==$" }
+      },
+      "required": ["algorithm", "keyId", "value"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["manifest", "signature"],
+  "additionalProperties": false,
+  "$id": "urn:ceremony:specification:operation-pack-v1",
+  "$comment": "Generated from runtime Zod contracts. Structural validation does not replace cross-field checks, registry validation, authentication or provider verification. This identifier is not a fetch endpoint."
+}

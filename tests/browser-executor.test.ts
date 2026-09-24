@@ -5,6 +5,7 @@ import { chromium } from "playwright-core";
 import {
   allowedAuthorizationOrigin,
   createAuthorizationBrowser,
+  watchForeignWindows,
   type IsolatedAccount,
 } from "../src/server/browser-executor.js";
 import type {
@@ -2084,6 +2085,56 @@ for (const guard of ["creation", "network", "settlement"] as const)
       );
     }
 
+// The root cause behind the intermittent "settlement" variants above, made
+// deterministic. Chromium continues a request paused for interception when the
+// client holding it detaches, so closing a context *sent* a popup's held POST:
+// without the stop, all but one or two of these nine popups reached the server
+// on close in every local run. Stopping the popups' loads first drops them.
+test("closing a context after stopping its popups never sends a paused popup POST", async (t) => {
+  let posts = 0;
+  const server = createServer((request, response) => {
+    if (request.method === "POST") {
+      posts++;
+      response.writeHead(302, { location: "/done" }).end();
+      return;
+    }
+    response
+      .writeHead(200, { "content-type": "text/html" })
+      .end(
+        '<form method="post" action="/login" target="_blank"><input name="password" value="fixture-password"><button>Sign in</button></form>',
+      );
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const { port } = server.address() as { port: number };
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  for (let round = 0; round < 3; round++) {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    let held = 0;
+    // A handler that has not settled: the executor's own guard never runs for
+    // these requests, so nothing but the teardown decides them.
+    await context.route("**/*", async (route, request) => {
+      if (request.isNavigationRequest() && request.method() === "POST") {
+        held++;
+        await new Promise(() => {});
+      }
+      return route.continue();
+    });
+    const session = await context.newCDPSession(page);
+    const { targetInfo } = await session.send("Target.getTargetInfo");
+    const windows = await watchForeignWindows(session, targetInfo);
+    await page.goto(`http://127.0.0.1:${port}/login`);
+    for (let click = 0; click < 3; click++) await page.click("button");
+    while (held < 3) await new Promise((resolve) => setTimeout(resolve, 20));
+    await windows.stop();
+    await context.close();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+  assert.equal(posts, 0);
+});
+
 test("browser replay guard preserves reads, background traffic and distinct requests", async (t) => {
   const requests: string[] = [];
   const provider = await listen({
@@ -2795,39 +2846,47 @@ test("an undiscovered redirect cannot receive browser credentials", async (t) =>
   if (result.status === "blocked") assert.equal(result.reason, "origin");
 });
 
-for (const status of [307, 308] as const)
-  test(`a ${status} redirect cannot forward a credential POST to an undiscovered origin`, async (t) => {
-    let submissions = 0;
-    let forwarded = 0;
-    const other = await listen({
-      onLogin: () => {
-        forwarded++;
-      },
+// The refusal is the same whichever way the drive ends. The deterministic
+// driver usually trips over the closed page and throws; under load it can
+// reach its own deadline first and return instead. The inferred driver
+// retries a failed snapshot, so it always returns - which is what made the
+// result's shape depend on timing until a refusal stopped carrying
+// `accountStored`.
+for (const mode of ["deterministic", "inferred"] as const)
+  for (const status of [307, 308] as const)
+    test(`a ${status} redirect cannot forward a credential POST to an undiscovered origin (${mode})`, async (t) => {
+      let submissions = 0;
+      let forwarded = 0;
+      const other = await listen({
+        onLogin: () => {
+          forwarded++;
+        },
+      });
+      const provider = await listen({
+        onLogin: () => {
+          submissions++;
+        },
+        loginRedirect: { status, location: `${other.origin}/login` },
+      });
+      t.after(() => provider.close());
+      t.after(() => other.close());
+      const browser = await chromium.launch({ headless: true });
+      t.after(() => browser.close());
+      const executor = createAuthorizationBrowser({
+        open: async () => ({ browser, close: async () => {} }),
+        ...(mode === "inferred" ? { interpreter: scriptedInterpreter() } : {}),
+      });
+      const result = await executor.complete({
+        startUrl: `${provider.origin}/login`,
+        redirectUri: `${provider.origin}/callback`,
+        allowedOrigins: [provider.origin],
+        credentials: { username: "fixture-user", password: "fixture-password" },
+        timeoutMs: 2000,
+      });
+      assert.equal(submissions, 1);
+      assert.equal(forwarded, 0);
+      assert.deepEqual(result, { status: "blocked", reason: "origin" });
     });
-    const provider = await listen({
-      onLogin: () => {
-        submissions++;
-      },
-      loginRedirect: { status, location: `${other.origin}/login` },
-    });
-    t.after(() => provider.close());
-    t.after(() => other.close());
-    const browser = await chromium.launch({ headless: true });
-    t.after(() => browser.close());
-    const executor = createAuthorizationBrowser({
-      open: async () => ({ browser, close: async () => {} }),
-    });
-    const result = await executor.complete({
-      startUrl: `${provider.origin}/login`,
-      redirectUri: `${provider.origin}/callback`,
-      allowedOrigins: [provider.origin],
-      credentials: { username: "fixture-user", password: "fixture-password" },
-      timeoutMs: 2000,
-    });
-    assert.equal(submissions, 1);
-    assert.equal(forwarded, 0);
-    assert.deepEqual(result, { status: "blocked", reason: "origin" });
-  });
 
 test("origin confinement preserves provider assets and CAPTCHA subframes", async (t) => {
   const requests: string[] = [];
@@ -2953,3 +3012,434 @@ for (const waitingOn of ["inference", "inbox"] as const)
       assert.equal(result.status, "blocked");
       if (result.status === "blocked") assert.equal(result.reason, "origin");
     });
+
+/**
+ * A provider whose sign-in happens in a window it opens, at a second origin:
+ * the shape of "Sign in with ...". The identity page posts its form, then
+ * sends the opener to the provider's callback and closes itself.
+ */
+async function windowedSignIn(options: {
+  /** Where the identity page's form POST is redirected, if anywhere. */
+  redirectPost?: string;
+  /** Open a second window at the same place alongside the first. */
+  twice?: boolean;
+  /** Where the button's window opens instead of the identity page. */
+  opens?: string;
+}) {
+  const posts: string[] = [];
+  const identity = createServer((request, response) => {
+    const url = new URL(request.url ?? "/", "http://127.0.0.1");
+    if (request.method === "POST") {
+      let body = "";
+      request.on("data", (chunk) => (body += chunk));
+      request.on("end", () => {
+        posts.push(body);
+        if (options.redirectPost) {
+          response.writeHead(307, { location: options.redirectPost }).end();
+          return;
+        }
+        response.writeHead(200, { "content-type": "text/html" }).end(
+          `<!doctype html><p>Signed in</p><script>
+            window.opener.location.href = ${JSON.stringify(
+              `${url.searchParams.get("return")}?code=fixture-code&state=fixture`,
+            )};
+            window.close();
+          </script>`,
+        );
+      });
+      return;
+    }
+    response.writeHead(200, { "content-type": "text/html" }).end(
+      `<!doctype html><form method="post" action="/login?return=${encodeURIComponent(url.searchParams.get("return") ?? "")}">
+        <input name="username" autocomplete="username">
+        <input name="password" type="password">
+        <button type="submit">Sign in</button>
+      </form>`,
+    );
+  });
+  await new Promise<void>((resolve) =>
+    identity.listen(0, "127.0.0.1", resolve),
+  );
+  const identityOrigin = `http://127.0.0.1:${(identity.address() as { port: number }).port}`;
+  const provider = createServer((request, response) => {
+    const url = new URL(request.url ?? "/", "http://127.0.0.1");
+    if (url.pathname === "/callback") {
+      response
+        .writeHead(200, { "content-type": "text/html" })
+        .end("<p>Done</p>");
+      return;
+    }
+    const target =
+      options.opens ??
+      `${identityOrigin}/login?return=${encodeURIComponent(`http://${request.headers.host}/callback`)}`;
+    response
+      .writeHead(200, { "content-type": "text/html" })
+      .end(
+        `<!doctype html><h1>Welcome</h1><button type="button" onclick='window.open(${JSON.stringify(target)}, "signin", "popup")${options.twice ? `; window.open(${JSON.stringify(target)}, "signin-2", "popup")` : ""}'>Continue with Fixture ID</button>`,
+      );
+  });
+  await new Promise<void>((resolve) =>
+    provider.listen(0, "127.0.0.1", resolve),
+  );
+  const providerOrigin = `http://127.0.0.1:${(provider.address() as { port: number }).port}`;
+  return {
+    posts,
+    identityOrigin,
+    providerOrigin,
+    close: async () => {
+      await new Promise<void>((resolve) => identity.close(() => resolve()));
+      await new Promise<void>((resolve) => provider.close(() => resolve()));
+    },
+  };
+}
+
+// A new window's first request is answered before a guard can be attached to
+// the window, and a late guard does not see that request's redirect hops. So a
+// credential form submitted *into* a window is refused before it is sent, even
+// at a declared origin: here the declared origin 307s the POST, body and all,
+// on to an undeclared one, which must never receive it.
+for (const mode of ["deterministic", "inferred"] as const)
+  test(`a credential form submitted into a new window is refused before it is sent, even at a declared origin (${mode})`, async (t) => {
+    let stolen = 0;
+    const other = await listen({
+      onRequest: () => {
+        stolen++;
+      },
+    });
+    t.after(() => other.close());
+    let providerPosts = 0;
+    const provider = await listen({
+      loginTarget: "_blank",
+      loginRedirect: { status: 307, location: `${other.origin}/steal` },
+      onLogin: () => {
+        providerPosts++;
+      },
+    });
+    t.after(() => provider.close());
+    const browser = await chromium.launch({ headless: true });
+    t.after(() => browser.close());
+    const executor = createAuthorizationBrowser({
+      open: async () => ({ browser, close: async () => {} }),
+      ...(mode === "inferred" ? { interpreter: scriptedInterpreter() } : {}),
+    });
+    let stored = false;
+    const result = await executor.complete({
+      startUrl: `${provider.origin}/login`,
+      redirectUri: `${provider.origin}/callback`,
+      allowedOrigins: [provider.origin],
+      popupOrigins: [provider.origin],
+      credentials: { username: "fixture-user", password: "fixture-password" },
+      vault: {
+        get: async () => undefined,
+        put: async () => {
+          stored = true;
+        },
+      },
+      timeoutMs: 5_000,
+    });
+    assert.equal(result.status, "blocked");
+    if (result.status === "blocked") assert.equal(result.reason, "popup");
+    assert.equal(providerPosts, 0);
+    assert.equal(stolen, 0);
+    assert.equal(stored, false);
+  });
+
+test("a sign-in window at a second declared origin posts once and returns the opener to the callback", async (t) => {
+  const fixture = await windowedSignIn({});
+  t.after(() => fixture.close());
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const executor = createAuthorizationBrowser({
+    open: async () => ({ browser, close: async () => {} }),
+    interpreter: scriptedInterpreter(),
+  });
+  const result = await executor.complete({
+    startUrl: `${fixture.providerOrigin}/start`,
+    redirectUri: `${fixture.providerOrigin}/callback`,
+    allowedOrigins: [fixture.providerOrigin, fixture.identityOrigin],
+    popupOrigins: [fixture.identityOrigin],
+    credentials: { username: "fixture-user", password: "fixture-password" },
+    timeoutMs: 10_000,
+  });
+  assert.equal(result.status, "callback");
+  assert.equal(fixture.posts.length, 1);
+  assert.match(fixture.posts[0]!, /username=fixture-user/);
+});
+
+test("a window at an origin the authorization did not declare is refused before it loads", async (t) => {
+  let reached = 0;
+  const other = await listen({
+    onRequest: () => {
+      reached++;
+    },
+  });
+  t.after(() => other.close());
+  const fixture = await windowedSignIn({ opens: `${other.origin}/login` });
+  t.after(() => fixture.close());
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const executor = createAuthorizationBrowser({
+    open: async () => ({ browser, close: async () => {} }),
+    interpreter: scriptedInterpreter(),
+  });
+  const result = await executor.complete({
+    startUrl: `${fixture.providerOrigin}/start`,
+    redirectUri: `${fixture.providerOrigin}/callback`,
+    // Allowed to navigate there, but a window there was never declared.
+    allowedOrigins: [
+      fixture.providerOrigin,
+      fixture.identityOrigin,
+      other.origin,
+    ],
+    popupOrigins: [fixture.identityOrigin],
+    credentials: { username: "fixture-user", password: "fixture-password" },
+    timeoutMs: 5_000,
+  });
+  // The exact refusal: a boundary refusal carries nothing else.
+  assert.deepEqual(result, { status: "blocked", reason: "popup" });
+  assert.equal(reached, 0);
+  assert.equal(fixture.posts.length, 0);
+});
+
+test("a declared window's redirect hop cannot carry its credential POST to an undeclared origin", async (t) => {
+  let forwarded = 0;
+  const other = await listen({
+    onRequest: () => {
+      forwarded++;
+    },
+  });
+  t.after(() => other.close());
+  const fixture = await windowedSignIn({
+    redirectPost: `${other.origin}/login`,
+  });
+  t.after(() => fixture.close());
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const executor = createAuthorizationBrowser({
+    open: async () => ({ browser, close: async () => {} }),
+    interpreter: scriptedInterpreter(),
+  });
+  const result = await executor.complete({
+    startUrl: `${fixture.providerOrigin}/start`,
+    redirectUri: `${fixture.providerOrigin}/callback`,
+    allowedOrigins: [fixture.providerOrigin, fixture.identityOrigin],
+    popupOrigins: [fixture.identityOrigin],
+    credentials: { username: "fixture-user", password: "fixture-password" },
+    timeoutMs: 8_000,
+  });
+  assert.equal(result.status, "blocked");
+  if (result.status === "blocked") assert.equal(result.reason, "origin");
+  assert.equal(fixture.posts.length, 1);
+  assert.equal(forwarded, 0);
+});
+
+test("two windows at declared origins identify no document, and neither receives a credential", async (t) => {
+  const fixture = await windowedSignIn({ twice: true });
+  t.after(() => fixture.close());
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const executor = createAuthorizationBrowser({
+    open: async () => ({ browser, close: async () => {} }),
+    interpreter: scriptedInterpreter(),
+  });
+  let stored = false;
+  const result = await executor.complete({
+    startUrl: `${fixture.providerOrigin}/start`,
+    redirectUri: `${fixture.providerOrigin}/callback`,
+    allowedOrigins: [fixture.providerOrigin, fixture.identityOrigin],
+    popupOrigins: [fixture.identityOrigin],
+    credentials: { username: "fixture-user", password: "fixture-password" },
+    vault: {
+      get: async () => undefined,
+      put: async () => {
+        stored = true;
+      },
+    },
+    timeoutMs: 8_000,
+  });
+  assert.equal(result.status, "blocked");
+  if (result.status === "blocked") assert.equal(result.reason, "popup");
+  assert.equal(fixture.posts.length, 0);
+  assert.equal(stored, false);
+});
+
+test("declaring a window outside the authorization's origins is refused before a browser opens", async () => {
+  let opened = 0;
+  const executor = createAuthorizationBrowser({
+    open: async () => {
+      opened++;
+      throw new Error("not reached");
+    },
+  });
+  const result = await executor.complete({
+    startUrl: "http://127.0.0.1:9/login",
+    redirectUri: "http://127.0.0.1:9/callback",
+    allowedOrigins: ["http://127.0.0.1:9"],
+    popupOrigins: ["http://127.0.0.1:10"],
+    timeoutMs: 1_000,
+  });
+  assert.deepEqual(result, { status: "blocked", reason: "popup-undeclared" });
+  assert.equal(opened, 0);
+});
+
+test("a session waiting on a person offers the browser provider's live view, and only while it waits", async (t) => {
+  const provider = await listen({ onSignup: () => "challenge" });
+  t.after(() => provider.close());
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const minted: string[] = [];
+  const executor = createAuthorizationBrowser({
+    open: async () => ({
+      browser,
+      close: async () => {},
+      liveView: async (page) => {
+        minted.push(page.url());
+        return "https://viewer.example/live/fixture-tab";
+      },
+    }),
+  });
+  t.after(() => executor.close?.("live-view"));
+  assert.equal(await executor.liveView?.("live-view"), undefined);
+  const result = await executor.complete({
+    sessionKey: "live-view",
+    startUrl: `${provider.origin}/signup`,
+    redirectUri: `${provider.origin}/callback`,
+    allowedOrigins: [provider.origin],
+    generateAccount: true,
+    timeoutMs: 3000,
+  });
+  assert.equal(result.status, "blocked");
+  assert.equal(result.sessionPending, true);
+  // The URL is a host-only value: nothing in the result carries it.
+  assert.doesNotMatch(JSON.stringify(result), /viewer\.example/);
+  assert.equal(
+    await executor.liveView?.("live-view"),
+    "https://viewer.example/live/fixture-tab",
+  );
+  // Minted for the tab that is waiting, at the provider.
+  assert.equal(new URL(minted[0]!).origin, provider.origin);
+  assert.equal(await executor.liveView?.("another-session"), undefined);
+  await executor.close?.("live-view");
+  assert.equal(await executor.liveView?.("live-view"), undefined);
+});
+
+test("a local browser has no live view to offer", async (t) => {
+  const provider = await listen({ onSignup: () => "challenge" });
+  t.after(() => provider.close());
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const executor = createAuthorizationBrowser({
+    open: async () => ({ browser, close: async () => {} }),
+  });
+  t.after(() => executor.close?.("no-live-view"));
+  const result = await executor.complete({
+    sessionKey: "no-live-view",
+    startUrl: `${provider.origin}/signup`,
+    redirectUri: `${provider.origin}/callback`,
+    allowedOrigins: [provider.origin],
+    generateAccount: true,
+    timeoutMs: 3000,
+  });
+  assert.equal(result.sessionPending, true);
+  assert.equal(await executor.liveView?.("no-live-view"), undefined);
+});
+
+/**
+ * A provider whose sign-in window stops at a challenge only a person can
+ * answer, so the executor pauses with the window as its held page.
+ */
+async function pausedInWindow(t: { after(fn: () => unknown): void }) {
+  const identity = createServer((request, response) => {
+    const url = new URL(request.url ?? "/", "http://127.0.0.1");
+    if (url.pathname === "/hop") {
+      response.writeHead(302, { location: `${providerOrigin}/plain` }).end();
+      return;
+    }
+    response
+      .writeHead(200, { "content-type": "text/html" })
+      .end(
+        '<!doctype html><h1>Prove you are a person</h1><div class="h-captcha"><input name="answer"></div>',
+      );
+  });
+  await new Promise<void>((resolve) =>
+    identity.listen(0, "127.0.0.1", resolve),
+  );
+  t.after(
+    () => new Promise<void>((resolve) => identity.close(() => resolve())),
+  );
+  const identityOrigin = `http://127.0.0.1:${(identity.address() as { port: number }).port}`;
+  const provider = createServer((request, response) => {
+    response
+      .writeHead(200, { "content-type": "text/html" })
+      .end(
+        `<!doctype html><h1>Welcome</h1><button type="button" onclick='window.open(${JSON.stringify(`${identityOrigin}/challenge`)}, "signin", "popup")'>Continue with Fixture ID</button>`,
+      );
+  });
+  await new Promise<void>((resolve) =>
+    provider.listen(0, "127.0.0.1", resolve),
+  );
+  t.after(
+    () => new Promise<void>((resolve) => provider.close(() => resolve())),
+  );
+  const providerOrigin = `http://127.0.0.1:${(provider.address() as { port: number }).port}`;
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const executor = createAuthorizationBrowser({
+    open: async () => ({ browser, close: async () => {} }),
+    interpreter: scriptedInterpreter(),
+  });
+  t.after(() => executor.close?.("paused-window"));
+  const result = await executor.complete({
+    sessionKey: "paused-window",
+    startUrl: `${providerOrigin}/start`,
+    redirectUri: `${providerOrigin}/callback`,
+    allowedOrigins: [providerOrigin, identityOrigin],
+    popupOrigins: [identityOrigin],
+    credentials: { username: "fixture-user", password: "fixture-password" },
+    timeoutMs: 8_000,
+  });
+  assert.equal(result.status, "blocked");
+  if (result.status === "blocked") assert.equal(result.reason, "challenge");
+  assert.equal(result.sessionPending, true);
+  const window = browser
+    .contexts()[0]!
+    .pages()
+    .find((open) => open.url().startsWith(identityOrigin))!;
+  assert.ok(window, "the executor paused inside the sign-in window");
+  // The positive control: while nothing has changed, a person can act.
+  assert.equal(
+    await executor.interact?.("paused-window", { key: "Tab" }),
+    true,
+  );
+  return { executor, window, identityOrigin, providerOrigin };
+}
+
+test("a person's input is refused once the paused window has moved to an allowed but undeclared origin", async (t) => {
+  const { executor, window, providerOrigin } = await pausedInWindow(t);
+  // A redirect hop the window's guard allows - the provider is a navigation
+  // origin - but the provider is not where a window was declared.
+  await window.goto(`${new URL(window.url()).origin}/hop`);
+  assert.equal(new URL(window.url()).origin, providerOrigin);
+  assert.equal(
+    await executor.interact?.("paused-window", { text: "person-typed" }),
+    false,
+  );
+  assert.equal(await executor.screenshot?.("paused-window"), undefined);
+});
+
+test("a person's input is refused once a second window opens beside the paused one", async (t) => {
+  const { executor, window, identityOrigin } = await pausedInWindow(t);
+  const [second] = await Promise.all([
+    window.context().waitForEvent("page"),
+    window.evaluate(
+      (url) => void globalThis.open(url, "second", "popup"),
+      `${identityOrigin}/challenge`,
+    ),
+  ]);
+  await second.waitForLoadState("domcontentloaded");
+  assert.equal(
+    await executor.interact?.("paused-window", { code: "123456" }),
+    false,
+  );
+  assert.equal(await executor.screenshot?.("paused-window"), undefined);
+});

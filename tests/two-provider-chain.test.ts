@@ -488,6 +488,8 @@ async function fixture(
     store,
     runtime,
     chained,
+    alphaChild,
+    betaChild,
     advance,
     results,
     interpreted,
@@ -763,4 +765,75 @@ test("CHAIN-RECORDING: the app's numbered settings page is recorded by pattern, 
   assert.equal(chain.a.oauthApps().length, 2);
   assert.equal(kept.length, 2);
   assert.notEqual(kept[0]!["client-id"], kept[1]!["client-id"]);
+});
+
+test("CHAIN-COMPOSED: composing A's and B's recipes places each under its connector, and the published result runs the chain", async (t) => {
+  const f = await fixture(t);
+  // No connector named anywhere: each provider has one approved connector.
+  const draft = await f.runtime.recipes.composePublished(actor, [
+    f.betaChild,
+    f.alphaChild,
+  ]);
+  assert.deepEqual(draft.diagnostics, []);
+  assert.deepEqual(
+    draft.definition.invocations.map((node) => [
+      node.id,
+      node.use.id,
+      node.connector,
+    ]),
+    [
+      ["part-1", "alpha-oauth-app", "alpha"],
+      ["part-2", "beta-sign-in-with-alpha", "beta"],
+    ],
+  );
+  assert.deepEqual(
+    draft.connectors?.nodes.map((node) => node.source),
+    ["provider", "provider"],
+  );
+
+  // Review and publication stay with a person.
+  await f.runtime.recipes.review(actor, draft.id, draft.revision, draft.digest);
+  const published = await f.runtime.recipes.publish(
+    actor,
+    draft.id,
+    draft.revision,
+    draft.digest,
+  );
+  const run = await f.runtime.executeRecipe(
+    actor,
+    published.definition,
+    {},
+    "alpha",
+  );
+  const steps = [];
+  for (const node of ["part-1.register", "part-2.configure", "part-2.sign-in"])
+    steps.push(await f.advance(run.id, node));
+  assert.deepEqual(
+    steps.map((step) => [step.nodeId, step.state, step.verified]),
+    [
+      ["part-1.register", "complete", true],
+      ["part-2.configure", "complete", true],
+      ["part-2.sign-in", "complete", true],
+    ],
+  );
+  assert.deepEqual(
+    f.seen.map((entry) => [entry.operation, entry.provider]),
+    [
+      ["alpha.register-oauth-app", "alpha"],
+      ["beta.configure-sign-in", "beta"],
+      ["beta.sign-in-with-alpha", "beta"],
+    ],
+  );
+  const [app] = f.chain.a.oauthApps();
+  assert.deepEqual(f.chain.b.integration(), { clientId: app!.clientId });
+  assert.deepEqual(f.chain.b.signIns(), [f.chain.account.email]);
+  // The draft and everything a caller was handed hold no client value.
+  const [handle] = f.minted;
+  const secret =
+    (await readOAuthClient(f.store, { actor, runId: run.id }, handle))
+      ?.clientSecret ?? "";
+  assert.match(secret, /^ocs_/);
+  const visible = JSON.stringify([draft, published, f.results]);
+  for (const value of [secret, app!.clientId, handle!])
+    assert.equal(visible.includes(value), false, value.slice(0, 8));
 });

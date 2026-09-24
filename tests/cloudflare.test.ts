@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { randomBytes } from "node:crypto";
 import { chromium } from "playwright-core";
 import { CloudflareHumanBrowser } from "../src/server/cloudflare.js";
+import { githubHumanTakeover } from "../src/server/github.js";
 import { CeremonyDatabase } from "../src/server/storage.js";
 
 test("behavior: remote browser handoff uses a private cookie, isolates ownership and closes on cancellation", async (t) => {
@@ -46,10 +47,20 @@ test("behavior: remote browser handoff uses a private cookie, isolates ownership
     accountId: "a".repeat(32),
     apiToken: "synthetic-token",
   });
-  await service.request("alice", "run", "synthetic-cookie");
-  await service.request("alice", "run", "synthetic-cookie");
+  await service.request(
+    "alice",
+    "run",
+    "synthetic-cookie",
+    githubHumanTakeover("run"),
+  );
+  await service.request(
+    "alice",
+    "run",
+    "synthetic-cookie",
+    githubHumanTakeover("run"),
+  );
   await assert.rejects(
-    service.request("bob", "run", "other-cookie"),
+    service.request("bob", "run", "other-cookie", githubHumanTakeover("run")),
     /not found/,
   );
   assert.equal(connects, 1);

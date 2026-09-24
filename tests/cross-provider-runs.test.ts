@@ -446,7 +446,12 @@ test("a provider-scoped artifact cannot cross into another provider's step", asy
     outputs: {},
   } satisfies RecipeDefinition);
   assert.deepEqual(preview.diagnostics, [
-    { code: "cross-provider-binding", node: "read" },
+    {
+      code: "cross-provider-binding",
+      node: "read",
+      message:
+        '"alpha.note" is produced by a step of provider alpha and consumed by a step of provider beta. Only an artifact whose vocabulary is declared crossProvider may cross between providers.',
+    },
   ]);
 
   // At the command service, whatever the plan's source: refused before the run exists.

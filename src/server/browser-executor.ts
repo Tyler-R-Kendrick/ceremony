@@ -1,7 +1,18 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { Browser, Locator, Page } from "playwright-core";
+import type { Browser, CDPSession, Locator, Page } from "playwright-core";
 import { z } from "zod";
 import { chromium } from "./playwright.js";
+import { createWindowTracker, type WindowOpener } from "./browser-windows.js";
+import {
+  browserbaseLiveView,
+  cloudflareLiveView,
+  liveViewTemplateAllowed,
+  remoteCdpEndpointAllowed,
+  templateLiveView,
+  type LiveViewMinter,
+} from "./live-view.js";
+
+export { remoteCdpEndpointAllowed } from "./live-view.js";
 import { createBrowserEgressProxy } from "./browser-egress.js";
 import { accountIdentifierSchema } from "../core/teaching-contracts.js";
 
@@ -38,6 +49,22 @@ export type AuthorizationBrowserInput = {
   startUrls?: string[];
   redirectUri: string;
   allowedOrigins: string[];
+  /**
+   * Origins at which a window the provider page opens is where this
+   * authorization continues - a "Sign in with ..." button that opens one.
+   * A window's first request may only load it (a bare GET or HEAD): a form
+   * submitted into a new window is refused, because nothing can see that
+   * request's redirects. Each must already be one of
+   * `allowedOrigins` (or the redirect origin): declaring a window is a
+   * statement about *where* the login continues, never a widening of where
+   * it may go, and a declaration outside them is refused before a browser
+   * opens.
+   *
+   * Absent or empty - the ordinary case - every window the page opens is
+   * refused before its first request, as it always was. The rule for
+   * adopting one is the login driver's, shared through `browser-windows.ts`.
+   */
+  popupOrigins?: string[];
   credentials?: { username?: string; password?: string; email?: string };
   preferredUsername?: string;
   generateAccount?: boolean;
@@ -50,6 +77,14 @@ export type AuthorizationBrowserInput = {
 
 type DriveInput = AuthorizationBrowserInput & {
   privateValues: Set<string>;
+  /**
+   * Whether a window has taken over from the page being driven. Checked
+   * before every step; when it answers true the drive hands back
+   * `windowTakeover` so the caller can continue in the right document.
+   */
+  yieldTo?: () => boolean;
+  /** After a click that may open a window: wait, bounded, for its report. */
+  afterClick?: () => Promise<void>;
   resume?: boolean;
   provisionedEmail?: string;
   provisionedAt?: number;
@@ -62,6 +97,12 @@ type DriveInput = AuthorizationBrowserInput & {
     submittedAccount: boolean;
   };
 };
+
+/**
+ * What a drive returns when a window took over. Internal: `complete` switches
+ * documents on it and never returns it.
+ */
+const windowTakeover = "window-takeover";
 
 export type AuthorizationBrowserResult = {
   accountStored?: boolean;
@@ -93,9 +134,24 @@ export type AuthorizationBrowser = {
     action: z.infer<typeof browserHumanActionSchema>,
   ): Promise<boolean>;
   close?(sessionKey: string): Promise<void>;
+  /**
+   * A takeover URL for a session waiting on a person, when the browser runs
+   * at a provider that offers a live view (Cloudflare Browser Run,
+   * Browserbase, or a CDP endpoint configured with a live-view template).
+   * `undefined` when there is no such session here or no live view.
+   *
+   * The URL controls the whole tab. Only a host's authenticated human route
+   * may ask for it, and it is never part of a result or an event.
+   */
+  liveView?(sessionKey: string): Promise<string | undefined>;
 };
 
-type Opened = { browser: Browser; close: () => Promise<void> };
+type Opened = {
+  browser: Browser;
+  close: () => Promise<void>;
+  /** How this browser's provider mints a takeover URL, if it can. */
+  liveView?: LiveViewMinter;
+};
 
 /**
  * Any browser that speaks the Chrome DevTools Protocol over a websocket.
@@ -115,32 +171,13 @@ export type RemoteCdpBrowser = {
   endpoint: string;
   /** Presented on the websocket upgrade, e.g. an `Authorization` header. */
   headers?: Record<string, string>;
+  /**
+   * The operator's live view for this endpoint, with `{targetId}` for the
+   * tab's CDP target id - how a person takes over a login this browser is
+   * waiting on. Absent, the endpoint offers no takeover link.
+   */
+  liveViewUrlTemplate?: string;
 };
-
-const loopbackHosts = new Set(["127.0.0.1", "[::1]", "localhost"]);
-
-/**
- * Whether a CDP endpoint may be dialled at all.
- *
- * Encrypted anywhere; plaintext only on this machine. A `ws://` endpoint on a
- * network would send the browser's control channel — and any header that
- * authenticates it — in the clear. Credentials belong in `headers` rather than
- * in the URL's userinfo, where they end up in every log line that prints it.
- */
-export function remoteCdpEndpointAllowed(endpoint: string): boolean {
-  let url: URL;
-  try {
-    url = new URL(endpoint);
-  } catch {
-    return false;
-  }
-  if (url.username || url.password) return false;
-  if (url.protocol === "wss:" || url.protocol === "https:") return true;
-  return (
-    (url.protocol === "ws:" || url.protocol === "http:") &&
-    loopbackHosts.has(url.hostname)
-  );
-}
 
 type BrowserOptions = {
   open?: () => Promise<Opened>;
@@ -168,6 +205,8 @@ export type RemoteBrowserOptions = Pick<
  * - `BROWSERBASE_API_KEY` + `BROWSERBASE_PROJECT_ID`: Browserbase sessions.
  * - `CEREMONY_BROWSER_CDP_URL`: any CDP websocket endpoint.
  * - `CEREMONY_BROWSER_CDP_HEADERS`: a JSON object of headers for it.
+ * - `CEREMONY_BROWSER_CDP_LIVE_VIEW_URL`: the operator's live view for that
+ *   endpoint, an `https:` template with `{targetId}` for the tab.
  * - `CEREMONY_BROWSER_REMOTE_PROXY`: the egress proxy every remote browser is
  *   required to use, with `CEREMONY_BROWSER_REMOTE_PROXY_USERNAME` and
  *   `CEREMONY_BROWSER_REMOTE_PROXY_PASSWORD` when it authenticates.
@@ -201,9 +240,15 @@ export function remoteBrowserOptionsFromEnv(
     // are usually the endpoint's credential.
     if (headers && !headers.success)
       throw new Error("CEREMONY_BROWSER_CDP_HEADERS must be a JSON object");
+    const liveView = env.CEREMONY_BROWSER_CDP_LIVE_VIEW_URL;
+    if (liveView !== undefined && !liveViewTemplateAllowed(liveView))
+      throw new Error(
+        "CEREMONY_BROWSER_CDP_LIVE_VIEW_URL must be an https:// URL with no userinfo, using only {targetId}",
+      );
     options.cdp = {
       endpoint: env.CEREMONY_BROWSER_CDP_URL,
       ...(headers?.success ? { headers: headers.data } : {}),
+      ...(liveView ? { liveViewUrlTemplate: liveView } : {}),
     };
   }
   if (env.CEREMONY_BROWSER_REMOTE_PROXY) {
@@ -234,6 +279,144 @@ export function remoteBrowserOptionsFromEnv(
     };
   }
   return options;
+}
+
+/**
+ * End every navigation that a window other than the opener has in flight,
+ * while this process's interception is still attached to it.
+ *
+ * This exists because of how a context is torn down. Chromium *continues* a
+ * request that is paused for interception when the DevTools client holding it
+ * detaches, and closing a context detaches every client in it. A popup's first
+ * request is reported before Playwright has created the popup's page, and the
+ * route handler that would abort it can still be queued behind other work -
+ * so a close meant to contain a popup would itself send the popup's
+ * credential POST. That was the intermittent failure of "popup form delegates
+ * before its first credential POST": the provider saw the POST moments after
+ * the executor had already decided to refuse it.
+ *
+ * Stopping the window's load ends the navigation inside the browser, and a
+ * paused request belonging to a navigation that no longer exists is dropped
+ * instead of continued. A popup with no Playwright page yet is reachable only
+ * as a CDP target, so it is attached through the opener's own session.
+ * Best-effort and bounded: a target that has already gone needs nothing.
+ */
+export async function stopWindows(
+  session: CDPSession,
+  targetIds: Iterable<string>,
+) {
+  await Promise.all(
+    [...targetIds].map(async (targetId) => {
+      const { sessionId } = await session.send("Target.attachToTarget", {
+        targetId,
+        flatten: false,
+      });
+      // A window between documents can answer "Not attached to an active
+      // page" for a moment; that is a stop that did not happen, so it is
+      // asked again, a bounded number of times, before teardown proceeds.
+      for (let attempt = 1; attempt <= 5; attempt++) {
+        // Wait for the reply rather than only the dispatch: the close that
+        // follows must not overtake the stop it depends on.
+        const stopped = new Promise<boolean>((resolve) => {
+          const timer = setTimeout(() => done(false), 2_000);
+          timer.unref();
+          function done(ok: boolean) {
+            clearTimeout(timer);
+            session.off("Target.receivedMessageFromTarget", listener);
+            resolve(ok);
+          }
+          function listener(event: { sessionId: string; message: string }) {
+            if (event.sessionId !== sessionId) return;
+            let reply: { id?: number; error?: unknown } = {};
+            try {
+              reply = JSON.parse(event.message) as typeof reply;
+            } catch {
+              return;
+            }
+            if (reply.id === attempt) done(reply.error === undefined);
+          }
+          session.on("Target.receivedMessageFromTarget", listener);
+        });
+        await session.send("Target.sendMessageToTarget", {
+          sessionId,
+          message: JSON.stringify({ id: attempt, method: "Page.stopLoading" }),
+        });
+        if (await stopped) return;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }),
+  );
+}
+
+/**
+ * The windows in `own`'s browser context other than `own` itself, kept from
+ * the browser's own target notifications so that stopping them at close needs
+ * no enumeration of its own - the final inspection before a result is
+ * published stays the one read of the target list it is.
+ *
+ * A window the opener has just announced (`Page.windowOpen`) can be reported
+ * by the opener before the browser reports its target, and a close that raced
+ * ahead of that report would not know the window was there to stop. `expect`
+ * records the announcement, and `stop` waits - bounded - for the browser to
+ * name every window it was told about.
+ */
+export async function watchForeignWindows(
+  session: CDPSession,
+  own: { targetId: string; browserContextId?: string | undefined },
+) {
+  const windows = new Set<string>();
+  let discovered = 0;
+  let announced = 0;
+  let arrivals: (() => void)[] = [];
+  session.on("Target.targetCreated", ({ targetInfo }) => {
+    if (
+      targetInfo.type !== "page" ||
+      targetInfo.browserContextId !== own.browserContextId ||
+      targetInfo.targetId === own.targetId
+    )
+      return;
+    windows.add(targetInfo.targetId);
+    discovered++;
+    for (const arrived of arrivals.splice(0)) arrived();
+  });
+  session.on("Target.targetDestroyed", ({ targetId }) => {
+    windows.delete(targetId);
+  });
+  await session.send("Target.setDiscoverTargets", { discover: true });
+  return {
+    expect() {
+      announced++;
+    },
+    /** Whether there is anything for `stop` to do. */
+    get idle() {
+      return windows.size === 0 && discovered >= announced;
+    },
+    async stop() {
+      // A timer rather than the clock: this runs at teardown, and a caller
+      // that has frozen `Date.now` must still get its browser closed.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const deadline = new Promise<true>((resolve) => {
+        timer = setTimeout(() => resolve(true), 2_000);
+        timer.unref();
+      });
+      while (discovered < announced) {
+        const arrived = new Promise<false>((resolve) =>
+          arrivals.push(() => resolve(false)),
+        );
+        if (await Promise.race([arrived, deadline])) break;
+      }
+      clearTimeout(timer);
+      arrivals = [];
+      await stopWindows(session, windows);
+      // A click the drive made just before it ended can have queued a form
+      // submission into a window that starts only after the first stop - a
+      // navigation that stop could not see. One more sweep, a moment later,
+      // catches what was queued; nothing drives the page by then, so
+      // nothing new is queued after it.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      await stopWindows(session, windows);
+    },
+  };
 }
 
 async function requiresAuthenticator(page: Page) {
@@ -448,12 +631,27 @@ async function openRemote(options: {
     });
     if (response.ok) {
       const session = z
-        .object({ connectUrl: z.string().url() })
+        .object({
+          connectUrl: z.string().url(),
+          // Needed only for the live view; a session without one still runs.
+          id: z.string().min(1).optional(),
+        })
         .parse(await response.json());
       const browser = await chromium.connectOverCDP(session.connectUrl, {
         timeout: 20_000,
       });
-      return { browser, close: () => browser.close() };
+      return {
+        browser,
+        close: () => browser.close(),
+        ...(session.id
+          ? {
+              liveView: browserbaseLiveView({
+                apiKey: options.browserbase.apiKey,
+                sessionId: session.id,
+              }),
+            }
+          : {}),
+      };
     }
   }
   if (options.cloudflare) {
@@ -464,18 +662,30 @@ async function openRemote(options: {
         timeout: 20_000,
       },
     );
-    return { browser, close: () => browser.close() };
+    return {
+      browser,
+      close: () => browser.close(),
+      liveView: cloudflareLiveView(),
+    };
   }
   if (options.cdp) {
     // Checked again here and not only at boot: a host that builds these
     // options in code never passes through the environment reader.
     if (!remoteCdpEndpointAllowed(options.cdp.endpoint))
       throw new Error("Invalid remote CDP endpoint");
+    // Checked before dialling, so a bad template never opens a browser.
+    const liveView = options.cdp.liveViewUrlTemplate
+      ? templateLiveView(options.cdp.liveViewUrlTemplate)
+      : undefined;
     const browser = await chromium.connectOverCDP(options.cdp.endpoint, {
       ...(options.cdp.headers ? { headers: { ...options.cdp.headers } } : {}),
       timeout: 20_000,
     });
-    return { browser, close: () => browser.close() };
+    return {
+      browser,
+      close: () => browser.close(),
+      ...(liveView ? { liveView } : {}),
+    };
   }
 }
 
@@ -775,6 +985,7 @@ async function drive(
       if ((await submit().count()) > 0) await submit().click();
       else if (hasPassword) await password().press("Enter");
       else await identifier().press("Enter");
+      await input.afterClick?.();
       submittedAccount = true;
       if (input.progress) input.progress.submittedAccount = true;
       if (
@@ -809,6 +1020,7 @@ async function drive(
     } else rejections = 0;
   };
   while (Date.now() < deadline) {
+    if (input.yieldTo?.()) return { status: "blocked", reason: windowTakeover };
     const href = page.url();
     const inspected = await inspect(href);
     if (inspected === "continue") continue;
@@ -874,6 +1086,7 @@ async function drive(
     if (hasConsent) {
       event("Approving the provider consent prompt");
       await consent.click().catch(() => {});
+      await input.afterClick?.();
       await page.waitForLoadState("domcontentloaded").catch(() => {});
       continue;
     }
@@ -1175,6 +1388,7 @@ async function driveInferred(
         )
           return { status: "blocked", reason: "required-input" };
         await target.click();
+        await input.afterClick?.();
         if (
           input.progress &&
           history.some((item) => /fill password/.test(item.action))
@@ -1203,6 +1417,7 @@ async function driveInferred(
     }
   };
   for (let step = 0; step < 24 && Date.now() < deadline; step += 1) {
+    if (input.yieldTo?.()) return { status: "blocked", reason: windowTakeover };
     const href = page.url();
     if (
       !allowedAuthorizationOrigin(href, input.allowedOrigins, input.redirectUri)
@@ -1268,11 +1483,15 @@ async function driveInferred(
 export function createAuthorizationBrowser(
   options: BrowserOptions = {},
 ): AuthorizationBrowser {
-  // ponytail: sessions are process-local; a restarted worker expires the handoff.
+  // Sessions are process-local: a page cannot outlive the process holding
+  // its CDP connection. What survives a restart is the host's durable record
+  // that a browser was pending, and a resume against a session this process
+  // does not hold ends as `session-expired` rather than as a fresh attempt.
   const sessions = new Map<
     string,
     {
       page: Page;
+      liveView?: LiveViewMinter | undefined;
       busy: boolean;
       allowed: () => boolean;
       resume: (
@@ -1284,6 +1503,11 @@ export function createAuthorizationBrowser(
     }
   >();
   return {
+    async liveView(key) {
+      const held = sessions.get(key);
+      if (!held?.liveView || held.busy || !held.allowed()) return undefined;
+      return held.liveView(held.page).catch(() => undefined);
+    },
     async screenshot(key) {
       const held = sessions.get(key);
       if (!held || held.busy || !held.allowed()) return undefined;
@@ -1342,6 +1566,21 @@ export function createAuthorizationBrowser(
         return sessions.get(input.sessionKey)!.resume(input);
       if (input.resumeSession)
         return { status: "blocked", reason: "session-expired" };
+      const popupOrigins = [
+        ...new Set((input.popupOrigins ?? []).map(originOf)),
+      ];
+      if (
+        popupOrigins.some(
+          (origin) =>
+            !origin ||
+            !allowedAuthorizationOrigin(
+              origin,
+              input.allowedOrigins,
+              input.redirectUri,
+            ),
+        )
+      )
+        return { status: "blocked", reason: "popup-undeclared" };
       let opened: Opened & Pick<BrowserOptions, "remoteProxy">;
       try {
         opened = await openBrowser(options);
@@ -1400,6 +1639,25 @@ export function createAuthorizationBrowser(
         await opened.close().catch(() => {});
         return { status: "blocked", reason: "browser-unavailable" };
       }
+      // Every close below goes through here, so none of them can release a
+      // popup request that is still paused. See `stopWindows`.
+      let windows: { idle: boolean; stop(): Promise<void> } | undefined;
+      const closeContext = async () => {
+        // Nothing to stop is the ordinary case, and it closes at once.
+        if (!windows || windows.idle) return context.close();
+        const stopping = windows;
+        let bound: ReturnType<typeof setTimeout> | undefined;
+        // Bounded: a browser that stopped answering must still be closed.
+        await Promise.race([
+          stopping.stop().catch(() => {}),
+          new Promise<void>((resolve) => {
+            bound = setTimeout(resolve, 5_000);
+            bound.unref();
+          }),
+        ]);
+        clearTimeout(bound);
+        await context.close();
+      };
       const privateValues = new Set<string>();
       let originBlocked = false;
       let popupBlocked = false;
@@ -1408,6 +1666,23 @@ export function createAuthorizationBrowser(
       let stagedAccount: IsolatedAccount | undefined;
       let page: Page;
       let hasUnexpectedPage: () => Promise<boolean>;
+      /**
+       * Windows the page opened, when this authorization declared any. The
+       * rule for adopting one is the login driver's own tracker; what is
+       * added here is what the executor enforces around it - the document
+       * origin guard on each window's redirect hops, the replay guard on its
+       * submissions, and the final target inspection.
+       */
+      let tracker: ReturnType<typeof createWindowTracker<Page>> | undefined;
+      /** A window was announced, requested or reported and is not settled. */
+      let windowPending = false;
+      /** CDP targets of windows whose documents are guarded here. */
+      const admitted = new Set<string>();
+      /** Each reported window's guard, awaited before it is ever driven. */
+      const guards = new Map<Page, Promise<boolean>>();
+      /** Windows whose document guard is in place. */
+      const guarded = new Set<Page>();
+      let guardWindow: (window: Page) => Promise<boolean> = async () => false;
       try {
         // Observe an explicit WebAuthn request without reading credentials or replacing its result.
         // Conditional/autofill availability checks are not a request for human takeover.
@@ -1425,10 +1700,23 @@ export function createAuthorizationBrowser(
           };
         });
         page = await context.newPage();
+        if (popupOrigins.length > 0)
+          tracker = createWindowTracker<Page>(page as unknown as WindowOpener, {
+            popupOrigins,
+            onWindow: (window) => {
+              windowPending = true;
+              guards.set(
+                window,
+                guardWindow(window).catch(() => false),
+              );
+            },
+          });
         // Playwright routing skips redirect hops. The isolated Chromium engine's
         // network boundary checks every top-level hop before it sends a request;
         // CAPTCHA subframes are not top-level credential destinations.
-        // ponytail: the driver owns one page; use native handoff until popup targets can be securely adopted.
+        // A window the page opens is refused here before its first request,
+        // unless the authorization declared its origin; then its top-level
+        // requests are held to the same replay guard as the page's own.
         await context.route("**/*", async (route) => {
           try {
             const request = route.request();
@@ -1440,29 +1728,51 @@ export function createAuthorizationBrowser(
                 return undefined;
               }
             })();
-            if (
+            const topLevel = !frame || !frame.parentFrame();
+            const foreign =
               request.isNavigationRequest() &&
-              (!frame || (!frame.parentFrame() && frame.page() !== page))
+              (!frame || (!frame.parentFrame() && frame.page() !== page));
+            const privateIn = (text: string) =>
+              [...privateValues].filter(
+                (value) =>
+                  value &&
+                  [
+                    value,
+                    encodeURIComponent(value),
+                    JSON.stringify(value).slice(1, -1),
+                    new URLSearchParams({ v: value }).toString().slice(2),
+                  ].some((encoded) => text.includes(encoded)),
+              );
+            /**
+             * A window's redirect hops are visible only to a guard attached to
+             * that window, and one can be attached only once Playwright has
+             * reported the window - by which time its first request is already
+             * on its way. A late guard does not see that request's redirects
+             * (a 307 carries a POST body on to wherever it points), so until a
+             * window is guarded it may only load: a bare GET or HEAD with no
+             * private value in its URL. Anything else - a form submitted into
+             * a new window, credentials in a query - is refused before it is
+             * sent, whatever origin it names.
+             */
+            const unguarded =
+              foreign &&
+              !(frame && guarded.has(frame.page())) &&
+              (!["GET", "HEAD"].includes(request.method()) ||
+                privateIn(request.url()).length > 0);
+            if (
+              foreign &&
+              (unguarded ||
+                !(tracker && popupOrigins.includes(originOf(request.url()))))
             ) {
               popupBlocked = true;
               await route.abort("blockedbyclient");
-              await context.close();
+              await closeContext();
             } else {
+              if (foreign) windowPending = true;
               const body = request.postData();
-              const values = body
-                ? [...privateValues].filter(
-                    (value) =>
-                      value &&
-                      [
-                        value,
-                        encodeURIComponent(value),
-                        JSON.stringify(value).slice(1, -1),
-                        new URLSearchParams({ v: value }).toString().slice(2),
-                      ].some((encoded) => body.includes(encoded)),
-                  )
-                : [];
+              const values = body ? privateIn(body) : [];
               if (
-                frame === page.mainFrame() &&
+                (frame === page.mainFrame() || (tracker && topLevel)) &&
                 !["GET", "HEAD"].includes(request.method()) &&
                 (request.isNavigationRequest() || values.length)
               ) {
@@ -1489,7 +1799,7 @@ export function createAuthorizationBrowser(
                 if (submittedRequests.has(fingerprint)) {
                   submissionUncertain = true;
                   await route.abort("blockedbyclient");
-                  await context.close();
+                  await closeContext();
                   return;
                 }
                 submittedRequests.add(fingerprint);
@@ -1508,13 +1818,20 @@ export function createAuthorizationBrowser(
               await route.continue();
             }
           } catch {
-            await context.close().catch(() => {});
+            // Decide the request before tearing down: a request left paused
+            // is continued by the browser when the context closes, which here
+            // would send exactly the submission the failure was about - a
+            // registration whose journal entry could not be written.
+            await route.abort("blockedbyclient").catch(() => {});
+            await closeContext().catch(() => {});
           }
         });
         const session = await context.newCDPSession(page);
         const { targetInfo } = await session.send("Target.getTargetInfo");
         if (!targetInfo.browserContextId)
           throw new Error("Isolated browser context is unavailable");
+        const watched = await watchForeignWindows(session, targetInfo);
+        windows = watched;
         hasUnexpectedPage = async () => {
           let deadline: ReturnType<typeof setTimeout> | undefined;
           try {
@@ -1533,7 +1850,12 @@ export function createAuthorizationBrowser(
               (target) =>
                 target.type === "page" &&
                 target.browserContextId === targetInfo.browserContextId &&
-                target.targetId !== targetInfo.targetId,
+                target.targetId !== targetInfo.targetId &&
+                // A declared window, guarded here, at a declared origin.
+                !(
+                  admitted.has(target.targetId) &&
+                  popupOrigins.includes(originOf(target.url))
+                ),
             );
           } finally {
             clearTimeout(deadline);
@@ -1541,42 +1863,82 @@ export function createAuthorizationBrowser(
         };
         // Observe creation before the popup's first network event. A fast
         // interpreter can otherwise finish on the unchanged opener too early.
-        session.on("Page.windowOpen", () => {
+        session.on("Page.windowOpen", ({ url }) => {
+          watched.expect();
+          // A declared window starts blank or at its declared origin; which
+          // document it ends up in is decided again at every read.
+          if (
+            tracker &&
+            (!url ||
+              url === "about:blank" ||
+              popupOrigins.includes(originOf(url)))
+          ) {
+            windowPending = true;
+            return;
+          }
           popupBlocked = true;
-          void context.close().catch(() => {});
+          void closeContext().catch(() => {});
         });
         await session.send("Page.enable");
         const { frameTree } = await session.send("Page.getFrameTree");
-        session.on("Fetch.requestPaused", async (request) => {
-          try {
-            if (
-              request.frameId === frameTree.frame.id &&
-              !allowedAuthorizationOrigin(
-                request.request.url,
-                input.allowedOrigins,
-                input.redirectUri,
-              )
-            ) {
-              originBlocked = true;
-              await session.send("Fetch.failRequest", {
-                requestId: request.requestId,
-                errorReason: "BlockedByClient",
-              });
-              await context.close();
-            } else {
-              await session.send("Fetch.continueRequest", {
-                requestId: request.requestId,
-              });
+        /**
+         * Every top-level document hop - redirects included, which Playwright
+         * routing never sees - is checked against the authorization's
+         * origins before it is sent. The page gets this at setup; a declared
+         * window gets it when it is reported, before anything reads it.
+         */
+        const guardDocuments = async (cdp: CDPSession, frameId: string) => {
+          cdp.on("Fetch.requestPaused", async (request) => {
+            try {
+              if (
+                request.frameId === frameId &&
+                !allowedAuthorizationOrigin(
+                  request.request.url,
+                  input.allowedOrigins,
+                  input.redirectUri,
+                )
+              ) {
+                originBlocked = true;
+                await cdp.send("Fetch.failRequest", {
+                  requestId: request.requestId,
+                  errorReason: "BlockedByClient",
+                });
+                await closeContext();
+              } else {
+                await cdp.send("Fetch.continueRequest", {
+                  requestId: request.requestId,
+                });
+              }
+            } catch {
+              // As above: fail it rather than leave it for teardown to continue.
+              await cdp
+                .send("Fetch.failRequest", {
+                  requestId: request.requestId,
+                  errorReason: "BlockedByClient",
+                })
+                .catch(() => {});
+              await closeContext().catch(() => {});
             }
-          } catch {
-            await context.close().catch(() => {});
-          }
-        });
-        await session.send("Fetch.enable", {
-          patterns: [{ resourceType: "Document", requestStage: "Request" }],
-        });
+          });
+          await cdp.send("Fetch.enable", {
+            patterns: [{ resourceType: "Document", requestStage: "Request" }],
+          });
+        };
+        await guardDocuments(session, frameTree.frame.id);
+        guardWindow = async (window) => {
+          const cdp = await context.newCDPSession(window);
+          const { targetInfo: opened } = await cdp.send("Target.getTargetInfo");
+          if (opened.browserContextId !== targetInfo.browserContextId)
+            return false;
+          await cdp.send("Page.enable");
+          const { frameTree: tree } = await cdp.send("Page.getFrameTree");
+          await guardDocuments(cdp, tree.frame.id);
+          admitted.add(opened.targetId);
+          guarded.add(window);
+          return true;
+        };
       } catch {
-        await context.close().catch(() => {});
+        await closeContext().catch(() => {});
         await opened.close().catch(() => {});
         return { status: "blocked", reason: "browser-unavailable" };
       }
@@ -1597,7 +1959,7 @@ export function createAuthorizationBrowser(
       const close = async () => {
         if (timer) clearTimeout(timer);
         if (input.sessionKey) sessions.delete(input.sessionKey);
-        await context.close().catch(() => {});
+        await closeContext().catch(() => {});
         await opened.close().catch(() => {});
       };
       const finish = async () => {
@@ -1642,37 +2004,118 @@ export function createAuthorizationBrowser(
           return { ...last, sessionPending: true };
         }
         await close();
+        // A boundary refusal tore the session down, and says only that. Its
+        // shape must not depend on how the drive noticed: a driver that
+        // tripped over the closed page reaches the catch below, which never
+        // reported `accountStored`, while one that reached its own deadline
+        // first, or retried a failed snapshot, returns here.
+        const refused = originBlocked || popupBlocked || submissionUncertain;
         return {
           ...last,
-          ...(accountStored ? { accountStored: true } : {}),
+          ...(accountStored && !refused ? { accountStored: true } : {}),
         };
       };
+      const driveOn = async (on: Page, attempt: DriveInput) =>
+        (await driveInferred(on, {
+          ...attempt,
+          ...(options.interpreter ? { interpreter: options.interpreter } : {}),
+        })) ??
+        (await drive(on, {
+          ...attempt,
+          ...(options.interpreter ? { resume: true } : {}),
+        }));
+      /**
+       * Drive the page, and the declared window it opens when it opens one.
+       *
+       * The drive itself stays single-document; this is where the document
+       * changes. Before every step it asks whether a window has taken over
+       * (or, inside a window, whether the window is still the one the rule
+       * picks) and, when it has, settles the window, re-resolves under the
+       * shared rule and carries on in the document that rule names - the
+       * window while it is open, the page once it has closed. An undeclared
+       * or second window refuses as `popup`, exactly as an unadmitted one
+       * always has. Never used when no window was declared.
+       */
       const runDrive = async (attempt: DriveInput) => {
         for (const value of Object.values(attempt.credentials ?? {}))
           privateValues.add(value);
-        return (
-          (await driveInferred(page, {
-            ...attempt,
-            ...(options.interpreter
-              ? { interpreter: options.interpreter }
-              : {}),
-          })) ??
-          (await drive(page, {
-            ...attempt,
-            ...(options.interpreter ? { resume: true } : {}),
-          }))
-        );
+        const windows = tracker;
+        if (!windows) return driveOn(page, attempt);
+        const deadline = Date.now() + (attempt.timeoutMs ?? 45_000);
+        const chosen = () => {
+          try {
+            return windows.current() ?? page;
+          } catch {
+            return undefined;
+          }
+        };
+        let on = page;
+        let resume = attempt.resume;
+        for (let hop = 0; hop < 8; hop += 1) {
+          const current = on;
+          let result: AuthorizationBrowserResult;
+          try {
+            result = await driveOn(current, {
+              ...attempt,
+              ...(resume ? { resume: true } : {}),
+              timeoutMs: Math.max(1, deadline - Date.now()),
+              yieldTo: () =>
+                current.isClosed() ||
+                (current === page && windowPending) ||
+                chosen() !== current,
+              afterClick: () => windows.settle(true),
+            });
+          } catch (error) {
+            // A window that closed under the step acting in it has done its
+            // job; anything else is the drive's own failure.
+            if (current === page || !current.isClosed()) throw error;
+            result = { status: "blocked", reason: windowTakeover };
+          }
+          held.page = current;
+          if (result.status !== "blocked" || result.reason !== windowTakeover)
+            return result;
+          await windows.settle(windowPending);
+          windowPending = false;
+          const next = chosen();
+          if (!next || (next !== page && !(await guards.get(next)))) {
+            popupBlocked = true;
+            return { status: "blocked" as const, reason: "popup" };
+          }
+          on = next;
+          resume = true;
+        }
+        popupBlocked = true;
+        return { status: "blocked" as const, reason: "popup" };
       };
       const held = {
         page,
+        liveView: opened.liveView,
         privateValues,
         busy: true,
-        allowed: () =>
-          allowedAuthorizationOrigin(
-            page.url(),
-            input.allowedOrigins,
-            input.redirectUri,
-          ),
+        /**
+         * Whether a person may see or act in `held.page` now. Its origin must
+         * still be allowed, and - when windows were declared - it must still
+         * be the document the shared window rule picks: a paused window that
+         * navigated to an allowed but undeclared origin, or a second window
+         * that opened beside it, means a person's typing would land somewhere
+         * nobody approved. A rule that refuses (throws) is a refusal here.
+         */
+        allowed: () => {
+          if (
+            !allowedAuthorizationOrigin(
+              held.page.url(),
+              input.allowedOrigins,
+              input.redirectUri,
+            )
+          )
+            return false;
+          if (!tracker) return true;
+          try {
+            return (tracker.current() ?? page) === held.page;
+          } catch {
+            return false;
+          }
+        },
         close,
         verified: () => {
           progress.verificationDone = true;
