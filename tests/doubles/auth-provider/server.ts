@@ -57,6 +57,12 @@ export type ProviderBehavior = {
   accounts?: readonly SeedAccount[];
   /** Registration requires accepting terms before the account is created. */
   requireTerms?: boolean;
+  /**
+   * Registration asks for a country or region from a required `<select>`,
+   * whose first option is an empty "Select a country". The account is not
+   * created without one of the listed regions.
+   */
+  requireRegion?: boolean;
   /** Sign-in is followed by a one-time code page. */
   requireMfa?: boolean;
   /**
@@ -139,6 +145,23 @@ export type ProviderBehavior = {
   redirectUri?: string;
 };
 
+/**
+ * The regions registration offers when `requireRegion` is on, by the label a
+ * person sees and the code the form submits. The labels are what a plan
+ * names and a snapshot lists; the codes are markup nobody is shown.
+ */
+export const regionList = [
+  { code: "CA", name: "Canada" },
+  { code: "DE", name: "Germany" },
+  { code: "JP", name: "Japan" },
+  { code: "GB", name: "United Kingdom" },
+  { code: "US", name: "United States" },
+] as const;
+const regionField = "country";
+const regionOptions = `<option value="">Select a country</option>${regionList
+  .map((entry) => `<option value="${entry.code}">${entry.name}</option>`)
+  .join("")}`;
+
 export type MailMessage = {
   to: string;
   subject: string;
@@ -179,6 +202,12 @@ export type ProviderDouble = {
   };
   deviceUrl(userCode: string): string;
   issueDeviceCode(): string;
+  /** User codes issued so far, oldest first: what each device showed. */
+  issuedDeviceCodes(): readonly string[];
+  /** Which account approved a device's user code, if one has. */
+  deviceApprovedBy(userCode: string): string | undefined;
+  /** The region an address registered with, when registration asked. */
+  regionOf(email: string): string | undefined;
   account(email: string): Account | undefined;
   accounts(): readonly Account[];
   mailbox: {
@@ -330,6 +359,8 @@ export async function startAuthProvider(
     }
   >();
   const devices = new Map<string, { approved: boolean; email?: string }>();
+  /** Region chosen at registration, by address. */
+  const regions = new Map<string, string>();
   /** Identifier-first: which account a browser named before its password. */
   const identified = new Map<string, string>();
   /** Challenge tokens issued, and the browsers that have cleared one. */
@@ -610,6 +641,7 @@ export async function startAuthProvider(
             next,
             ...(error ? { error } : {}),
             inUse: error === markup.messages.emailInUse,
+            ...(behavior.requireRegion ? { regions: regionList } : {}),
           }),
         );
       const fields = markup.arrange("sign-up", [
@@ -647,6 +679,13 @@ export async function startAuthProvider(
                 markup.names.birthDate,
                 "date",
               ),
+            ]
+          : []),
+        ...(behavior.requireRegion
+          ? [
+              // Labelled by `for`, not by wrapping: a wrapping label's text
+              // would take in every option's too.
+              `<label for="field_${regionField}">Country or region</label> <select id="field_${regionField}" name="${regionField}" required>${regionOptions}</select>`,
             ]
           : []),
         ...(behavior.requireTerms
@@ -964,6 +1003,12 @@ export async function startAuthProvider(
       const confirm = body.get(markup.names.confirm) ?? "";
       if (behavior.requireTerms && body.get(markup.names.terms) !== "yes")
         return signUpPage(next, markup.messages.termsRequired);
+      const region = body.get(regionField) ?? "";
+      if (
+        behavior.requireRegion &&
+        !regionList.some((entry) => entry.code === region)
+      )
+        return signUpPage(next, "Choose your country or region.");
       if (!email.includes("@") || password.length < 8)
         return signUpPage(
           next,
@@ -973,6 +1018,7 @@ export async function startAuthProvider(
         return signUpPage(next, markup.messages.mismatch);
       if (accounts.has(email))
         return signUpPage(next, markup.messages.emailInUse);
+      if (behavior.requireRegion) regions.set(email, region);
       const username = email.split("@")[0] ?? email;
       if (verification === "none") {
         accounts.set(email, {
@@ -1245,6 +1291,31 @@ export async function startAuthProvider(
       const session = sessionOf(request);
       if (!session)
         return redirect(`/signin?next=${encodeURIComponent("/device")}`);
+      // A realistic layout renders the verification page whole, in its own
+      // shell; the randomized one assembles it from parts below.
+      if (markup.pages) {
+        if (method === "GET")
+          return send(
+            200,
+            markup.pages.device({ action: "/device", account: session.email }),
+          );
+        const entered = (body.get(markup.names.userCode) ?? "")
+          .replace(/[\s-]/g, "")
+          .toUpperCase();
+        const device = devices.get(entered);
+        if (!device)
+          return send(
+            200,
+            markup.pages.device({
+              action: "/device",
+              account: session.email,
+              error: markup.messages.badCode,
+            }),
+          );
+        device.approved = true;
+        device.email = session.email;
+        return send(200, markup.pages.deviceConnected());
+      }
       if (method === "GET")
         return send(
           200,
@@ -1773,6 +1844,12 @@ export async function startAuthProvider(
       return { url: target.href, verifier, state, nonce, clientId: client };
     },
     deviceUrl: (userCode) => `${origin}/device?user_code=${userCode}`,
+    issuedDeviceCodes: () => [...devices.keys()],
+    deviceApprovedBy: (userCode) => {
+      const device = devices.get(userCode);
+      return device?.approved ? device.email : undefined;
+    },
+    regionOf: (email) => regions.get(email.toLowerCase()),
     issueDeviceCode: () => {
       const code = randomBytes(3).toString("hex").toUpperCase();
       devices.set(code, { approved: false });

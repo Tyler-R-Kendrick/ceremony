@@ -71,7 +71,7 @@ for (const scenario of browserCatalog) {
       await page.goto(plan.entryUrl, { waitUntil: "domcontentloaded" });
       const { entryUrl: _entry, state, ...options } = plan;
       const driven = createPlaywrightCeremonyPage(page);
-      const human = scenario.human?.(driven, identity);
+      const human = scenario.human?.(driven, identity, context);
       const result = await runCeremony({
         ...options,
         page: driven,
@@ -133,7 +133,7 @@ async function runOnLayout(
     await page.goto(plan.entryUrl, { waitUntil: "domcontentloaded" });
     const { entryUrl: _entry, state, ...options } = plan;
     const driven = createPlaywrightCeremonyPage(page);
-    const human = scenario.human?.(driven, identity);
+    const human = scenario.human?.(driven, identity, context);
     const recorded = recordDecisions(interpreter);
     const result = await runCeremony({
       ...options,

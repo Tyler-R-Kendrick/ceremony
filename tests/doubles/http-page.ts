@@ -6,6 +6,7 @@ import {
   type SnapshotElement,
 } from "../../src/core/browser-contracts.js";
 import type { CeremonyPage } from "../../src/server/browser-driver.js";
+import { StaleTargetError } from "../../src/server/browser-targets.js";
 
 /**
  * A `CeremonyPage` backed by real HTTP requests and a real parsed document.
@@ -198,6 +199,27 @@ export function createHttpCeremonyPage(
       const control = resolve(element);
       control.setAttribute("checked", "checked");
       (control as { checked?: boolean }).checked = true;
+    },
+    // By visible label, as the Playwright adapter chooses: an option the
+    // control does not offer is refused rather than typed in.
+    select: async (element, option) => {
+      const control = resolve(element);
+      if (control.tagName.toLowerCase() !== "select")
+        throw new Error("Not a select");
+      const options = Array.from(control.querySelectorAll("option"));
+      const chosen = options.find(
+        (candidate) =>
+          (candidate.getAttribute("label") || candidate.textContent || "")
+            .replace(/\s+/g, " ")
+            .trim() === option,
+      );
+      // The Playwright adapter reports a label the live control does not
+      // offer as a stale element, and so does this.
+      if (!chosen) throw new StaleTargetError("stale-element");
+      // A parsed select reports the selected option's value itself, which
+      // is what serialization reads.
+      for (const candidate of options) candidate.removeAttribute("selected");
+      chosen.setAttribute("selected", "selected");
     },
     click: async (element) => {
       const control = resolve(element);

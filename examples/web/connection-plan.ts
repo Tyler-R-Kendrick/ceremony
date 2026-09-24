@@ -665,6 +665,16 @@ export const rejectionGuidance: Record<
       "The recorded sign-in acts on a site this configuration does not allow. Add that site to the allowed sites, or choose a different recording.",
     step: 2,
   },
+  "issued-sink-unavailable": {
+    message:
+      "This configuration keeps a value the provider shows, such as a client secret, and this host has nowhere registered to keep it. Nothing was run.",
+    step: 3,
+  },
+  "recording-issued-mismatch": {
+    message:
+      "The recorded sign-in keeps different provider-issued values than this configuration says. A recording keeps exactly what it was reviewed keeping; match it, or choose another recording.",
+    step: 3,
+  },
   "unknown-credential-reference": {
     message:
       "The stored credential this configuration names is not one this workspace holds.",

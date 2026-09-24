@@ -1,3 +1,4 @@
+import { deviceVerificationField } from "../../src/core/browser-contracts.js";
 import type {
   CeremonyPage,
   HumanParticipation,
@@ -28,6 +29,14 @@ export type HumanParticipantOptions = {
   claimOnly?: boolean;
   /** Credentials a person types into a browser dialog the agent cannot reach. */
   credentials?: { username: string; password: string };
+  /**
+   * The code a person reads off the device they are connecting, for a device
+   * verification page. A function, because the device shows it only once the
+   * flow has started.
+   */
+  userCode?: () => string | undefined;
+  /** What a person picks in a choice the plan left to them, by field label. */
+  choices?: Readonly<Record<string, string>>;
   maxRequests?: number;
   /** Every request made, for asserting what the host was actually asked. */
   onRequest?: (request: HumanParticipationRequest) => void;
@@ -82,6 +91,33 @@ export function createHumanParticipant(
       // Everything else is done on the page itself: satisfy the widget, then
       // press whatever it offers to continue.
       const snapshot = await page.snapshot();
+
+      // A person holding the device types the code it shows, then continues.
+      // The agent was never given the code; it is the person's to enter.
+      if (request.reason === "device-code") {
+        const field = deviceVerificationField(snapshot);
+        const code = options.userCode?.();
+        if (!field || !code) return "unavailable";
+        await page.fill(field, code);
+      }
+      // A person makes the choice the plan left open, and leaves the rest of
+      // the form to the agent: the choice is theirs, the typing is not.
+      if (request.reason === "choice") {
+        if (!page.select) return "unavailable";
+        let chose = false;
+        for (const element of snapshot.elements) {
+          if (element.kind !== "select" || element.filled) continue;
+          const option =
+            element.label === undefined
+              ? undefined
+              : options.choices?.[element.label];
+          if (option === undefined) continue;
+          await page.select(element, option);
+          chose = true;
+        }
+        return chose ? "completed" : "unavailable";
+      }
+
       const control = snapshot.elements.find(
         (element) =>
           element.kind === "button" &&
