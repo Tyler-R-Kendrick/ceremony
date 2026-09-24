@@ -88,7 +88,7 @@ Choose exactly ONE next action and return only that object.
 - "done" only when the page shows the ceremony finished. A claim is checked; an unverified claim fails the attempt.
 - "blocked" with a reason when no action can help: human-challenge, credentials-rejected, account-exists, account-missing, consent-denied, provider-error, unsupported-page, device-code-required (a page asking for the code shown on a device when no user-code role is available), choice-required, consent-required.${
     input.issuedLabels?.length
-      ? `\n- The plan keeps what these read-only fields show, privately: ${JSON.stringify(input.issuedLabels)}. Never fill them. Once every one of them shows a value, the ceremony is "done"; do not press anything that would generate a new one.`
+      ? `\n- The plan keeps what these read-only fields show, privately: ${JSON.stringify(input.issuedLabels)}. Never fill them. If the page also asks for something you can fill, such as a code confirming an authenticator it just set up, fill it and submit. Otherwise, once every one of them shows a value, the ceremony is "done"; do not press anything that would generate a new one.`
       : ""
   }
 - "note" is a short public status line. Never put a credential, code or personal value in it.
@@ -399,12 +399,37 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
         ),
       );
       if (shown.every((matches) => matches.length === 1)) {
-        if (shown.every(([field]) => field!.filled === true))
-          return { action: "done", note: "issued values shown" };
-        const waited = history.at(-1)?.action === "wait";
-        return waited
-          ? { action: "blocked", reason: "unsupported-page" }
-          : { action: "wait" };
+        // An enrolment page shows its setup key and, on the same form, asks
+        // for a code from the authenticator just set up. A field still asking
+        // for something this caller can now answer is filled and submitted
+        // like any other; only a page with nothing left to answer is the end.
+        const page = [snapshot.title, ...snapshot.headings, ...snapshot.alerts]
+          .join(" ")
+          .toLowerCase();
+        const asked = snapshot.elements.some((element) => {
+          if (element.kind !== "input" || element.readOnly) return false;
+          if (element.filled === true || element.submitsTo) return false;
+          const role = roleOf(element, false, available, page);
+          return role !== undefined && available.includes(role);
+        });
+        // Answered but not yet sent: the form's own button is still to press.
+        const here = (entry: (typeof history)[number]) =>
+          entry.path === snapshot.path;
+        const unsent =
+          history.findLastIndex(
+            (entry) => here(entry) && entry.action === "fill",
+          ) >
+          history.findLastIndex(
+            (entry) => here(entry) && entry.action === "click",
+          );
+        if (!asked && !unsent) {
+          if (shown.every(([field]) => field!.filled === true))
+            return { action: "done", note: "issued values shown" };
+          const waited = history.at(-1)?.action === "wait";
+          return waited
+            ? { action: "blocked", reason: "unsupported-page" }
+            : { action: "wait" };
+        }
       }
     }
 
@@ -413,14 +438,23 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
     // into the field - a mailed code, an authenticator's - would hand the
     // provider a value meant for somewhere else. Without it, a person holding
     // the device has to enter it, and the driver decides whether to ask one.
+    //
+    // A field that is already filled changes nothing. A
+    // `verification_uri_complete` link puts its code in the field, and a
+    // code this caller was never given is not one it can vouch for: pressing
+    // Continue would approve whichever device the link came from.
     const deviceField = deviceVerificationField(snapshot);
     if (
       deviceField &&
-      deviceField.filled !== true &&
       !deviceField.submitsTo &&
       !available.includes("user-code")
     )
       return { action: "blocked", reason: "device-code-required" };
+    // With the code in hand, a field the page filled is typed over with it,
+    // once per document, so what is approved is the plan's code.
+    const typedHere = history.some(
+      (entry) => entry.action === "fill" && entry.path === snapshot.path,
+    );
 
     // Registering, on a page that is not itself a registration form but links
     // to one: go there first. Filling a sign-in form here would post the
@@ -506,7 +540,9 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
         (!role || !available.includes(role))
       )
         unchosen ??= element;
-      if (!role || element.filled || !available.includes(role)) continue;
+      const prefilled = element === deviceField && !typedHere;
+      if (!role || (element.filled && !prefilled) || !available.includes(role))
+        continue;
       // Never type into a form that posts somewhere else; the driver refuses
       // it too, and asking is a wasted step.
       if (element.submitsTo) continue;

@@ -37,6 +37,7 @@ import {
   mintOAuthClient,
   readOAuthClient,
 } from "../src/server/recipes/common.js";
+import { totpCode, totpSeedSpellings } from "../src/server/totp.js";
 import { createHttpCeremonyPage } from "./doubles/http-page.js";
 import { startAuthProvider } from "./doubles/auth-provider/server.js";
 import { oauthAppsPath } from "./doubles/auth-provider/developer-settings.js";
@@ -993,6 +994,199 @@ describe("ISSUED-SERVICE: keeping a client's values through browser_login", () =
     assert.equal(replayed.status, "verified", JSON.stringify(replayed));
     assert.ok(f.handles.get(replayed.runRef!));
     assert.equal(f.provider.oauthApps().length, 2);
+  });
+});
+
+describe("SEED-CUSTODY: an authenticator enrolled through browser_login", () => {
+  const credentialIds = {
+    username: randomUUID(),
+    password: randomUUID(),
+    "totp-seed": randomUUID(),
+  };
+  const subject: ActorContext = {
+    tenantId: "tenant-seed",
+    subjectId: "subject-seed",
+    sessionId: "client-seed",
+    actorKind: "human",
+    capabilities: ["executor", "author", "reviewer", "publisher"],
+  };
+  const keepSeed = {
+    sink: "credential-custody",
+    fields: [{ kind: "totp-seed", label: "Setup key" }],
+  } as const;
+
+  test("a sign-in that must enrol keeps the seed in custody, and the next sign-in answers from it", async (t) => {
+    const account = {
+      email: "owner-seed@ceremony.invalid",
+      username: "owner-seed",
+      password: `pw-${randomUUID()}`,
+    };
+    // Every account must have an authenticator; this one has none yet.
+    const provider = await startAuthProvider({
+      layout: "classic-card",
+      enrollTotp: true,
+      accounts: [account],
+    });
+    t.after(() => provider.close());
+    const keys = new SQLiteCeremonyStore(":memory:", {
+      current: "seed",
+      keys: { seed: new Uint8Array(32).fill(9) },
+    });
+    t.after(() => keys.close());
+    /** Every snapshot, per login: a fresh browser each time. */
+    const runs: PageSnapshot[][] = [];
+    const backend = stubBackend(
+      { status: 200, body: `{"account":"${account.email}"}` },
+      () => {
+        const taken: PageSnapshot[] = [];
+        runs.push(taken);
+        const page = createHttpCeremonyPage();
+        const snapshot = page.snapshot;
+        page.snapshot = async () => {
+          const next = await snapshot();
+          taken.push(structuredClone(next));
+          return next;
+        };
+        return page;
+      },
+    );
+    /** The host's private collector, as far as this test goes. */
+    const custody = new Map<string, string>();
+    const host = createHostBrowserLogin({
+      store: keys,
+      knownConnectors: () => new Set(["seed-login"]),
+      verifiers: [createFixtureVerifier({ origin: provider.origin })],
+      credentials: {
+        resolve: async (who, _plan, role) =>
+          role === "username"
+            ? account.username
+            : role === "password"
+              ? account.password
+              : role === "totp-seed"
+                ? custody.get(who.subjectId)
+                : undefined,
+      },
+      launch: backend.launch,
+      issuedSinks: {
+        "credential-custody": async (who, _run, values) => {
+          if (values["totp-seed"])
+            custody.set(who.subjectId, values["totp-seed"]);
+        },
+      },
+    });
+    const draft = (extra: Record<string, unknown>) => ({
+      engine: "chromium",
+      ownership: "managed",
+      entryUrl: `${provider.origin}/signin`,
+      navigationOrigins: [provider.origin],
+      credentialRecipients: { password: [provider.origin] },
+      account: { kind: "accept-existing" },
+      continuation: "dispose",
+      trustMode: "constrained-auth",
+      interactionRounds: 0,
+      requireVerification: true,
+      verifierOrigin: provider.origin,
+      sessionTtlMs: 600_000,
+      ...extra,
+    });
+
+    const started = Date.now();
+    const enrolled = await host.recordLogin(subject, {
+      connectorId: "seed-login",
+      draft: draft({
+        credentialRefs: {
+          username: credentialIds.username,
+          password: credentialIds.password,
+        },
+        issued: keepSeed,
+      }),
+      recording: { id: "seed-enrolment", title: "Enrol an authenticator" },
+    });
+    assert.equal(enrolled.login.status, "verified", JSON.stringify(enrolled));
+    const seed = custody.get(subject.subjectId);
+    assert.ok(seed, "the custody sink received the seed");
+    assert.equal(
+      seed.replace(/\s/g, ""),
+      provider.account(account.email)?.totpSeed,
+      "custody holds the seed the account enrolled",
+    );
+    assert.ok(
+      runs[0]!.some((page) => new URL(page.path).pathname === "/mfa/setup"),
+    );
+
+    const signedIn = await host.login(subject, {
+      connectorId: "seed-login",
+      draft: draft({ credentialRefs: credentialIds }),
+    });
+    assert.equal(signedIn.status, "verified", JSON.stringify(signedIn));
+    // The second sign-in met the provider's own authenticator prompt, which
+    // accepts only codes from the enrolled seed, and got past it.
+    assert.ok(
+      runs[1]!.some((page) =>
+        page.headings.includes("Two-factor authentication"),
+      ),
+    );
+    assert.ok(runs[1]!.at(-1)!.headings.includes("You are signed in"));
+
+    // No spelling of the seed, and no code it made while this ran, is in a
+    // snapshot, a result, the recording or anything stored.
+    const codes: string[] = [];
+    for (let at = started - 60_000; at <= Date.now() + 60_000; at += 30_000)
+      codes.push(totpCode(seed, at));
+    const stored: unknown[] = [];
+    for (const kind of recordKinds)
+      stored.push(
+        ...(await keys.transaction((tx) =>
+          tx.list<unknown>(subject.tenantId, kind, 500),
+        )),
+      );
+    const surfaces = JSON.stringify([runs, enrolled, signedIn, stored]);
+    for (const value of [...totpSeedSpellings(seed), ...codes])
+      assert.equal(surfaces.includes(value), false, "a seed or code leaked");
+    assert.deepEqual(enrolled.draft?.recording.issued, keepSeed);
+  });
+
+  test("a plan that keeps a seed names no other authenticator answer, and keeps it only in custody", () => {
+    const compile = (overrides: Record<string, unknown>) =>
+      compileLoginPlan(
+        {
+          connectorId: "seed-login",
+          engine: "chromium",
+          ownership: "managed",
+          entryUrl: `${origin}/signin`,
+          navigationOrigins: [origin],
+          account: { kind: "accept-existing" },
+          continuation: "dispose",
+          trustMode: "constrained-auth",
+          interactionRounds: 0,
+          requireVerification: true,
+          sessionTtlMs: 600_000,
+          ...overrides,
+        },
+        {
+          backends: managedBackends(),
+          knownConnectors: new Set(["seed-login"]),
+          issuedSinks: new Set(["credential-custody", "oauth-client"]),
+          revision: 1,
+        },
+      );
+    assert.deepEqual(compile({ issued: keepSeed }).issued, keepSeed);
+    for (const role of ["totp-seed", "totp-code"])
+      assert.throws(
+        () =>
+          compile({
+            issued: keepSeed,
+            credentialRefs: { [role]: randomUUID() },
+          }),
+        (error: unknown) =>
+          error instanceof PlanRejected &&
+          error.reason === "unknown-credential-reference",
+        role,
+      );
+    assert.throws(
+      () => compile({ issued: { ...keepSeed, sink: "oauth-client" } }),
+      (error: unknown) => !(error instanceof PlanRejected),
+    );
   });
 });
 

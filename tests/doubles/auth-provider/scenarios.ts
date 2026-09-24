@@ -116,6 +116,10 @@ export type ScenarioState = {
   address?: string;
   client?: string;
   resource?: string;
+  /** What the plan's custody sink received from an enrolment page. */
+  custody?: string;
+  /** An access token a device collected by polling. */
+  token?: string;
   /** What the plan's custody sink was handed, to compare with what was issued. */
   kept?: string;
 };
@@ -425,6 +429,50 @@ export const authScenarios: readonly AuthScenario[] = [
       const account = provider.account(identity.email);
       if (!account?.verified)
         throw new Error("Registration must leave a verified account");
+    },
+  },
+  {
+    id: "registration-enrolls-an-authenticator",
+    title:
+      "a new account sets up an authenticator app, and the plan keeps its seed",
+    family: "OTP / magic link / MFA",
+    flowKind: "account-registration",
+    goal: "registration",
+    preconditions: ["account-absent", "address-unused", "mailbox-readable"],
+    // No authenticator code is supplied: the one that confirms enrolment is
+    // derived by the driver from the seed the page shows.
+    provides: ["email", "password", "password-confirm", "verification-code"],
+    behavior: () => ({ seed: 24, verification: "code", enrollTotp: true }),
+    plan: ({ provider, identity }) => {
+      const state: ScenarioState = {};
+      return {
+        entryUrl: `${provider.origin}${provider.signupPath}`,
+        goal: "registration",
+        consents: personConsent,
+        secrets: registrationSecrets(identity, provider, identity.email, state),
+        allowedOrigins: [provider.origin],
+        protectedValues: [identity.password],
+        // Custody, as far as this scenario goes, is its own state.
+        issued: {
+          fields: { "totp-seed": "Setup key" },
+          keep: async ({ "totp-seed": seed }) => {
+            if (seed) state.custody = seed;
+          },
+        },
+        verify: () => provider.verifyAccess(identity.email),
+        state,
+      };
+    },
+    expect: { status: "completed" },
+    confirm: async ({ provider, identity }, _result, state) => {
+      const account = provider.account(identity.email);
+      if (!account?.verified)
+        throw new Error("Registration must leave a verified account");
+      if (
+        !account.totpSeed ||
+        state.custody?.replace(/\s/g, "") !== account.totpSeed
+      )
+        throw new Error("The kept seed must be the one the account enrolled");
     },
   },
   {
@@ -984,6 +1032,113 @@ export const authScenarios: readonly AuthScenario[] = [
       const [code] = provider.issuedDeviceCodes();
       if (code && provider.deviceApprovedBy(code))
         throw new Error("No code was entered, so no device is approved");
+    },
+  },
+  {
+    id: "device-authorization-with-consent",
+    title:
+      "a device that asked for authorization is approved by its code and a consent screen",
+    family: "OAuth device authorization",
+    flowKind: "device",
+    goal: "sign-in",
+    preconditions: ["account-exists", "account-verified"],
+    provides: ["username", "password", "user-code"],
+    behavior: () => ({ seed: 54 }),
+    plan: async ({ provider, identity }) => {
+      // The device asks first, and is told to keep waiting until a person
+      // has approved it; only its token poll says when that happened.
+      const client = "driftwood-terminal";
+      const device = await provider.requestDevice(client);
+      const poll = () => provider.pollDevice(client, device.device_code);
+      if ((await poll()).body.error !== "authorization_pending")
+        throw new Error("A device must wait until it is approved");
+      const state: ScenarioState = {};
+      return {
+        // The verification URI a device shows, without the code in a query.
+        entryUrl: device.verification_uri,
+        goal: "sign-in",
+        secrets: createSecrets({
+          username: identity.username,
+          password: identity.password,
+          "user-code": device.user_code,
+        }),
+        allowedOrigins: [provider.origin],
+        protectedValues: [identity.password],
+        verify: async () => {
+          const answer = await poll();
+          if (typeof answer.body.access_token !== "string") return false;
+          state.token = answer.body.access_token;
+          // Spent: a device code buys one token.
+          return (await poll()).body.error === "invalid_grant";
+        },
+        state,
+      };
+    },
+    expect: { status: "completed" },
+    confirm: async ({ provider, identity }, _result, state) => {
+      const answer = await fetch(`${provider.origin}/userinfo`, {
+        headers: { authorization: `Bearer ${state.token ?? ""}` },
+      });
+      const who = (await answer.json()) as { sub?: string };
+      if (who.sub !== identity.email)
+        throw new Error("The device's token must be for the approving account");
+    },
+  },
+  {
+    id: "device-link-with-its-code-goes-to-a-person",
+    title:
+      "a device's complete link pre-fills its code, and an agent never given it asks a person rather than approve",
+    family: "OAuth device authorization",
+    flowKind: "device",
+    goal: "sign-in",
+    preconditions: ["account-exists", "account-verified", "human-available"],
+    // The sign-in, but not the device's code: that is only in the link.
+    provides: ["username", "password"],
+    behavior: () => ({ seed: 55 }),
+    human: (page, _identity, { provider }) =>
+      createHumanParticipant(page, {
+        // The person reads the code off the device, as issued.
+        userCode: () => provider.issuedDeviceCodes().at(-1),
+        onRequest: (request) => {
+          // The verification page, never the link's query with the code.
+          if (
+            request.reason !== "device-code" ||
+            request.path !== `${provider.origin}/device`
+          )
+            throw new Error(`Unexpected handoff ${JSON.stringify(request)}`);
+        },
+      }),
+    plan: async ({ provider, identity }) => {
+      const client = "driftwood-terminal";
+      const device = await provider.requestDevice(client);
+      const poll = () => provider.pollDevice(client, device.device_code);
+      const state: ScenarioState = {};
+      return {
+        // The link a device shows as a QR code, with the code in its query.
+        entryUrl: device.verification_uri_complete,
+        goal: "sign-in",
+        secrets: signInSecrets(identity),
+        allowedOrigins: [provider.origin],
+        protectedValues: [identity.password],
+        verify: async () => {
+          const answer = await poll();
+          if (typeof answer.body.access_token !== "string") return false;
+          state.token = answer.body.access_token;
+          return true;
+        },
+        state,
+      };
+    },
+    // Completed only because a person took the step: one handoff, and the
+    // device approved by the account that signed in.
+    expect: { status: "completed", handoffs: 1 },
+    confirm: async ({ provider, identity }, _result, state) => {
+      const answer = await fetch(`${provider.origin}/userinfo`, {
+        headers: { authorization: `Bearer ${state.token ?? ""}` },
+      });
+      const who = (await answer.json()) as { sub?: string };
+      if (who.sub !== identity.email)
+        throw new Error("The device's token must be for the approving account");
     },
   },
   {

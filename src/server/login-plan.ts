@@ -457,6 +457,15 @@ export function compileLoginPlan(
       throw new PlanRejected("unknown-credential-reference", derived);
   }
 
+  // A login that keeps the seed an enrolment page shows confirms it with a
+  // code from that seed. A held seed or code named as well would be a second
+  // answer to the same question, so its reference is refused.
+  if (draft.issued?.fields.some((field) => field.kind === "totp-seed"))
+    for (const kind of heldCredentialKinds)
+      for (const role of [kind, derivedRoleOf[kind]])
+        if (credentialRefs[role] !== undefined)
+          throw new PlanRejected("unknown-credential-reference", role);
+
   if (draft.issued && options.issuedSinks?.has(draft.issued.sink) !== true)
     throw new PlanRejected("issued-sink-unavailable", draft.issued.sink);
 

@@ -113,10 +113,16 @@ export const derivedRoleOf: Readonly<Record<HeldCredentialKind, CeremonyRole>> =
  * its exact label, the driver reads it through the page adapter, and the value
  * goes to the plan's own sink — in a run, straight into a run-bound
  * `common.oauth-client` record — and nowhere else.
+ *
+ * `totp-seed` is the setup key an "add an authenticator app" page shows while
+ * a second factor is enrolled. It is the same thing a later plan names as the
+ * held credential kind `totp-seed`: kept once, into the host's custody, and
+ * from then on only ever turned into codes.
  */
 export const issuedValueKinds = [
   "client-id",
   "client-secret",
+  "totp-seed",
   /**
    * A personal access token a provider just generated, shown once - often in
    * a `<code>` or `<pre>` block beside a copy button rather than in a field.
@@ -131,10 +137,12 @@ export type IssuedValueKind = z.infer<typeof issuedValueKindSchema>;
  * The issued values that are secrets. Once read, each is guarded exactly as a
  * typed password is: a later snapshot or note that reproduces it fails the
  * attempt. A client ID is an identifier the provider puts in every
- * authorization URL, so it is kept but not guarded.
+ * authorization URL, so it is kept but not guarded. A seed is guarded in
+ * every spelling an enrolment page prints it in, as a held one is.
  */
 export const secretIssuedValueKinds: readonly IssuedValueKind[] = [
   "client-secret",
+  "totp-seed",
   "access-token",
 ];
 
@@ -199,6 +207,14 @@ export const issuedDeclarationSchema = z
       context.addIssue({
         code: "custom",
         message: "An oauth-client sink keeps a client-id",
+      });
+    // A seed mints every future code for the account. The one place it may
+    // go is the host's private collector, where a later plan references it
+    // as a held `totp-seed`; a client record is no place to keep one.
+    if (kinds.has("totp-seed") && declaration.sink !== "credential-custody")
+      context.addIssue({
+        code: "custom",
+        message: "A totp-seed is kept only in credential-custody",
       });
     // An access token is the person's credential, not part of a client: it
     // goes to custody and nowhere else.

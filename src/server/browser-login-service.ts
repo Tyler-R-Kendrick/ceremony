@@ -54,7 +54,7 @@ import {
 } from "./browser-verification.js";
 import { recipientsFor, type EffectiveLoginPlan } from "./login-plan.js";
 import { effectIsIndeterminate, type EffectLedger } from "./browser-effects.js";
-import { totpCode, totpSeedSpellings } from "./totp.js";
+import { nextTotpCode, totpSeedSpellings } from "./totp.js";
 import { storageStateSchema, type BrowserStateStore } from "./browser-state.js";
 
 /**
@@ -818,7 +818,10 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
       values[role] = async () => {
         const seed = await options.credentials.resolve(actor, plan, kind);
         if (seed === undefined) throw new Error("credential unavailable");
-        const code = totpCode(seed, now());
+        // Never a code this process already issued: a sign-in right after
+        // the enrolment that kept this seed, or right after another sign-in,
+        // waits for the next period rather than be refused for reuse.
+        const code = await nextTotpCode(seed, { now });
         resolved.push(code);
         return code;
       };
@@ -913,6 +916,11 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
                   ...Object.values(values).filter(
                     (value): value is string => value !== undefined,
                   ),
+                  // A recording is checked against a kept seed in each
+                  // spelling a page could print it in, as the driver is.
+                  ...(values["totp-seed"]
+                    ? totpSeedSpellings(values["totp-seed"])
+                    : []),
                 );
                 await issuedSink(actor, { runRef, plan }, values);
                 kept = true;

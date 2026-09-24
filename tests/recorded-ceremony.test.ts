@@ -56,6 +56,11 @@ async function provider(t: TestContext, seed = 41) {
     identifierFirst: true,
     requireMfa: true,
     totpSeed: SEED,
+    // These tests record and replay one account's sign-in several times in
+    // a row, each answering from `totpCode` at fill time; what they check is
+    // the recording, not single use of a code, which the double otherwise
+    // enforces (RFC 6238 section 5.2).
+    acceptReusedTotp: true,
     accounts: [{ email: EMAIL, username: USERNAME, password: PASSWORD }],
   });
   t.after(() => double.close());
@@ -340,6 +345,19 @@ describe("REPLAY: a recording runs again with no model in the loop", () => {
     assert.equal(result.drift?.kind, "missing-role");
     assert.equal(result.drift?.role, "totp-code");
     assert.deepEqual(page.history(), []);
+
+    // A login that keeps the seed an enrolment page shows answers the code
+    // from that seed, so the same recording is not refused for it.
+    const enrolling = createHttpCeremonyPage();
+    const kept = await runRecordedCeremony({
+      page: enrolling,
+      recording,
+      goal: "sign-in",
+      secrets: createSecrets({ username: USERNAME, password: PASSWORD }),
+      allowedOrigins: [double.origin],
+      issued: { fields: { "totp-seed": "Setup key" }, keep: async () => {} },
+    });
+    assert.notEqual(kept.drift?.kind, "missing-role");
   });
 
   test("a branch stops the replay under its own reason, as recorded", async (t) => {
