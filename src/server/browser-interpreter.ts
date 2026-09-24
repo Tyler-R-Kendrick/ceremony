@@ -122,21 +122,121 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
   const words = (element: SnapshotElement) =>
     `${element.name ?? ""} ${element.label ?? ""} ${element.placeholder ?? ""} ${element.text ?? ""}`.toLowerCase();
 
+  /** Wording that names a sign-in identifier rather than an address. */
+  const identifierWords =
+    /user\s?name|handle|login|account name|sign[- ]?in name|user id/;
+
+  /**
+   * A field that takes either an address or a username ("Email or
+   * username", or anything carrying `autocomplete="username"`): whichever the
+   * caller can supply. Choosing by wording alone left such a field empty
+   * whenever the caller held only the other one, and the form went in with
+   * its identifier missing.
+   */
+  const identifier = (
+    text: string,
+    available: readonly CeremonyRole[],
+  ): CeremonyRole => {
+    const email = /e-?mail/.test(text) && available.includes("email");
+    if (email) return "email";
+    if (available.includes("username")) return "username";
+    return available.includes("email") ? "email" : "username";
+  };
+
+  /**
+   * Which code a code field wants: one from an authenticator, or one that was
+   * mailed. The field's own words decide first, then what the page around it
+   * says ("Check your email" or "Two-factor authentication"), and only then,
+   * when nothing says, the one code the caller can actually supply. Labels
+   * such as "One-time code" or "Enter code" say nothing on their own, and
+   * guessing the mailed one there stopped every sign-in whose caller held
+   * only an authenticator.
+   */
+  const codeRole = (
+    text: string,
+    page: string,
+    available: readonly CeremonyRole[],
+  ): CeremonyRole => {
+    if (/totp|authenticat|two[- ]?factor|2fa/.test(text)) return "totp-code";
+    if (/e-?mail|inbox/.test(text)) return "verification-code";
+    if (
+      /check your (e-?mail|inbox)|we (have )?(sent|e-?mailed)|sent (it )?to (your )?e-?mail|sent to \S+@|confirm(ation)? (your )?e-?mail|verify your e-?mail/.test(
+        page,
+      )
+    )
+      return "verification-code";
+    if (/totp|authenticat|two[- ]?factor|2fa/.test(page)) return "totp-code";
+    const totp = available.includes("totp-code");
+    if (totp !== available.includes("verification-code"))
+      return totp ? "totp-code" : "verification-code";
+    return "verification-code";
+  };
+
+  /** Autocomplete tokens that qualify a purpose rather than name one. */
+  const modifiers =
+    /^(on|off|section-.*|shipping|billing|home|work|mobile|fax|pager|webauthn)$/;
+  /** Autocomplete purposes these rules know how to answer. */
+  const handled = new Set([
+    "one-time-code",
+    "current-password",
+    "new-password",
+    "username",
+    "email",
+    "name",
+    "bday",
+  ]);
+  /** Codes that are not a sign-in code: typing one there is always wrong. */
+  const otherCodes =
+    /zip|postal|post code|promo|coupon|discount|voucher|gift|referral|invit|country|area|region|dialling|dialing|currency|product|tax/;
+
   /** What this control is asking for, or nothing when it cannot be told. */
   const roleOf = (
     element: SnapshotElement,
     seenPassword: boolean,
+    available: readonly CeremonyRole[] = [],
+    /** The page's title, headings and alerts, lower-cased. */
+    page = "",
   ): CeremonyRole | undefined => {
     const text = words(element);
-    if (/\b(code|otp|one[- ]?time|verification)\b/.test(text))
-      return /totp|authenticat/.test(text) ? "totp-code" : "verification-code";
-    if (element.type === "email" || /e-?mail/.test(text)) return "email";
+    // The autocomplete token is the page's own published statement of what a
+    // field is for, so it is read before any wording. It is what separates a
+    // new password from the current one, and a code field from a name field,
+    // when the labels alone would not.
+    const hint = new Set((element.autocomplete ?? "").split(/\s+/));
+    // A token naming some other purpose ("postal-code", "tel", "cc-number",
+    // "organization") is just as final: it says what the field is not.
+    const purposes = [...hint].filter(
+      (token) => token && !modifiers.test(token),
+    );
+    if (purposes.length > 0 && !purposes.some((token) => handled.has(token)))
+      return undefined;
+    if (hint.has("one-time-code")) return codeRole(text, page, available);
+    if (hint.has("current-password")) return "password";
+    if (hint.has("new-password"))
+      return seenPassword || /confirm|again|repeat|retype/.test(text)
+        ? "password-confirm"
+        : "password";
+    if (hint.has("username")) return identifier(text, available);
+    if (hint.has("email")) return "email";
+    if (hint.has("name")) return "display-name";
+    if (hint.has("bday")) return "birth-date";
+    if (
+      /\b(code|otp|one[- ]?time|verification)\b/.test(text) &&
+      !otherCodes.test(text)
+    )
+      return codeRole(text, page, available);
+    if (element.type === "email" || /e-?mail/.test(text))
+      return identifierWords.test(text) ? identifier(text, available) : "email";
     if (element.type === "password" || /password|passphrase/.test(text))
       return seenPassword || /confirm|again|repeat|retype/.test(text)
         ? "password-confirm"
         : "password";
-    if (/user\s?name|handle|login/.test(text)) return "username";
-    if (/display|full name|your name/.test(text)) return "display-name";
+    if (identifierWords.test(text)) return "username";
+    // Also the name of the thing a ceremony creates: an application, a token.
+    if (
+      /display|full name|your name|(application|app|token|key) name/.test(text)
+    )
+      return "display-name";
     if (/birth|date of birth|dob/.test(text)) return "birth-date";
     return undefined;
   };
@@ -149,7 +249,9 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
    * right one. Checked before `forward`, so "Send a new link" is not a submit.
    */
   const backward =
-    /resend|send (a )?new|email me again|cancel|deny|decline|not now|\bback\b|sign out|log out|skip/;
+    /resend|send (a )?new|email me again|cancel|deny|decline|not now|\bback\b|sign out|log out|skip|passkey|security key/;
+  /** A provider's own way back after it failed: not a way back from the goal. */
+  const retry = /try again|retry|back to sign in/i;
   /** Sign-up or sign-in through someone else, or without a password. */
   const elsewhere =
     /with (google|github|gitlab|apple|microsoft|facebook|linkedin|twitter|x)\b|passkey|security key|\bsso\b|single sign-on/;
@@ -167,7 +269,21 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
   return async ({ goal, snapshot, available, history }) => {
     if (snapshot.challenge)
       return { action: "blocked", reason: "human-challenge" };
-    if (snapshot.passkey && !available.includes("password"))
+    // A passkey hint is conditional UI only on a field that also takes
+    // typing - a password box, or an identifier spelled `username webauthn`.
+    // A page with neither is the authenticator's own prompt, whatever roles
+    // are on offer: pressing its "Continue" asks for an assertion no
+    // interpreter can give.
+    const typedPath = snapshot.elements.some((element) => {
+      const tokens = (element.autocomplete ?? "").split(/\s+/);
+      return (
+        element.type === "password" ||
+        (element.kind === "input" &&
+          tokens.includes("webauthn") &&
+          (tokens.includes("username") || tokens.includes("email")))
+      );
+    });
+    if (snapshot.passkey && (!available.includes("password") || !typedPath))
       return { action: "blocked", reason: "passkey-required" };
 
     // An alert that names a wall is a wall, whatever else is on the page —
@@ -258,10 +374,13 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
         return { action: "click", element: signUp.index, note: signUp.text };
     }
 
+    const context = [snapshot.title, ...snapshot.headings, ...snapshot.alerts]
+      .join(" ")
+      .toLowerCase();
     let seenPassword = false;
     for (const element of snapshot.elements) {
       if (element.kind !== "input" && element.kind !== "select") continue;
-      const role = roleOf(element, seenPassword);
+      const role = roleOf(element, seenPassword, available, context);
       if (role === "password") seenPassword = true;
       if (!role || element.filled || !available.includes(role)) continue;
       // Never type into a form that posts somewhere else; the driver refuses
@@ -311,12 +430,26 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
     // deliberately changed since - a replacement address swapped in, a box
     // ticked - because the provider refused the old form and the new one has
     // not been submitted. Refilling the same fields is not such a change, or a
-    // page that keeps refusing would be submitted forever.
+    // page that keeps refusing would be submitted forever. Nor is a press
+    // counted once the provider failed and its own retry link loaded the page
+    // again: the earlier submission never reached a working provider, and a
+    // person would press the same button a second time.
+    // A provider's retry link is followed once per run. A provider that fails
+    // again after a retry is down, not flaky, and each loop would post the
+    // password to it again.
+    const retries = history.filter(
+      (entry) => entry.action === "click" && retry.test(entry.note ?? ""),
+    );
+    const firstRetry = (entry: (typeof history)[number]) =>
+      entry === retries[0];
     const changed = history.findLastIndex(
       (entry) =>
         entry.path === snapshot.path &&
         (entry.action === "check" ||
-          (entry.action === "fill" && entry.note === "retry-address")),
+          (entry.action === "fill" && entry.note === "retry-address") ||
+          (entry.action === "click" &&
+            retry.test(entry.note ?? "") &&
+            firstRetry(entry))),
     );
     const lastPress = history.findLastIndex(
       (entry) => entry.action === "click" && entry.path === snapshot.path,
@@ -354,12 +487,22 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
     if (submit)
       return { action: "click", element: submit.index, note: submit.text };
 
-    const link = snapshot.elements.find(
-      (element) =>
-        element.kind === "link" &&
-        toward[goal].test(words(element)) &&
-        !pressed.has(element.text),
-    );
+    // A provider that failed and says so offers a way to try again; that is
+    // the way forward whatever the goal, but only while the failure is shown.
+    // "Too many attempts, try again later" is a lockout, and trying again is
+    // how it gets longer. On a page showing a failure, a link back to the
+    // form is the retry whatever it is called ("Back to sign in" also reads
+    // as the way to sign in), so only the retry rule may follow it.
+    const showsFailure =
+      /unavailable|went wrong|try again|too many|locked/.test(alerts);
+    const failed = showsFailure && !/too many|later|locked|limit/.test(alerts);
+    const link = snapshot.elements.find((element) => {
+      if (element.kind !== "link" || pressed.has(element.text)) return false;
+      const text = words(element);
+      if (showsFailure && retry.test(text))
+        return failed && retries.length === 0;
+      return toward[goal].test(text) && !elsewhere.test(text);
+    });
     if (link) return { action: "click", element: link.index, note: link.text };
 
     // Nothing to fill and nothing to press. A page that says the thing

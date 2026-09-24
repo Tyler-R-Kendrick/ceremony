@@ -6,14 +6,14 @@ This suite replaces that with self-hosted doubles. Each auth situation an agent 
 
 ## What is real and what is substituted
 
-| Layer          | In these tests                                                                                                                                                                                                        |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Provider pages | Real HTML over real HTTP from `tests/doubles/auth-provider`, with sessions in cookies, redirects, form validation, confirmation mail, authorization-code + PKCE S256, a token endpoint, userinfo and OIDC discovery   |
-| Page shape     | Regenerated per provider instance from a seed: field names, label wording, how a label is attached, control order, button captions, alert markup, signup path, and whether the address field is `type="email"` at all |
-| Driver         | The real `runCeremony` from `src/server/browser-driver.ts`                                                                                                                                                            |
-| Snapshot       | The real `snapshotDocument` from `src/core/browser-contracts.ts`, the same function in both runners                                                                                                                   |
-| Browser        | A parsed document in the Node suite; a real Chromium in the browser suite                                                                                                                                             |
-| Inference      | **Substituted.** A scripted interpreter stands in for the model                                                                                                                                                       |
+| Layer          | In these tests                                                                                                                                                                                                                                                                                                                    |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Provider pages | Real HTML over real HTTP from `tests/doubles/auth-provider`, with sessions in cookies, redirects, form validation, confirmation mail, authorization-code + PKCE S256, a token endpoint, userinfo and OIDC discovery                                                                                                               |
+| Page shape     | Regenerated per provider instance from a seed: field names, label wording, how a label is attached, control order, button captions, alert markup, signup path, and whether the address field is `type="email"` at all. A realistic `layout` replaces this with a fixed, styled page (see [Realistic layouts](#realistic-layouts)) |
+| Driver         | The real `runCeremony` from `src/server/browser-driver.ts`                                                                                                                                                                                                                                                                        |
+| Snapshot       | The real `snapshotDocument` from `src/core/browser-contracts.ts`, the same function in both runners                                                                                                                                                                                                                               |
+| Browser        | A parsed document in the Node suite; a real Chromium in the browser suite                                                                                                                                                                                                                                                         |
+| Inference      | **Substituted.** A scripted interpreter stands in for the model                                                                                                                                                                                                                                                                   |
 
 The inference boundary is the only thing mocked, and it is mocked on purpose. In production the page is interpreted by a model, because no fixed rule set survives contact with real providers. A model in the loop would make every run non-deterministic and would need credentials in CI, so the contract suite supplies a deterministic interpreter instead and asserts what the driver does with whatever the interpreter proposes — including proposals that are wrong, unusable, or dishonest.
 
@@ -159,6 +159,7 @@ reported as a stall rather than a completed ceremony.
 
 ```sh
 npm run test:scenarios     # the Node suite: catalog, invariants and driver boundaries
+node --import tsx --test tests/contracts/auth-realistic-layouts.test.ts   # the catalog on realistic layouts
 npm run test:e2e           # includes the same catalog through a real Chromium
 npm run test:flows         # the same catalog again, recorded, via agent-browser
 ```
@@ -191,13 +192,37 @@ Two scenarios are excluded from the browser catalog rather than skipped inside i
 - It does not cover script-driven providers in the Node runner. A provider that builds its form in JavaScript is covered by the browser suite only.
 - The scripted interpreter is a test double and must never be shipped. It lives in `tests/doubles/` for that reason. Deterministic page parsing was tried as a production approach and failed on the first provider it had not been written for.
 
+## Realistic layouts
+
+The randomized shape is built to be hostile, and it is: a password box can come above the username, an input can have no visible label at all, a registration form arrives in any order, and there is no CSS. That is what makes it a good robustness fixture and a bad thing to show anyone. No provider ships those pages, and a ceremony recorded on them looks wrong even when every step was right.
+
+So the double also serves realistic layouts, chosen with the `layout` behaviour (`tests/doubles/auth-provider/layouts.ts`). `randomized` stays the default, and every contract above keeps its meaning. Each realistic layout is a pattern many providers share, not an imitation of any one of them: the product names (Northwind Cloud, Acme Accounts, Globex Workspace) are invented, and no real provider's logo, colours or copy is used.
+
+| Layout             | Sign-in                                                                                                                                         |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `classic-card`     | Centred card under a wordmark: "Email or username", then Password with "Forgot password?", a full-width Sign in, a divider, "Create an account" |
+| `identifier-first` | Identifier and Next, with "Create account"; then an identity chip and the password on `/signin/password` (it turns on `identifierFirst`)        |
+| `split-panel`      | A marketing panel beside the form, same fields; the panel collapses to a header on a phone                                                      |
+
+All three share the other pages. Registration asks for Full name, Work email, Password (with a strength hint), Confirm password and a Terms checkbox, in that order, and links back to sign-in. Confirmation is a "Check your email" page naming a masked address (`c***@example.com`) with a single one-time-code input, or a link notice when the account is confirmed by link. The second factor is one authenticator-code input. Consent names the application and the signed-in account, lists the scopes, and offers Allow and Cancel. Errors are inline banners with `role="alert"`; a taken address offers "Sign in instead".
+
+Every input has a `<label for>`, a realistic `name`, `type` and `autocomplete` (`username`, `current-password`, `new-password`, `email`, `name`, `one-time-code`), and `required` where real pages require it. Decoration adds nothing a snapshot would pick up as something to act on: the wordmark is not a link, marketing copy is not a heading, and every link's own text says where it goes, because a snapshot carries a link's caption and not the sentence around it. Only markup and CSS change; sessions, codes, PKCE, redirects and origins are the double's own.
+
+`withLayout(scenario, layout)` runs any catalog scenario on a realistic layout with its preconditions, roles and required outcome unchanged. `tests/contracts/auth-realistic-layouts.test.ts` does exactly that for every scenario on every layout with the scripted interpreter, and for all but four with the production heuristic; each of the four states why, and none is caused or cured by a layout. The browser suite runs its catalog again on `classic-card`, and the demonstrated flows on every layout with the heuristic, in Chromium, which enforces `required` and the CSS the Node runner cannot.
+
+An outcome can be right while the fills are wrong: a password typed into the identifier field, the identifier left empty, and a provider that refuses in exactly the way the scenario expected. So each of those runs is also held to `assertFillsMatchLabels` (`tests/doubles/fill-labels.ts`): every fill is checked against the label, `type`, `autocomplete` and `name` of the field it went into, on the snapshot the interpreter chose it from; the field must be labelled; and no forward button may be pressed while a required field is still empty. Recorded demonstrations should use a realistic layout and the same check, so a recording is held to the rule a test is.
+
+Running against realistic pages found defects the randomized sweep had not: an "Email or username" field left empty whenever the caller held only a username, an authenticator's code taken for a mailed one when its label said neither, a conditional-passkey identifier field treated as a passkey prompt, and an identifier-first password step that signed in an unconfirmed account.
+
+These pages are still ours. A realistic layout makes a run look like a real sign-in; it is no more evidence about a real provider than the randomized one.
+
 ## Shapes for recorded ceremonies
 
 The provider double has three additions for [recorded ceremonies](recorded-ceremonies.md). They are behaviour flags and methods, not catalog scenarios:
 
-- `identifierFirst` asks for the identifier alone, then shows the password on `/signin/password`.
+- `identifierFirst` asks for the identifier alone, then shows the password on `/signin/password`. The `identifier-first` layout turns it on.
 - `totpSeed` makes the second factor an RFC 6238 code derived from that seed, instead of a fixed code per account.
-- `restyle(seed)` regenerates every page's markup on the same origin with the same accounts. To anything that recorded the old pages, that is what a provider redeploying looks like.
+- `restyle(seed)` regenerates every page's markup on the same origin with the same accounts. To anything that recorded the old pages, that is what a provider redeploying looks like. It keeps the provider's layout, so a realistic layout restyles to itself.
 
 `/api/whoami` answers the fixture verifier for a session that has both factors.
 

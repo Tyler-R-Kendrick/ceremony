@@ -1008,6 +1008,633 @@ test("a button with the same label on the next document is not already pressed",
   );
 });
 
+test("an 'Email or username' field gets whichever identifier the caller holds", async () => {
+  // The defect behind a recorded demo that signed nobody in: a field reading
+  // "Email or username" matched the address pattern, the caller held only a
+  // username, and the field was skipped - the form went in with its
+  // identifier empty.
+  const interpret = createHeuristicInterpreter();
+  const elements: SnapshotElement[] = [
+    {
+      index: 0,
+      kind: "input",
+      type: "text",
+      name: "username",
+      autocomplete: "username",
+      label: "Email or username",
+    },
+    {
+      index: 1,
+      kind: "input",
+      type: "password",
+      name: "password",
+      autocomplete: "current-password",
+      label: "Password",
+    },
+    { index: 2, kind: "button", text: "Sign in" },
+  ];
+  for (const [available, role] of [
+    [["username", "password"], "username"],
+    [["email", "password"], "email"],
+    [["email", "username", "password"], "email"],
+  ] as const)
+    assert.deepEqual(
+      await interpret({
+        goal: "sign-in",
+        snapshot: snapshot({ elements }),
+        available,
+        history: [],
+      }),
+      { action: "fill", element: 0, role },
+      `offered ${available.join(", ")}`,
+    );
+  // Without an autocomplete hint the wording alone still says "either".
+  assert.deepEqual(
+    await interpret({
+      goal: "sign-in",
+      snapshot: snapshot({
+        elements: [
+          { index: 0, kind: "input", type: "text", label: "Username or email" },
+        ],
+      }),
+      available: ["username"],
+      history: [],
+    }),
+    { action: "fill", element: 0, role: "username" },
+  );
+});
+
+test("the heuristic reads a field's autocomplete token before its wording", async () => {
+  // Real pages publish what a field is for in `autocomplete`. It separates a
+  // new password from the current one and an authenticator's code from a
+  // mailed one where the visible label ("Password", "Authentication code")
+  // does not.
+  const interpret = createHeuristicInterpreter();
+  // Labels that say nothing a pattern could use: only the token decides.
+  const registration: SnapshotElement[] = [
+    { index: 0, kind: "input", label: "Name", autocomplete: "name" },
+    {
+      index: 1,
+      kind: "input",
+      type: "text",
+      label: "Work address",
+      autocomplete: "email",
+    },
+    {
+      index: 2,
+      kind: "input",
+      type: "password",
+      label: "Password",
+      autocomplete: "new-password",
+    },
+    {
+      index: 3,
+      kind: "input",
+      type: "password",
+      label: "Re-enter it",
+      autocomplete: "new-password",
+    },
+  ];
+  const roles = [
+    "display-name",
+    "email",
+    "password",
+    "password-confirm",
+  ] as const;
+  for (const [index, role] of roles.entries()) {
+    assert.deepEqual(
+      await interpret({
+        goal: "registration",
+        snapshot: snapshot({ elements: registration }),
+        available: roles,
+        history: [],
+      }),
+      { action: "fill", element: index, role },
+    );
+    registration[index]!.filled = true;
+  }
+  for (const [label, role] of [
+    ["Authentication code", "totp-code"],
+    ["Verification code", "verification-code"],
+    ["Enter the digits", "verification-code"],
+  ] as const)
+    assert.deepEqual(
+      await interpret({
+        goal: "sign-in",
+        snapshot: snapshot({
+          elements: [
+            {
+              index: 0,
+              kind: "input",
+              type: "text",
+              label,
+              autocomplete: "one-time-code",
+            },
+          ],
+        }),
+        available: ["totp-code", "verification-code"],
+        history: [],
+      }),
+      { action: "fill", element: 0, role },
+      label,
+    );
+});
+
+test("the heuristic tells an authenticator's code from a mailed one by the page around it", async () => {
+  // "One-time code" and "Enter code" say nothing about where the code comes
+  // from. Guessing the mailed one stopped every two-factor sign-in whose
+  // caller held only an authenticator: the field was skipped and the empty
+  // form submitted.
+  const interpret = createHeuristicInterpreter();
+  const codeField = (label: string): SnapshotElement[] => [
+    { index: 0, kind: "input", type: "text", label, required: true },
+    { index: 1, kind: "button", text: "Continue" },
+  ];
+  for (const [page, label, available, role] of [
+    // The page says two-factor.
+    [
+      { headings: ["Enter your Two-factor code"] },
+      "One-time code",
+      ["totp-code", "verification-code"],
+      "totp-code",
+    ],
+    [
+      { title: "Two-factor authentication", headings: [] },
+      "Enter code",
+      ["totp-code", "verification-code"],
+      "totp-code",
+    ],
+    // The page says a message was sent, whatever the field is called.
+    [
+      { headings: ["Check your inbox to confirm the account."] },
+      "One-time code",
+      ["totp-code", "verification-code"],
+      "verification-code",
+    ],
+    [
+      { headings: ["We sent you a confirmation message."] },
+      "6-digit code",
+      ["totp-code", "verification-code"],
+      "verification-code",
+    ],
+    // The field itself says.
+    [{ headings: [] }, "Two-factor code", ["verification-code"], "totp-code"],
+    // Nothing says: the one code the caller can supply.
+    [{ headings: [] }, "6-digit code", ["totp-code"], "totp-code"],
+    [
+      { headings: [] },
+      "6-digit code",
+      ["verification-code"],
+      "verification-code",
+    ],
+  ] satisfies Array<
+    [Partial<PageSnapshot>, string, InterpreterInput["available"], string]
+  >)
+    assert.deepEqual(
+      await interpret({
+        goal: "sign-in",
+        snapshot: snapshot({ ...page, elements: codeField(label) }),
+        available,
+        history: [],
+      }),
+      available.includes(role as never)
+        ? { action: "fill", element: 0, role }
+        : { action: "click", element: 1, note: "Continue" },
+      `${label} under ${JSON.stringify(page)}`,
+    );
+});
+
+test("the heuristic recognises the usual ways of naming a sign-in identifier", async () => {
+  const interpret = createHeuristicInterpreter();
+  for (const label of [
+    "Account name",
+    "Sign-in name",
+    "Login ID",
+    "Login name",
+    "Handle",
+  ])
+    assert.deepEqual(
+      await interpret({
+        goal: "sign-in",
+        snapshot: snapshot({
+          elements: [{ index: 0, kind: "input", type: "text", label }],
+        }),
+        available: ["username", "password"],
+        history: [],
+      }),
+      { action: "fill", element: 0, role: "username" },
+      label,
+    );
+  // The name of the thing a ceremony creates is the caller's display name,
+  // never left empty under a "Create" button.
+  for (const label of ["Application name", "Token name"])
+    assert.deepEqual(
+      await interpret({
+        goal: "obtain-credential",
+        snapshot: snapshot({
+          elements: [
+            { index: 0, kind: "input", type: "text", label, required: true },
+            { index: 1, kind: "button", text: "Create application" },
+          ],
+        }),
+        available: ["display-name"],
+        history: [],
+      }),
+      { action: "fill", element: 0, role: "display-name" },
+      label,
+    );
+});
+
+test("after a provider fault the heuristic retries through the provider's own link", async () => {
+  // A provider that failed a sign-in shows an error and a way back. Taking it
+  // loads the same sign-in path again, and the button pressed before the
+  // fault must be pressable again: the earlier submission never reached a
+  // working provider.
+  const interpret = createHeuristicInterpreter();
+  const path = "https://provider.example/signin";
+  assert.deepEqual(
+    await interpret({
+      goal: "sign-in",
+      available: ["username", "password"],
+      history: [{ action: "click", note: "Sign in", path }],
+      snapshot: snapshot({
+        alerts: ["Sign-in is temporarily unavailable. Try again."],
+        elements: [{ index: 0, kind: "link", text: "Try again" }],
+      }),
+    }),
+    { action: "click", element: 0, note: "Try again" },
+  );
+  assert.deepEqual(
+    await interpret({
+      goal: "sign-in",
+      available: ["username", "password"],
+      history: [
+        { action: "fill", path },
+        { action: "fill", path },
+        { action: "click", note: "Sign in", path },
+        { action: "click", note: "Try again", path },
+        { action: "fill", path },
+        { action: "fill", path },
+      ],
+      snapshot: snapshot({
+        elements: [
+          {
+            index: 0,
+            kind: "input",
+            type: "text",
+            label: "Username",
+            filled: true,
+          },
+          {
+            index: 1,
+            kind: "input",
+            type: "password",
+            label: "Password",
+            filled: true,
+          },
+          { index: 2, kind: "button", text: "Sign in" },
+        ],
+      }),
+    }),
+    { action: "click", element: 2, note: "Sign in" },
+  );
+  // Without a failure on the page, a retry-looking link is not followed.
+  assert.notDeepEqual(
+    await interpret({
+      goal: "sign-in",
+      available: [],
+      history: [],
+      snapshot: snapshot({
+        elements: [{ index: 0, kind: "link", text: "Try again" }],
+      }),
+    }),
+    { action: "click", element: 0, note: "Try again" },
+  );
+});
+
+test("a provider's retry link is followed once per run, and never into a lockout", async () => {
+  const interpret = createHeuristicInterpreter();
+  const path = "https://provider.example/signin";
+  const down = snapshot({
+    alerts: ["Sign-in is temporarily unavailable. Try again."],
+    elements: [{ index: 0, kind: "link", text: "Back to sign in" }],
+  });
+  // After one retry that failed again, the provider is down, not flaky:
+  // looping would post the password to it once per lap.
+  assert.notDeepEqual(
+    await interpret({
+      goal: "sign-in",
+      available: ["username", "password"],
+      history: [
+        { action: "click", note: "Sign in", path },
+        { action: "click", note: "Back to sign in", path },
+        { action: "fill", path },
+        { action: "fill", path },
+        { action: "click", note: "Sign in", path },
+      ],
+      snapshot: down,
+    }),
+    { action: "click", element: 0, note: "Back to sign in" },
+  );
+  // Nor is the submit offered again on the form after a second retry would
+  // have reset it: the first retry is the only one that counts.
+  const form = snapshot({
+    elements: [
+      {
+        index: 0,
+        kind: "input",
+        type: "text",
+        label: "Username",
+        filled: true,
+      },
+      {
+        index: 1,
+        kind: "input",
+        type: "password",
+        label: "Password",
+        filled: true,
+      },
+      { index: 2, kind: "button", text: "Sign in" },
+    ],
+  });
+  assert.notDeepEqual(
+    await interpret({
+      goal: "sign-in",
+      available: ["username", "password"],
+      history: [
+        { action: "click", note: "Try again", path },
+        { action: "click", note: "Sign in", path },
+        { action: "click", note: "Try again", path },
+        { action: "fill", path },
+        { action: "fill", path },
+      ],
+      snapshot: form,
+    }),
+    { action: "click", element: 2, note: "Sign in" },
+  );
+  // "Try again later" after too many attempts is a lockout.
+  assert.notDeepEqual(
+    await interpret({
+      goal: "sign-in",
+      available: ["username", "password"],
+      history: [{ action: "click", note: "Sign in", path }],
+      snapshot: snapshot({
+        alerts: ["Too many attempts. Try again later."],
+        elements: [{ index: 0, kind: "link", text: "Try again" }],
+      }),
+    }),
+    { action: "click", element: 0, note: "Try again" },
+  );
+});
+
+test("codes that are not a sign-in code never receive one", async () => {
+  const interpret = createHeuristicInterpreter();
+  const available = ["email", "password", "totp-code"] as const;
+  for (const field of [
+    { label: "ZIP code" },
+    { label: "Promo code" },
+    { label: "Referral code (optional)" },
+    { label: "Code", autocomplete: "postal-code" },
+    { label: "Verification", autocomplete: "tel" },
+  ])
+    assert.deepEqual(
+      await interpret({
+        goal: "registration",
+        available,
+        history: [],
+        snapshot: snapshot({
+          headings: ["Create your account"],
+          elements: [
+            { index: 0, kind: "input", type: "text", ...field },
+            { index: 1, kind: "button", text: "Create account" },
+          ],
+        }),
+      }),
+      { action: "click", element: 1, note: "Create account" },
+      field.label,
+    );
+});
+
+test("a one-time code the page says was emailed is the emailed one", async () => {
+  const interpret = createHeuristicInterpreter();
+  assert.deepEqual(
+    await interpret({
+      goal: "sign-in",
+      available: ["verification-code", "totp-code"],
+      history: [],
+      snapshot: snapshot({
+        headings: ["Enter the one-time code we emailed to a•••@example.test"],
+        elements: [
+          { index: 0, kind: "input", type: "text", label: "One-time code" },
+          { index: 1, kind: "button", text: "Verify" },
+        ],
+      }),
+    }),
+    { action: "fill", element: 0, role: "verification-code" },
+  );
+});
+
+test("signing in never follows a passkey or social sign-in link", async () => {
+  const interpret = createHeuristicInterpreter();
+  const path = "https://provider.example/signin";
+  const result = await interpret({
+    goal: "sign-in",
+    available: ["username", "password"],
+    history: [{ action: "click", note: "Sign in", path }],
+    snapshot: snapshot({
+      elements: [
+        { index: 0, kind: "button", text: "Sign in" },
+        { index: 1, kind: "link", text: "Sign in with a passkey" },
+        { index: 2, kind: "link", text: "Sign in with Google" },
+      ],
+    }),
+  });
+  assert.notEqual(result?.action === "click" ? result.element : -1, 1);
+  assert.notEqual(result?.action === "click" ? result.element : -1, 2);
+});
+
+test("a passkey hint on an identifier field alone is conditional UI, not a prompt", async () => {
+  // Step one of an identifier-first page asks for the address only, and a
+  // provider offering conditional passkey UI puts `webauthn` on that field.
+  // There is no password box yet, and nothing about the page needs a person:
+  // handing off here stopped every such provider at its first page.
+  const identifierStep = snapshot({
+    passkey: true,
+    elements: [
+      {
+        index: 0,
+        kind: "input",
+        type: "text",
+        label: "Email or username",
+        autocomplete: "username webauthn",
+      },
+      { index: 1, kind: "button", text: "Next" },
+    ],
+  });
+  const page = inertPage();
+  page.snapshot = async () => identifierStep;
+  let consulted = 0;
+  const result = await runCeremony({
+    page,
+    goal: "sign-in",
+    allowedOrigins: ["https://provider.example"],
+    interpreter: async () => {
+      consulted++;
+      return { action: "blocked", reason: "unsupported-page" };
+    },
+    secrets: createSecrets({ username: "casey" }),
+  });
+  assert.equal(consulted, 1, "the interpreter must be asked, not a person");
+  assert.equal(
+    result.status === "blocked" && result.reason,
+    "unsupported-page",
+  );
+  assert.equal(result.handoffs, 0);
+
+  // A field carrying a bare `webauthn` token is the authenticator's own
+  // prompt, not an identifier: conditional UI is spelled `username webauthn`.
+  // Taking any webauthn field for conditional UI pressed "Continue" on an
+  // authenticator-only page instead of handing it to a person.
+  const authenticatorOnly = inertPage();
+  authenticatorOnly.snapshot = async () =>
+    snapshot({
+      passkey: true,
+      elements: [
+        {
+          index: 0,
+          kind: "input",
+          type: "text",
+          label: "Passkey",
+          name: "credential",
+          autocomplete: "webauthn",
+        },
+        { index: 1, kind: "button", text: "Continue" },
+      ],
+    });
+  const walled = await runCeremony({
+    page: authenticatorOnly,
+    goal: "sign-in",
+    allowedOrigins: ["https://provider.example"],
+    interpreter: async () => {
+      throw new Error("An authenticator-only page must not be interpreted");
+    },
+    secrets: createSecrets({ username: "casey", password: "hunter2xyz" }),
+  });
+  assert.equal(
+    walled.status === "blocked" && walled.reason,
+    "passkey-required",
+  );
+  assert.deepEqual(authenticatorOnly.calls, [], "nothing is pressed or typed");
+
+  // A prompt with nothing to type is still a person's step.
+  const prompt = inertPage();
+  prompt.snapshot = async () =>
+    snapshot({
+      passkey: true,
+      elements: [{ index: 0, kind: "button", text: "Continue with passkey" }],
+    });
+  const handedOff = await runCeremony({
+    page: prompt,
+    goal: "sign-in",
+    allowedOrigins: ["https://provider.example"],
+    interpreter: async () => {
+      throw new Error("A passkey prompt must never reach the interpreter");
+    },
+    secrets: createSecrets({ username: "casey" }),
+  });
+  assert.equal(
+    handedOff.status === "blocked" && handedOff.reason,
+    "passkey-required",
+  );
+});
+
+test("the heuristic fills a conditional-UI identifier but never presses a passkey", async () => {
+  const interpret = createHeuristicInterpreter();
+  const identifier: SnapshotElement = {
+    index: 0,
+    kind: "input",
+    type: "text",
+    label: "Email or username",
+    autocomplete: "username webauthn",
+  };
+  // Identifier-first with conditional UI: the identifier is typed as usual.
+  assert.deepEqual(
+    await interpret({
+      goal: "sign-in",
+      available: ["username", "password"],
+      history: [],
+      snapshot: snapshot({
+        passkey: true,
+        elements: [identifier, { index: 1, kind: "button", text: "Next" }],
+      }),
+    }),
+    { action: "fill", element: 0, role: "username" },
+  );
+  // Filled, the way on is Next - not the passkey offered beside it.
+  assert.deepEqual(
+    await interpret({
+      goal: "sign-in",
+      available: ["username", "password"],
+      history: [{ action: "fill", path: "https://provider.example/signin" }],
+      snapshot: snapshot({
+        passkey: true,
+        elements: [
+          { ...identifier, filled: true },
+          { index: 1, kind: "button", text: "Sign in with a passkey" },
+          { index: 2, kind: "button", text: "Next" },
+        ],
+      }),
+    }),
+    { action: "click", element: 2, note: "Next" },
+  );
+  // An authenticator-only page is a wall even with a password on offer, and
+  // its lone "Continue" is never pressed.
+  assert.deepEqual(
+    await interpret({
+      goal: "sign-in",
+      available: ["username", "password"],
+      history: [],
+      snapshot: snapshot({
+        passkey: true,
+        elements: [
+          {
+            index: 0,
+            kind: "input",
+            type: "text",
+            label: "Passkey",
+            autocomplete: "webauthn",
+          },
+          { index: 1, kind: "button", text: "Continue" },
+        ],
+      }),
+    }),
+    { action: "blocked", reason: "passkey-required" },
+  );
+  // Nor is a passkey button pressed on a page that offers nothing else.
+  assert.notDeepEqual(
+    (
+      await interpret({
+        goal: "sign-in",
+        available: ["username", "password"],
+        history: [{ action: "fill", path: "https://provider.example/signin" }],
+        snapshot: snapshot({
+          elements: [
+            {
+              index: 0,
+              kind: "input",
+              type: "text",
+              label: "Username",
+              filled: true,
+            },
+            { index: 1, kind: "button", text: "Use a passkey" },
+          ],
+        }),
+      })
+    )?.action,
+    "click",
+  );
+});
+
 test("the heuristic claims completion only on a success page and the driver still verifies it", async () => {
   const interpret = createHeuristicInterpreter();
   assert.deepEqual(

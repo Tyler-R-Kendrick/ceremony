@@ -25,6 +25,7 @@ import {
   type ProviderBehavior,
   type ProviderDouble,
 } from "./server.js";
+import type { RealisticLayout } from "./layouts.js";
 
 /**
  * The auth scenario catalog.
@@ -1529,6 +1530,22 @@ export const authScenarios: readonly AuthScenario[] = [
     },
   },
 ];
+
+/**
+ * The same scenario, served in a realistic layout instead of the randomized
+ * shape. Only the look of the pages changes: preconditions, roles, the
+ * required outcome and the provider-side confirmation are the scenario's own,
+ * so a realistic page is held to exactly the contract a randomized one is.
+ */
+export function withLayout(
+  scenario: AuthScenario,
+  layout: RealisticLayout,
+): AuthScenario {
+  return {
+    ...scenario,
+    behavior: (context) => ({ ...scenario.behavior(context), layout }),
+  };
+}
 
 /** Supply the name a provider requires for the thing a ceremony creates. */
 function withDisplayName(
