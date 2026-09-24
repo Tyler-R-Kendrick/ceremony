@@ -171,6 +171,8 @@ export async function record(session: DemoSession) {
       secrets,
       allowedOrigins: [provider.origin],
       onApplied: session.applied,
+      // The advance consent the title card states.
+      consents: session.entry.consents ?? [],
       protectedValues: [account.password],
       // The plan keeps the setup key, and only into custody.
       issued: {

@@ -132,14 +132,59 @@ export function createAgentBrowserPage(
     }
   };
   const selector = (index: number) => `[${indexAttribute}="${index}"]`;
+  /** The last observation, so a read can be held to what was observed. */
+  let observed: PageSnapshot | undefined;
 
   return {
     url: async () => call("get", "url"),
     goto: async (target) => {
       await call("open", target);
     },
-    snapshot: async (): Promise<PageSnapshot> =>
-      JSON.parse(await call("eval", snapshotPageSource(indexAttribute))),
+    snapshot: async (): Promise<PageSnapshot> => {
+      observed = JSON.parse(
+        await call("eval", snapshotPageSource(indexAttribute)),
+      ) as PageSnapshot;
+      return observed;
+    },
+    // What an observed read-only field, or labelled code block, displays -
+    // under the rules the Playwright adapter applies. The element must be the
+    // one the last observation described, on the same page, and the value is
+    // read by the very `readOnlyValueSource` the adapters ship: an editable,
+    // hidden or disabled control reads as nothing, so nothing the driver
+    // typed can come back out as an issued value. The value crosses the CLI's
+    // stdout, which is acceptable only because this runner serves the
+    // doubles' synthetic values.
+    readIssued: async (element) => {
+      const approved = observed?.elements[element.index];
+      if (
+        !observed ||
+        !approved ||
+        approved.kind !== "input" ||
+        approved.kind !== element.kind ||
+        approved.name !== element.name ||
+        approved.type !== element.type ||
+        approved.label !== element.label
+      )
+        throw new StaleTargetError("stale-element");
+      const { value, here } = JSON.parse(
+        await call(
+          "eval",
+          `(() => {
+            const read = ${readOnlyValueSource};
+            const field = document.querySelector(${JSON.stringify(
+              selector(element.index),
+            )});
+            return {
+              value: field ? read(field) : null,
+              here: location.origin + location.pathname,
+            };
+          })()`,
+        ),
+      ) as { value: unknown; here: unknown };
+      // The page moved on since it was observed: nothing is read from it.
+      if (here !== observed.path) throw new StaleTargetError("stale-document");
+      return typeof value === "string" ? value : undefined;
+    },
     fill: async (element, value) => {
       if (element.kind === "select") {
         await call("select", selector(element.index), value);
@@ -202,23 +247,6 @@ export function createAgentBrowserPage(
     },
     click: async (element) => {
       await call("click", selector(element.index));
-    },
-    // What a read-only field shows, under the same rule the Playwright
-    // adapter reads by: a visible, enabled, read-only input or nothing.
-    readIssued: async (element) => {
-      const { value } = JSON.parse(
-        await call(
-          "eval",
-          `(() => {
-            const field = document.querySelector(${JSON.stringify(
-              selector(element.index),
-            )});
-            const value = (${readOnlyValueSource})(field);
-            return { value: typeof value === "string" ? value : null };
-          })()`,
-        ),
-      ) as { value: unknown };
-      return typeof value === "string" ? value : undefined;
     },
     settle: async () => {
       await call("wait", String(settleMs));

@@ -204,7 +204,7 @@ test("CON-06-01: the nine connector schemas are registered, deterministic, versi
   });
   assert.equal(envelope.properties.definition.additionalProperties, false);
   assert.equal(envelope.properties.project.properties.version.const, 1);
-  assert.equal(Object.keys(specificationSchemas).length, 20);
+  assert.equal(Object.keys(specificationSchemas).length, 21);
 });
 
 test("CON-06-02: runtime validators and generated schemas agree on fixtures and on unknown properties at every level", async () => {

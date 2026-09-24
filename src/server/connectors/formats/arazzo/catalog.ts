@@ -5,6 +5,7 @@ import {
 } from "../../../../core/connectors/identity.js";
 import {
   identifierSchema,
+  operationIdSchema,
   semanticVersionSchema,
 } from "../../../../core/operation-contracts.js";
 import { parseRuntimeExpression } from "./expressions.js";
@@ -35,7 +36,7 @@ export const catalogOperationSchema = z
       .regex(/^#\/[^\p{Cc}]*$/u)
       .optional(),
     operation: z.strictObject({
-      id: identifierSchema,
+      id: operationIdSchema,
       version: semanticVersionSchema,
     }),
     /** "<in>:<name>" or "<name>" of an Arazzo parameter to a registered input name. */

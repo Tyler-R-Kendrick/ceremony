@@ -35,6 +35,8 @@ async function fixture(
   registering = false,
   device = false,
   collision: false | "username-in-use" | "email-in-use" = false,
+  declared: { popupOrigins?: string[] } = {},
+  remote: { liveView?: boolean } = {},
 ) {
   const store = new SQLiteCeremonyStore(":memory:", {
     current: "test",
@@ -84,6 +86,7 @@ async function fixture(
           methods: ["oauth-code"],
           grantTypes: [],
           searchUsed: false,
+          ...declared,
         },
       },
       null,
@@ -141,6 +144,14 @@ async function fixture(
     close: async () => {
       closed++;
     },
+    ...(remote.liveView
+      ? {
+          liveView: async (key: string) =>
+            key === inputs[0]?.sessionKey && !codeEntered
+              ? "https://viewer.example/live/fixture-tab"
+              : undefined,
+        }
+      : {}),
   };
   const fetcher: typeof fetch = async (input, init) => {
     const url = new URL(String(input));
@@ -347,6 +358,57 @@ for (const reason of ["username-in-use", "email-in-use"] as const)
       undefined,
     );
   });
+
+test("a connector's declared sign-in window reaches the isolated browser as both a window and a navigation origin", async (t) => {
+  const f = await fixture(false, false, false, {
+    popupOrigins: ["https://id.provider.example"],
+  });
+  t.after(() => f.store.close());
+  const [first] = f.inputs;
+  assert.deepEqual(first?.popupOrigins, ["https://id.provider.example"]);
+  assert.ok(first?.allowedOrigins.includes("https://id.provider.example"));
+});
+
+test("a waiting remote browser is handed to its owner through the provider's live view", async (t) => {
+  const f = await fixture(false, false, false, {}, { liveView: true });
+  t.after(() => f.store.close());
+  const html = await (await f.human()).text();
+  assert.match(html, /browser is paused for your input/);
+  assert.match(html, /href="\?live-view=1"/);
+  // The control URL is only ever a redirect from this authenticated route.
+  assert.equal(html.includes("viewer.example"), false);
+  const redirect = await f.human(undefined, "?live-view=1");
+  assert.equal(redirect.status, 303);
+  assert.equal(
+    redirect.headers.get("location"),
+    "https://viewer.example/live/fixture-tab",
+  );
+  assert.equal(redirect.headers.get("cache-control"), "no-store");
+  assert.equal(redirect.headers.get("referrer-policy"), "no-referrer");
+  await f.human({
+    method: "POST",
+    body: new URLSearchParams({ action: "browser", code: "123456" }),
+  });
+  // Once the browser is no longer waiting there is nothing to take over.
+  const after = await f.human(undefined, "?live-view=1");
+  assert.notEqual(after.status, 303);
+  assert.equal(after.headers.get("location"), null);
+});
+
+test("a local isolated browser offers no live view link", async (t) => {
+  const f = await fixture();
+  t.after(() => f.store.close());
+  const html = await (await f.human()).text();
+  assert.match(html, /browser is paused for your input/);
+  assert.equal(html.includes("live-view"), false);
+  assert.equal((await f.human(undefined, "?live-view=1")).status, 410);
+});
+
+test("a connector that declares no window gives the isolated browser none", async (t) => {
+  const f = await fixture();
+  t.after(() => f.store.close());
+  assert.equal(f.inputs[0]?.popupOrigins, undefined);
+});
 
 test("selected device ceremony uses one bound device grant without starting an OAuth-code browser", async (t) => {
   const f = await fixture(false, true);

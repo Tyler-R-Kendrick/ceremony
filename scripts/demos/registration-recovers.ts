@@ -144,6 +144,8 @@ export async function record(session: DemoSession) {
       secrets,
       allowedOrigins: [provider.origin],
       onApplied: session.applied,
+      // The advance consent the title card states.
+      consents: session.entry.consents ?? [],
       protectedValues: [account.password, identity.password],
       verify: async () =>
         replacement !== undefined && provider.verifyAccess(replacement),

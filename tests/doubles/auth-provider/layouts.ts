@@ -396,6 +396,12 @@ function createRealisticPages(layout: RealisticLayout, brand: Brand) {
        * after the address, for tax, data residency or a default workspace.
        */
       regions?: readonly { code: string; name: string }[];
+      /**
+       * Offer an optional marketing opt-in under this field name, the box
+       * sign-up forms put under the terms: never required, never ticked for
+       * anybody who did not tick it themselves.
+       */
+      newsletter?: string;
     }) {
       const signIn = hrefWithNext("/signin", options.next);
       const region = options.regions
@@ -420,6 +426,7 @@ function createRealisticPages(layout: RealisticLayout, brand: Brand) {
            ${input({ id: "sign-up-password", label: "Password", name: names.password, type: "password", autocomplete: "new-password", extra: 'minlength="8"', hint: "Use 8 or more characters with a mix of letters, numbers and symbols." })}
            ${input({ id: "sign-up-confirm", label: "Confirm password", name: names.confirm, type: "password", autocomplete: "new-password", extra: 'minlength="8"' })}
            <div class="check"><input id="sign-up-terms" name="${names.terms}" type="checkbox" value="yes" required><label for="sign-up-terms">I agree to the <a href="/legal/terms">Terms of Service</a> and <a href="/legal/privacy">Privacy Policy</a></label></div>
+           ${options.newsletter ? `<div class="check"><input id="sign-up-news" name="${escape(options.newsletter)}" type="checkbox" value="yes"><label for="sign-up-news">Send me product news and special offers</label></div>` : ""}
            <button type="submit" class="btn btn-primary btn-block">Create account</button>
          </form>
          <p class="switch" style="margin-top:20px">Already have an account? <a href="${signIn}">Sign in</a></p>`,

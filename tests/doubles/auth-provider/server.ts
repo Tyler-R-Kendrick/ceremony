@@ -58,6 +58,19 @@ export type ProviderBehavior = {
   /** Registration requires accepting terms before the account is created. */
   requireTerms?: boolean;
   /**
+   * Registration offers an optional "send me product news and offers" box,
+   * and remembers who ticked it. A marketing opt-in is never an agent's to
+   * tick, so a scenario can check nobody did.
+   */
+  offerNewsletter?: boolean;
+  /**
+   * How the page that shows a newly generated personal access token names
+   * the `<code>` block it is in: `aria-label` on the block,
+   * `aria-labelledby` a heading elsewhere, or (the default) a heading right
+   * before it. Always beside a copy button, as providers ship it.
+   */
+  tokenLabel?: "aria-label" | "aria-labelledby" | "heading";
+  /**
    * Registration asks for a country or region from a required `<select>`,
    * whose first option is an empty "Select a country". The account is not
    * created without one of the listed regions.
@@ -252,6 +265,8 @@ export type ProviderDouble = {
   deviceApprovedBy(userCode: string): string | undefined;
   /** The region an address registered with, when registration asked. */
   regionOf(email: string): string | undefined;
+  /** Addresses whose registration ticked the newsletter box. */
+  newsletterSubscribers(): readonly string[];
   account(email: string): Account | undefined;
   accounts(): readonly Account[];
   mailbox: {
@@ -463,6 +478,8 @@ export async function startAuthProvider(
   const deviceConsents = new Map<string, string>();
   /** Region chosen at registration, by address. */
   const regions = new Map<string, string>();
+  const newsletter = new Set<string>();
+  const newsletterField = "news_opt_in";
   /** Identifier-first: which account a browser named before its password. */
   const identified = new Map<string, string>();
   /** Challenge tokens issued, and the browsers that have cleared one. */
@@ -757,6 +774,9 @@ export async function startAuthProvider(
             ...(error ? { error } : {}),
             inUse: error === markup.messages.emailInUse,
             ...(behavior.requireRegion ? { regions: regionList } : {}),
+            ...(behavior.offerNewsletter
+              ? { newsletter: newsletterField }
+              : {}),
           }),
         );
       const fields = markup.arrange("sign-up", [
@@ -805,6 +825,14 @@ export async function startAuthProvider(
           : []),
         ...(behavior.requireTerms
           ? [markup.checkbox(markup.labels.terms, markup.names.terms)]
+          : []),
+        ...(behavior.offerNewsletter
+          ? [
+              markup.checkbox(
+                "Send me product news and special offers",
+                newsletterField,
+              ),
+            ]
           : []),
       ]);
       send(
@@ -1216,6 +1244,8 @@ export async function startAuthProvider(
       if (accounts.has(email))
         return signUpPage(next, markup.messages.emailInUse);
       if (behavior.requireRegion) regions.set(email, region);
+      if (behavior.offerNewsletter && body.get(newsletterField) === "yes")
+        newsletter.add(email);
       const username = email.split("@")[0] ?? email;
       if (verification === "none") {
         accounts.set(email, {
@@ -1826,13 +1856,23 @@ export async function startAuthProvider(
         );
       const issued = `pat_${randomBytes(20).toString("hex")}`;
       tokens.set(issued, session.email);
+      const labelling = behavior.tokenLabel ?? "heading";
+      const block =
+        labelling === "aria-label"
+          ? `<pre><code data-token aria-label="Personal access token">${issued}</code></pre>`
+          : labelling === "aria-labelledby"
+            ? `<p id="token-caption">Personal access token</p>
+               <div class="token"><pre data-token aria-labelledby="token-caption">${issued}</pre></div>`
+            : `<h2>Personal access token</h2>
+               <pre><code data-token>${issued}</code></pre>`;
       return send(
         200,
         markup.page(
           "Access tokens",
           `<h1>Copy your new token</h1>
            <p>This value is shown once. Copy it into the application now.</p>
-           <code data-token>${issued}</code>`,
+           ${block}
+           <button type="button" data-copy>Copy</button>`,
         ),
       );
     }
@@ -2186,6 +2226,7 @@ export async function startAuthProvider(
         body: (await response.json()) as Record<string, unknown>,
       };
     },
+    newsletterSubscribers: () => [...newsletter],
     issueDeviceCode: () => {
       const code = randomBytes(3).toString("hex").toUpperCase();
       devices.set(code, { approved: false });

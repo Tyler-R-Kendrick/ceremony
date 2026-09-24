@@ -777,7 +777,8 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
           | "passkey"
           | "native-dialog"
           | "device-code"
-          | "choice";
+          | "choice"
+          | "consent";
       }
   > {
     await page.goto(plan.entryUrl);
@@ -928,6 +929,7 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
           }
         : {}),
       ...(plan.choices ? { choices: plan.choices } : {}),
+      ...(plan.consents ? { consents: plan.consents } : {}),
       ...(input.human && plan.interactionRounds > 0
         ? { human: { ...input.human, maxRequests: plan.interactionRounds } }
         : {}),
@@ -1033,6 +1035,8 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
         return { kind: "human", reason: "device-code" };
       if (result.reason === "choice-required")
         return { kind: "human", reason: "choice" };
+      if (result.reason === "consent-required")
+        return { kind: "human", reason: "consent" };
       // Refusals that mean a secret was *not* safely deliverable end the
       // attempt here. There is nothing for a verifier to adjudicate: the
       // ceremony stopped before doing the thing it would be verifying.

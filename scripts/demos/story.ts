@@ -20,10 +20,30 @@ export function disclosure(entry: DemoEntry, seed: number): string[] {
       : [
           "Email: the provider's outbox, read through Ceremony's HTTP agent-inbox adapter. Mail transport is simulated.",
         ]),
+    ...(entry.consents?.length
+      ? [
+          `Consent: the person agreed in advance to the provider's ${consentList(entry.consents)}. The agent ticks that box because of it; a newsletter box is never ticked.`,
+        ]
+      : []),
     entry.showsUserCode
       ? "Captions name roles and steps. No password, secret or token is ever shown; the device's user code and verification URL are, as a device shows them to a person."
       : "Captions name roles and steps. No password, code, link or token is ever shown.",
   ];
+}
+
+/** A consent list in words, from a closed table. */
+function consentList(kinds: readonly string[]): string {
+  const names: Record<string, string> = {
+    terms: "terms of service",
+    privacy: "privacy policy",
+    age: "age requirement",
+  };
+  const words = kinds
+    .filter((kind) => Object.hasOwn(names, kind))
+    .map((kind) => names[kind]!);
+  return words.length > 1
+    ? `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`
+    : (words[0] ?? "terms");
 }
 
 /** End-card lines about the driver's result; counts and closed names only. */

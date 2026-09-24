@@ -5,7 +5,15 @@ import { demoCatalog, findDemos } from "../scripts/demos/catalog.js";
 import { providerPhase } from "../scripts/demos/phases.js";
 import { disclosure } from "../scripts/demos/story.js";
 import { productNames } from "../scripts/demos/captions.js";
+import { parseHTML } from "linkedom";
+import {
+  checkboxConsent,
+  consentCovers,
+  snapshotDocument,
+  snapshotSelectors,
+} from "../src/core/browser-contracts.js";
 import { startAuthProvider } from "./doubles/auth-provider/server.js";
+import { authScenarios } from "./doubles/auth-provider/scenarios.js";
 
 /**
  * The demo catalog and its pure helpers. Nothing here records video: that
@@ -132,4 +140,43 @@ test("DEMO-HONESTY: the product a caption names is the one the layout renders", 
       await provider.close();
     }
   }
+});
+
+test("DEMO-CONSENT: a demo that registers declares the person's advance consent, says so, and it covers the terms box", async () => {
+  const registering = demoCatalog.filter((entry) => {
+    const scenario = authScenarios.find((item) => item.id === entry.scenario);
+    return scenario?.goal === "registration";
+  });
+  assert.ok(registering.length >= 1);
+  for (const entry of registering) {
+    assert.ok(entry.consents?.length, `${entry.id} declares no consent`);
+    const card = disclosure(entry, 21).join("\n");
+    assert.match(card, /the person agreed in advance to the provider's/);
+    assert.match(card, /a newsletter box is never ticked/);
+    // The box the layout's sign-up page shows is one the consent covers,
+    // so the driver ticks it rather than stopping to ask.
+    const provider = await startAuthProvider({ layout: entry.layout });
+    try {
+      const html = await (
+        await fetch(`${provider.origin}${provider.signupPath}`)
+      ).text();
+      const { document } = parseHTML(html);
+      const boxes = snapshotDocument(
+        document as unknown as Document,
+        snapshotSelectors,
+      ).elements.filter((element) => element.kind === "checkbox");
+      assert.ok(boxes.length > 0, `${entry.layout} shows no terms box`);
+      for (const box of boxes) {
+        const consent = checkboxConsent(box);
+        assert.ok(consent.kinds.length > 0, box.label);
+        assert.ok(consentCovers(consent, entry.consents!), box.label);
+      }
+    } finally {
+      await provider.close();
+    }
+  }
+  // Nothing that does not register claims a consent it has no use for.
+  for (const entry of demoCatalog)
+    if (!registering.includes(entry))
+      assert.equal(entry.consents, undefined, entry.id);
 });

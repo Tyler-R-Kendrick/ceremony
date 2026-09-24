@@ -97,6 +97,13 @@ const sourceNames: Record<ValueSource, string> = {
   "device-screen": "read off the device",
 };
 
+/** What a ticked box accepted, by consent kind. Never the page's wording. */
+const consentNames: Record<string, string> = {
+  terms: "terms",
+  privacy: "privacy policy",
+  age: "age check",
+};
+
 /** Named ceremony walls the driver reports; the reason list is closed. */
 const blockedNames: Record<string, string> = {
   "account-exists": "address already registered",
@@ -109,6 +116,7 @@ const blockedNames: Record<string, string> = {
   "human-declined": "person declined",
   "passkey-required": "passkey required",
   "native-dialog": "browser dialog",
+  "consent-required": "the person has to accept",
 };
 
 const outcomeNames: Record<string, string> = {
@@ -128,7 +136,15 @@ export type CaptionEvent =
       control: "button" | "link" | "checkbox" | "select" | "input";
       phase?: Phase;
     }
-  | { kind: "check"; actor: Actor }
+  | {
+      kind: "check";
+      actor: Actor;
+      /**
+       * What the box accepted under the person's advance consent, by kind:
+       * a tick that is a legal act says so, and says it was consented to.
+       */
+      consent?: readonly string[];
+    }
   | { kind: "wait"; actor: Actor }
   | { kind: "claim-done"; actor: Actor }
   | { kind: "inbox"; stage: "provisioned" | "waiting" | "received" }
@@ -296,8 +312,18 @@ export function caption(event: CaptionEvent): string {
         `${who(event.actor)}: ${clickTarget(event.control, phase)}`,
       );
     }
-    case "check":
-      return bounded(`${who(event.actor)}: tick a required checkbox`);
+    case "check": {
+      const accepted = Array.isArray(event.consent)
+        ? event.consent
+            .filter((kind) => Object.hasOwn(consentNames, kind))
+            .map((kind) => consentNames[kind]!)
+        : [];
+      return bounded(
+        accepted.length
+          ? `${who(event.actor)}: accept the ${accepted.join(" and ")} (consented)`
+          : `${who(event.actor)}: tick a required checkbox`,
+      );
+    }
     case "wait":
       return bounded(`${who(event.actor)}: wait for the page to settle`);
     case "claim-done":

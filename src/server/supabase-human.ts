@@ -3,7 +3,7 @@ import { z } from "zod";
 import { boundedJson } from "./authorization.js";
 import { AuthorizationError } from "./identity.js";
 import type { AsyncCeremonyStore, StoredRecord } from "./persistence/index.js";
-import type { RunRecord } from "./commands.js";
+import { pendingProviderStep, type RunRecord } from "./commands.js";
 import type { OperationContext } from "./recipes/registry.js";
 import type { AsyncSupabaseChildren } from "./recipes/supabase.js";
 
@@ -34,36 +34,23 @@ export async function supabaseHuman(
   returnUrl: string,
   advance: () => Promise<void>,
 ): Promise<Response> {
-  if (
-    context.actor.actorKind !== "human" ||
-    record.value.provider !== "supabase"
-  )
+  // `context` is the Supabase step's own: the run's, or the Supabase
+  // connector's when the step runs inside another provider's run.
+  if (context.actor.actorKind !== "human" || context.provider !== "supabase")
     throw new AuthorizationError("denied");
   const headers = {
     "cache-control": "no-store",
     "referrer-policy": "no-referrer",
     "x-content-type-options": "nosniff",
   };
-  const pending = await store.transaction(async (tx) => {
-    for (const node of record.value.nodes) {
-      const state = await tx.get<{
-        verified: boolean;
-        state: string;
-        diagnosticCode?: string;
-      }>({
-        tenant: context.actor.tenantId,
-        kind: "node",
-        id: `${context.runId}:${node.id}`,
-      });
-      if (!state?.value.verified)
-        return {
-          node,
-          state: state?.value.state,
-          diagnosticCode: state?.value.diagnosticCode,
-        };
-    }
-    return undefined;
-  });
+  const step = await store.transaction((tx) =>
+    pendingProviderStep(tx, context, record.value, "supabase-password"),
+  );
+  const pending = step && {
+    node: step.node,
+    state: step.state?.state,
+    diagnosticCode: step.state?.diagnosticCode,
+  };
   if (
     !pending ||
     !["awaiting-human", "uncertain"].includes(pending.state ?? "")

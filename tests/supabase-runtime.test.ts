@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { randomUUID } from "node:crypto";
 import { teachingGitHubFixture } from "./fixtures/teaching-github.js";
+import { supabaseConnectionRecipe } from "../src/server/recipes/supabase.js";
 
 for (const assurance of ["aal1", "aal2"] as const)
   test(`Supabase mounted ${assurance} collector enforces boundaries and completes confirmed access`, async (t) => {
@@ -189,3 +190,107 @@ for (const assurance of ["aal1", "aal2"] as const)
     assert.equal(f.effects.supabaseMfa, assurance === "aal2" ? 1 : 0);
     assert.equal((await send(path)).status, 403);
   });
+
+test("a person completes Supabase steps waiting inside a GitHub run on Supabase's own page", async (t) => {
+  const f = await teachingGitHubFixture(4429, { supabase: "aal1" });
+  t.after(() => f.close());
+  const cookie = f.sessionCookie("owner"),
+    other = f.sessionCookie("other");
+  const actor = await f.runtime.identity.authenticate(
+    new Request(f.origin, { headers: { cookie } }),
+  );
+  assert.ok(actor);
+  const supabase = {
+    connectorId: "supabase",
+    provider: "supabase",
+    profile: "supabase-password",
+    target: "self",
+    origin: f.origin,
+    environment: "local-e2e",
+    configurationVersion: "fixture-v1",
+  };
+  const run = await f.runtime.commands.createRun(
+    actor,
+    {
+      provider: "github",
+      profile: "github-app",
+      target: "fixture-owner",
+      origin: f.origin,
+      environment: "local-e2e",
+      configurationVersion: "fixture-v1",
+    },
+    supabaseConnectionRecipe.invocations.map((node) => {
+      assert.equal(node.use.kind, "operation");
+      return {
+        id: node.id,
+        operationId: node.use.id,
+        operationVersion: node.use.version,
+        dependsOn: node.dependsOn,
+        bindings: node.bindings,
+        context: supabase,
+      };
+    }),
+    {},
+  );
+  const send = (path: string, values?: unknown, identity = cookie) =>
+    fetch(`${f.origin}${path}`, {
+      headers: {
+        cookie: identity,
+        origin: f.origin,
+        ...(values === undefined
+          ? { accept: "application/json" }
+          : { "content-type": "application/json" }),
+      },
+      ...(values === undefined
+        ? {}
+        : { method: "POST", body: JSON.stringify(values) }),
+    });
+  const path = `/api/v1/teaching/supabase/${encodeURIComponent(run.id)}/human`;
+  // Nothing waits on a person until the step has run.
+  assert.equal((await send(path)).status, 403);
+  const started = await f.runtime.commands.advance(
+    actor,
+    run.id,
+    "project",
+    run.revision,
+    `step:${randomUUID()}`,
+  );
+  assert.equal(started.state, "awaiting-human");
+  // The run's own provider and a provider with no waiting step both refuse.
+  for (const guessed of ["stripe", "jira"])
+    assert.equal(
+      (await send(path.replace("/supabase/", `/${guessed}/`))).status,
+      403,
+    );
+  assert.equal((await send(path, undefined, other)).status, 403);
+  const submit = async (values: unknown) => {
+    const fresh = await send(path);
+    assert.equal(fresh.status, 200);
+    const input = (await fresh.json()) as { ticket: string; mode: string };
+    const result = await send(path, { ticket: input.ticket, values });
+    assert.equal(result.status, 200);
+    return input.mode;
+  };
+  assert.equal(
+    await submit({
+      projectUrl: "https://synthetic.supabase.co",
+      publishableKey: "sb_publishable_synthetic",
+    }),
+    "project",
+  );
+  assert.equal(
+    await submit({
+      action: "sign-up",
+      email: "project-user@example.com",
+      password: "synthetic-project-password",
+    }),
+    "credentials",
+  );
+  await fetch(f.supabaseConfirmationUrl);
+  assert.equal(await submit({ confirmed: true }), "confirmation");
+  const complete = await f.runtime.commands.snapshot(actor, run.id);
+  assert.equal(complete.status, "complete");
+  assert.ok(complete.nodes.every((node) => node.provider === "supabase"));
+  assert.equal(f.effects.supabaseSignups, 1);
+  assert.equal((await send(path)).status, 403);
+});

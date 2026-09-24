@@ -2,9 +2,11 @@ import { z } from "zod";
 import { AuthorizationError, requireCapability } from "./identity.js";
 import type { ActorContext } from "./identity.js";
 import type { TeachingRuntime } from "./teaching-runtime.js";
+import type { AgentHandoff, AgentStatus } from "./agent/coordinator.js";
 
 /**
- * The four operations an agent may perform on a ceremony run.
+ * The operations an agent may perform on a ceremony run: the four that drive
+ * it, and starting the server's own agent on it.
  *
  * These used to live inline in the HTTP route. They are shared now because the
  * MCP server performs the same operations for the same actors, and an
@@ -39,11 +41,37 @@ export const agentToolInputs = {
     commandId: identifier,
   }),
   cancel: z.strictObject({ runId: identifier, revision }),
+  /** Start the server's agent on a run, as `POST /agent/:runId/start` does. */
+  startAgent: z.strictObject({ runId: identifier }),
 } as const;
 
 export type AgentToolName = keyof typeof agentToolInputs;
 
-export function ceremonyAgentTools(runtime: TeachingRuntime) {
+/**
+ * How a host runs an agent turn somewhere durable - a workflow, a queue -
+ * instead of inside the request that asked for it. The host's decision,
+ * supplied where the transport is built, never by a caller.
+ */
+export type AgentTurnLauncher = (
+  runId: string,
+  turnId: string,
+) => Promise<void>;
+
+/**
+ * What starting the server agent answers: that no model is configured, or
+ * the turn and where it stands. `running` when a launcher took it; otherwise
+ * the turn ran here, and a turn that ended waiting on a person, or unsure,
+ * carries the same handoff projection the status route reports - where the
+ * person continues, and nothing that grants anything.
+ */
+export type AgentStartResult =
+  | { status: "unavailable" }
+  | { turnId: string; status: "running" | AgentStatus; handoff?: AgentHandoff };
+
+export function ceremonyAgentTools(
+  runtime: TeachingRuntime,
+  options: { launch?: AgentTurnLauncher | undefined } = {},
+) {
   /**
    * The run is re-read as the authenticated actor first, so a run they cannot
    * see is not found rather than probed. The delegated agent actor is then
@@ -120,6 +148,40 @@ export function ceremonyAgentTools(runtime: TeachingRuntime) {
       await runtime.commands.cancel(delegated, checked.runId, checked.revision);
       await runtime.cancel?.(delegated, checked.runId);
       return await runtime.commands.snapshot(actor, checked.runId);
+    },
+
+    /**
+     * Start the server's agent on a run.
+     *
+     * One implementation for the HTTP start route and the MCP tool, so the
+     * gate is literally the same code: `delegate` requires `executor`, reads
+     * the run as this actor, refuses a cancelled or stopped run, and asks the
+     * host's `authorize` policy whether this actor may hand this run to the
+     * agent - the roles a deployment configures. Whether a model exists is
+     * the host's configuration, answered before anything else as the route
+     * always has.
+     */
+    async startAgent(
+      actor: ActorContext,
+      input: unknown,
+    ): Promise<AgentStartResult> {
+      const { runId } = agentToolInputs.startAgent.parse(input);
+      if (!runtime.modelConfiguration.model) return { status: "unavailable" };
+      const turnId = await runtime.delegate(actor, runId);
+      if (options.launch) {
+        await options.launch(runId, turnId);
+        return { turnId, status: "running" };
+      }
+      const outcome = await runtime.agent.turnOutcome(actor, runId, turnId);
+      return {
+        turnId,
+        status: outcome.status,
+        ...((outcome.status === "awaiting-human" ||
+          outcome.status === "uncertain") &&
+        outcome.handoff
+          ? { handoff: outcome.handoff }
+          : {}),
+      };
     },
   };
 }
