@@ -164,6 +164,46 @@ test("AC-UX-01: connect, hand off, poll, verify, read, reconnect and unlink from
   }
 });
 
+test("AC-UX-01b: a reconnect started while the last hand-off's window is still open gets a window of its own", async ({
+  page,
+}) => {
+  // The provider's return page relays and closes itself only once its
+  // script has loaded; held here, that window is still open when the status
+  // already reads Connected and the person starts a reconnect.
+  const harness = await startConnectorHarness({ returnScriptDelayMs: 3000 });
+  try {
+    await page.goto(harness.url({ connector: "github-app" }));
+    const drawer = page.getByRole("dialog");
+    const first = page.waitForEvent("popup");
+    await drawer
+      .getByRole("button", { name: "Connect GitHub (native app)" })
+      .click();
+    const provider = await first;
+    await provider.waitForLoadState();
+    await provider.getByRole("link", { name: "Approve fixture app" }).click();
+    await expect(drawer.getByText("Connected", { exact: true })).toBeVisible({
+      timeout: 15000,
+    });
+    expect(provider.isClosed()).toBe(false);
+
+    await drawer.getByRole("button", { name: "Reconnect" }).click();
+    const second = page.waitForEvent("popup");
+    await drawer.getByRole("button", { name: "Start reconnect" }).click();
+    const again = await second;
+    // A new window, not the old one navigated: the old one is closed as
+    // finished, and closing it cannot take the new hand-off with it.
+    expect(again).not.toBe(provider);
+    await expect.poll(() => provider.isClosed()).toBe(true);
+    await again.waitForLoadState();
+    await again.getByRole("link", { name: "Approve fixture app" }).click();
+    await expect(drawer.getByText("Connected", { exact: true })).toBeVisible({
+      timeout: 15000,
+    });
+  } finally {
+    await harness.close();
+  }
+});
+
 test("AC-AUTH-14: a completion message from another origin or another window changes nothing", async ({
   page,
 }) => {
