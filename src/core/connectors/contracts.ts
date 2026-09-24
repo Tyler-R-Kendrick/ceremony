@@ -23,6 +23,7 @@ import {
   boundedJsonGuard,
   measureJsonValue,
 } from "./json-bounds.js";
+import { isLiveSupportLabel, supportLabelSchema } from "./support-labels.js";
 
 /*
  * Every record here is a description of something, never the thing itself:
@@ -1068,6 +1069,13 @@ export const catalogEntrySchema = z
     capabilities: boundedList(capabilityStatusSchema, 64),
     /** Strongest evidence across dimensions; individual dimensions keep their own. */
     evidence: evidenceLevelSchema,
+    /**
+     * The label dated evidence earns for this adapter here and now (see
+     * `supportLabelRules`). Computed by the server from evidence entries,
+     * never from the adapter family, and absent only from entries built
+     * before labels existed.
+     */
+    supportLabel: supportLabelSchema.optional(),
     /** Alternatives for the same logical service are grouped by this key, never merged. */
     group: z
       .string()
@@ -1106,6 +1114,16 @@ export const catalogEntrySchema = z
       )
     )
       fail("A catalog-only entry implements nothing");
+    // A live label is earned only by live evidence measured with the
+    // configuration present, and it is what promotes a fixture-family
+    // adapter to provider-backed; an entry that stayed fixture, catalog-only
+    // or unconfigured therefore cannot carry one.
+    if (
+      entry.supportLabel &&
+      isLiveSupportLabel(entry.supportLabel) &&
+      entry.support !== "provider-backed"
+    )
+      fail("Only a provider-backed entry carries a live support label");
     // Dimension and runtime are colon-free enums, so the triple is unambiguous.
     for (const [label, values] of [
       ["custody", entry.custody],

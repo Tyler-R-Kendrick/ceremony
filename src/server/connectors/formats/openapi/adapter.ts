@@ -280,6 +280,7 @@ export function createOpenApiHttpAdapter(
       "Imports OpenAPI 2.0, 3.0, 3.1 and 3.2 descriptions and executes the reviewed subset of their HTTP operations.",
     service: options.service ?? "openapi",
     support: "fixture",
+    evidenceScope: "definition",
     custody: ["host-owned", "no-credential"],
     configuration,
     profiles: OPENAPI_PROFILES,

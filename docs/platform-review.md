@@ -79,6 +79,7 @@ Every change below carries its own tests, and none is a live-provider certificat
 | Server agent                             | **Yes.** A native Anthropic provider is added. The agent gets `snapshot` and `request_human` tools, a structured handoff at human waits, and distinct `denied`, `invalid`, `conflict` and `transient` error codes. Agents can call `connector_verify` and `connector_revoke_request`; the latter only queues a request a person must approve.                                                                                                                                                                                                                                                         |
 | MCP surface                              | **No dead ends found in the review's scope.** Remote MCP connectors renew their token on `verify` and on a resumed elicitation, not only on `invoke`; a refused refresh becomes `reconnect-required`. Run tools, connector intents and the inline agent start return the person-facing hand-off link. Authors can propose how an authored connector's credentials are verified, over HTTP or MCP; only a person's approval of that exact digest activates it. Every MCP tool is throttled per tenant, subject and tool (in-process token bucket, structured `rate-limited` with `retryAfterSeconds`). |
 | OAuth engine coverage                    | **Wider, on fixture evidence.** Hosted tenancy reads nested or URL-named claims through JSON Pointer (`/realm_access/roles`). Authorization-code catalog entries send reviewed static `token_params`, reserved names refused before the code is spent, so Nango providers that use them import as executable. Catalog `openid` works when the entry names its issuer: discovery must agree with the entry, the ID token is verified (nonce, `iat`, signature), and only the subject leaves the engine. Per-profile issuer policies are set through the reviewed approval (`approvals.oauthProfiles`). |
+| Support labels                           | **From evidence.** Labels (`unverified < fixture < local < live < certified`) are computed from dated evidence entries by one rule table (`supportLabelRules`), with staleness windows; the adapter family no longer decides them. The OpenAPI and catalog paths read `local`, citing their local suites; nothing reads `live` without a recorded live run. Labels appear in `connector_catalog` and `connector_status`, and an opt-in `support.minimumForProduction` gates production bindings at approve, connect and invoke.                                                                       |
 | Connector API for other languages        | **Described; not published.** [`docs/openapi/connectors.openapi.json`](openapi/connectors.openapi.json) is an OpenAPI 3.1 description of `/api/v1/connectors`, generated from the handler's own schemas. `openapi:check` fails when it is stale, and a contract test drives every operation through the real handler against it. The package tarball ships only built output, stylesheets and reader docs, and `test:package` imports every export from an isolated consumer. See [SDKs and the package](sdk.md).                                                                                     |
 
 Bugs found and fixed along the way, each with a regression test:
@@ -93,6 +94,7 @@ Bugs found and fixed along the way, each with a regression test:
 - Webhook deliveries to `/events/<authority>/<subscription>` were rejected with 403.
 - Strict authoring results refused discovery reports that carried extra fields.
 - The browser client parsed the definition list as full definitions, so listing definitions always failed.
+- The support-matrix script dropped two evidence ledgers, which showed three adapters as `not-recorded` and hid 13 unpinned source citations.
 - A pre-joined scope string containing `openid` got no nonce, and an ID token issued in the future was accepted.
 - Remote MCP connectors never renewed an expired token on `verify`, so `connector_verify`, reconnect and polling failed where `invoke` would have succeeded.
 
@@ -102,9 +104,9 @@ The decisions in _Self-imposed limits_ were resolved as follows:
   - 1: declared endpoints are now approved at binding review.
   - 4 and 5: the hosted runtime is multi-tenant and mounts the connector runtime.
   - 7: model access (native Anthropic provider and the new agent tools).
+  - 3: support labels are derived from dated evidence.
 - **Still open:**
   - 2: operation packs.
-  - 3: support labels derived from evidence.
   - 6: package publication and other-language SDKs. The OpenAPI description and a packable package are in place; publishing to a registry and generated clients are not.
 
 Demonstration videos of these flows, led by account registration, are added in a follow-up change.
@@ -114,7 +116,7 @@ Demonstration videos of these flows, led by account registration, are added in a
 Items 1 and 3 to 7 of the original roadmap are delivered above; item 2 (the catalog) is delivered, and its decision is taken. What remains, by leverage:
 
 1. **Operation packs.** Let third parties add new step types without a rebuild: a signed, host-loaded manifest plus a sandboxed handler.
-2. **Derive support labels from evidence**, not adapter family, so a configured and exercised catalog or OpenAPI connector can be labelled beyond `fixture`.
+2. **Backfill evidence** for the remaining adapters: 26 still read `fixture` because their old ledger level does not say what kind of target they ran against, and authored connectors have no ledger yet.
 3. **Converge the two browser subsystems** on the login driver: popups in the authorization executor, a durable cross-process human handoff, and a generic live-view handoff.
 4. **Automatic composition across providers.** `compose` and demonstration compilation still produce single-connector recipes; an author names connectors in the draft.
 5. **Publish the package.** The OpenAPI description of `/api/v1/connectors` and a consumer-tested tarball exist; publishing (the package stays `private`) and generated clients in other languages, exercised in CI, remain.

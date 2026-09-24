@@ -1,0 +1,79 @@
+{
+  "swarm": "PROVIDER-CATALOG",
+  "recordedAt": "2026-09-23",
+  "workItems": [
+    {
+      "id": "PCAT-01",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/formats/provider-catalog/adapter.ts",
+        "src/server/connectors/formats/provider-catalog/definition.ts",
+        "src/server/connectors/formats/provider-catalog/index.ts",
+        "src/server/connectors/formats/provider-catalog/issues.ts",
+        "src/server/connectors/formats/provider-catalog/nango.ts",
+        "src/server/connectors/formats/provider-catalog/schema.ts"
+      ],
+      "tests": [
+        "tests/connectors/provider-catalog/credentials.test.ts",
+        "tests/connectors/provider-catalog/nango.test.ts",
+        "tests/connectors/provider-catalog/oauth.test.ts",
+        "tests/connectors/provider-catalog/registration.test.ts",
+        "tests/connectors/provider-catalog/schema.test.ts",
+        "tests/connectors/provider-catalog/harness.ts"
+      ],
+      "acceptanceIds": [],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": [],
+      "limitations": [
+        "No live provider was contacted. Every check ran against loopback doubles: the OAuth authorization-server double, a client-credentials token endpoint and a loopback provider API, all through the real command service.",
+        "Evidence for the generic `catalog-http` adapter does not transfer to a host-registered entry: a pinned `catalog-<id>` adapter is labelled from entries naming its own id, so an entry nobody exercised reads `unverified`.",
+        "Entries whose auth mode cannot execute (for example OAuth 1.0a) are registered `catalog-only` and implement nothing."
+      ],
+      "notes": "The provider-catalog adapter was delivered by the platform review stack, not by a swarm, and had no ledger, so the support matrix read `not-recorded` for it. This ledger records what the existing local suites already exercise. It adds no test and claims nothing live."
+    }
+  ],
+  "supportEvidence": [
+    {
+      "adapterId": "catalog-http",
+      "check": "tests/connectors/provider-catalog/oauth.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Authorization code, callback, proxy and refresh on expiry through the real command service against the loopback authorization-server double and a loopback provider API; origin and path confinement; no token in any output, view or error."
+    },
+    {
+      "adapterId": "catalog-http",
+      "check": "tests/connectors/provider-catalog/credentials.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Client credentials, API key (header and query), Basic, bearer and no-credential modes end to end through the command service against loopback token and provider doubles."
+    },
+    {
+      "adapterId": "catalog-http",
+      "check": "tests/connectors/provider-catalog/registration.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "A host-registered entry connects through its pinned catalog adapter (the same factory) after review, against loopback doubles; registration labels and the loopback opt-in."
+    },
+    {
+      "adapterId": "catalog-http",
+      "check": "tests/connectors/provider-catalog/nango.test.ts",
+      "target": "in-process-fixture",
+      "recordedAt": "2026-09-23",
+      "notes": "Nango providers.yaml mapping into catalog entries and non-executable draft definitions."
+    },
+    {
+      "adapterId": "catalog-http",
+      "check": "tests/connectors/provider-catalog/schema.test.ts",
+      "target": "in-process-fixture",
+      "recordedAt": "2026-09-23",
+      "notes": "Entry validation: HTTPS endpoints, template confinement, reserved parameters and bounds."
+    }
+  ],
+  "contractChanges": [],
+  "integrationPatches": [],
+  "dependenciesProposed": [],
+  "unmet": [],
+  "externalEffectsPerformed": [
+    "None. No account was created, no provider contacted and no credential used; every double listens on 127.0.0.1."
+  ]
+}

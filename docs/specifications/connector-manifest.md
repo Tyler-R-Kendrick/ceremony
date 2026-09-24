@@ -24,7 +24,7 @@ A data-defined provider (a [provider catalog](../provider-catalog.md) entry, inc
 - Importing or registering an entry MUST NOT make any endpoint contactable. An endpoint becomes contactable only through an approved runtime binding: the reviewer approves the proxy destination as an exact origin under host network policy, and approves the entry itself as binding settings covered by the binding's reviewed digest.
 - At use, the adapter MUST validate the entry again, MUST refuse an entry that does not match the binding's recorded digest (or, for a host-registered provider, the host's own entry), and MUST refuse any proxy request whose approved destination origin differs from the entry's declared proxy origin. A caller supplies a path under the declared base, never a host or URL.
 - An entry whose auth mode cannot execute MUST be kept as a described entry with its reason and a blocking compatibility issue, and MUST be labelled `catalog-only`. It MUST NOT be silently dropped or labelled executable.
-- Support for a data-defined provider is `fixture` until live evidence for that provider exists; registering an entry is never evidence.
+- Support for a data-defined provider is `fixture` until live evidence for that provider exists: a dated `recorded-live` or `attended-live` entry that earns its adapter a `live` or `certified` [support label](connector-interoperability.md#support-labels). Registering an entry is never evidence, and evidence for the generic `catalog-http` adapter is not evidence for a `catalog-<id>` entry nobody exercised.
 
 ## Authentication method
 

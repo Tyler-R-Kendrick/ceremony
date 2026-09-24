@@ -1,5 +1,6 @@
 {
   "swarm": "VERCEL",
+  "recordedAt": "2026-09-19",
   "adapter": {
     "factory": "createVercelConnectAdapter(options)",
     "module": "src/server/connectors/providers/vercel/index.ts",

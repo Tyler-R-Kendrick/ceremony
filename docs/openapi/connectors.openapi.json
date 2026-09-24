@@ -2238,6 +2238,16 @@
                     "deployed-authorized"
                   ]
                 },
+                "supportLabel": {
+                  "type": "string",
+                  "enum": [
+                    "unverified",
+                    "fixture",
+                    "local",
+                    "live",
+                    "certified"
+                  ]
+                },
                 "group": {
                   "type": "string",
                   "maxLength": 120,

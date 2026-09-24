@@ -6,6 +6,7 @@ import {
   type CatalogEntry,
   type ConnectionSummary,
   type ConnectorHandoffSummary,
+  type SupportLabel,
 } from "../../../core/connectors/index.js";
 import type { ActorContext } from "../../../core/operation-contracts.js";
 import { explainConnectorError } from "../errors.js";
@@ -90,6 +91,15 @@ export interface ConnectorToolDependencies {
     actor: ActorContext,
     connectionRef: string,
   ): Promise<ConnectionSummary | undefined>;
+  /**
+   * The evidence-derived support label of the adapter behind a connection
+   * (`ConnectorCommandService.connectionSupportLabel`). Optional so a host
+   * without labels still mounts; when present, `connector_status` shows it.
+   */
+  supportLabel?(
+    actor: ActorContext,
+    connectionRef: string,
+  ): Promise<SupportLabel | undefined>;
   connect(
     actor: ActorContext,
     input: ConnectorConnectInput,
@@ -229,7 +239,7 @@ export function registerConnectorServerTools(
     "connector_catalog",
     {
       description:
-        "List the connectors this deployment offers, with how each is supported, what configuration it needs and how strong the evidence for it is.",
+        "List the connectors this deployment offers, with how each is supported, what configuration it needs, how strong the evidence for it is and the support label that evidence earns (unverified, fixture, local, live or certified).",
       inputSchema: connectorToolInputs.catalog,
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -245,7 +255,7 @@ export function registerConnectorServerTools(
     "connector_status",
     {
       description:
-        "Read the state of one connection: its lifecycle, whether it is verified and whether a person is being waited on (with the path of the owner's page for it). Never returns credentials, codes or provider links.",
+        "Read the state of one connection: its lifecycle, whether it is verified, the support label its connector's evidence earns, and whether a person is being waited on (with the path of the owner's page for it). Never returns credentials, codes or provider links.",
       inputSchema: connectorToolInputs.status,
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -255,7 +265,17 @@ export function registerConnectorServerTools(
         const summary = await deps.status(actor, checked.connectionRef);
         if (!summary) return { connection: "not-found" };
         const view = agentConnectorProjection(summary);
-        return { ...view, ...handoffView(view.connectionRef, view.handoff) };
+        // Read only after the status read proved the connection is this
+        // actor's; a label never answers for a connection they cannot see.
+        const supportLabel = await deps.supportLabel?.(
+          actor,
+          checked.connectionRef,
+        );
+        return {
+          ...view,
+          ...(supportLabel ? { supportLabel } : {}),
+          ...handoffView(view.connectionRef, view.handoff),
+        };
       }),
   );
 

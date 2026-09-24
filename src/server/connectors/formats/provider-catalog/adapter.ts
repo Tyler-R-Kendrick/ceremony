@@ -1050,6 +1050,9 @@ export function createCatalogHttpAdapter(
       : "Imports provider catalogs and Nango providers.yaml into draft connectors, and executes reviewed entries: OAuth authorization code and client credentials, API keys, Basic and bearer credentials, and an authenticated proxy to the approved origin.",
     service: pinned ? pinned.id : "provider-catalog",
     support: executable ? "fixture" : "catalog-only",
+    // The generic adapter executes any reviewed entry; a pinned adapter is
+    // one host-registered provider, so its own evidence speaks for it.
+    evidenceScope: pinned ? "adapter" : "definition",
     custody: ["host-owned", "no-credential"],
     configuration: pinned ? configurationFor(pinned) : [],
     profiles: pinned

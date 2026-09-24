@@ -402,8 +402,8 @@ test("an MCP token takes its tenant from the same claim as the browser", async (
 
 test("the connector route table is mounted behind the hosted session", async () => {
   const runtime = await hosted(environment({ CEREMONY_TENANT_ID: "tenant" }));
-  const { cookie } = await signIn(runtime, {});
-  assert.ok(cookie);
+  const { actor, cookie } = await signIn(runtime, {});
+  assert.ok(cookie && actor);
   const catalog = await serve(
     runtime,
     new Request(`${origin}/api/v1/connectors/catalog`, {
@@ -411,8 +411,25 @@ test("the connector route table is mounted behind the hosted session", async () 
     }),
   );
   assert.equal(catalog.status, 200);
-  const entries = (await catalog.json()).entries as Array<{ id?: string }>;
+  const entries = (await catalog.json()).entries as Array<{
+    id?: string;
+    supportLabel?: string;
+  }>;
   assert.ok(entries.length > 0);
+  // Every row carries the label its recorded evidence earns; none is live.
+  for (const entry of entries)
+    assert.ok(
+      ["unverified", "fixture", "local"].includes(entry.supportLabel ?? ""),
+      `${entry.id}: ${entry.supportLabel}`,
+    );
+  // A label never answers for a connection the actor cannot see.
+  assert.equal(
+    await runtime.hosted.connectors!.tools.supportLabel!(
+      actor,
+      "connection:unknown",
+    ),
+    undefined,
+  );
   const anonymous = await serve(
     runtime,
     new Request(`${origin}/api/v1/connectors/catalog`, { headers: { origin } }),

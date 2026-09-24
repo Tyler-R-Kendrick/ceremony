@@ -67,6 +67,7 @@ export function publicCatalogProjection(entry: CatalogEntry): CatalogEntry {
       limitations: [...status.limitations],
     })),
     evidence: entry.evidence,
+    ...(entry.supportLabel ? { supportLabel: entry.supportLabel } : {}),
     group: entry.group,
     ...(entry.definitionRef ? { definitionRef: entry.definitionRef } : {}),
   });
