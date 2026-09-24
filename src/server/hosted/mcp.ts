@@ -72,9 +72,9 @@ export async function createHostedMcp(
     serverName: "Ceremony",
     /*
      * Connector tools, when this deployment composed a connector runtime.
-     * Both halves: the four tools (catalog, status, connect by connector,
-     * invoke) and the intents (list, inspect, operations, reconnect,
-     * disconnect). The service behind them receives the authenticated actor
+     * Both halves: the connector tools (catalog, status, connect by
+     * connector, invoke, verify, revocation request) and the intents (list,
+     * inspect, operations, reconnect, disconnect). The service behind them receives the authenticated actor
      * and re-checks capability, ownership and policy itself.
      */
     ...(connectors
