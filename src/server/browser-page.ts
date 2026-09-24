@@ -7,25 +7,10 @@ import {
   type JsHandleLike,
 } from "./browser-targets.js";
 import type { CeremonyPage } from "./browser-driver.js";
+import { createWindowTracker, type PopupLike } from "./browser-windows.js";
 
 export { StaleTargetError, DispatchUncertain } from "./browser-targets.js";
-
-/**
- * A window the page opened, as Playwright reports one. A popup `Page` already
- * satisfies `BoundPageLike`; the additions are what adopting a window needs -
- * whether it is still there, when its first document has arrived, and the
- * windows *it* opens, which are the page's doing one step removed and are
- * bound by the same rule.
- */
-export interface PopupLike extends BoundPageLike {
-  isClosed(): boolean;
-  waitForLoadState(
-    state?: "load" | "domcontentloaded" | "networkidle",
-    options?: { timeout?: number },
-  ): Promise<void>;
-  on(event: "close", listener: () => void): unknown;
-  on(event: "popup", listener: (popup: PopupLike) => void): unknown;
-}
+export type { PopupLike } from "./browser-windows.js";
 
 /**
  * The part of a Playwright page this adapter uses. Declaring it structurally
@@ -104,50 +89,30 @@ export function createPlaywrightCeremonyPage(
   const popupOrigins = [...(options.popupOrigins ?? [])];
 
   /**
-   * Windows the page opened - or a window it opened did - while they are
-   * open. Tracked from the page's own report rather than enumerated from the
-   * context, so a window nobody here opened is never a candidate: being in
-   * the same browser is not the same as being this page's doing.
+   * Windows the page opened - or a window it opened did - and the rule for
+   * which one this attempt acts in. Shared with the authorization executor
+   * (see `browser-windows.ts`), so both apply the same rule to the same
+   * report rather than two copies of it.
    */
-  const windows = new Set<PopupLike>();
-  /** Whoever is waiting for the next window to be reported, told once. */
-  let arrivals: (() => void)[] = [];
-  const watch = (opened: PopupLike) => {
-    windows.add(opened);
-    opened.on("close", () => windows.delete(opened));
-    opened.on("popup", watch);
-    for (const arrived of arrivals.splice(0)) arrived();
-  };
-  if (popupOrigins.length > 0) {
-    if (!page.on)
-      throw new Error(
-        "popupOrigins needs a page that reports the windows it opens",
-      );
-    page.on("popup", watch);
-  }
+  const windows = createWindowTracker(page, {
+    popupOrigins,
+    settleTimeoutMs: settleTimeout,
+  });
   /** The window the latest resolution chose, for the click that closes it. */
-  let adopted: PopupLike | undefined;
-  const noWindowOpen = () => [...windows].every((opened) => opened.isClosed());
+  const adopted = () => windows.adopted();
+  const noWindowOpen = windows.noWindowOpen;
   /**
    * Whether the latest action was a click made while no window was open -
    * the one action that can open the window this attempt continues in.
    *
-   * Playwright reports a window once it has set it up, which is after the
-   * click that opened it has returned and can be after the opener has already
-   * reported itself idle. Nothing in the opener says a window is on its way,
-   * so `settle` cannot wait for one unless it is told that a click might have
-   * asked for one; this is that telling. Any other action disarms it.
+   * Nothing in the opener says a window is on its way, so `settle` cannot
+   * wait for one unless it is told that a click might have asked for one;
+   * this is that telling. Any other action disarms it. The wait it arms is
+   * bounded by a grace of at most two seconds - what a click that opens
+   * nothing costs on a plan that admits windows, paid per settle until the
+   * next action, never on a plan that does not.
    */
   let windowMayOpen = false;
-  /**
-   * How long `settle` gives such a click to produce its window: the settle
-   * timeout, capped at two seconds. The report it waits for is normally
-   * milliseconds behind the click, so the margin is wide even on a loaded
-   * machine, and the wait ends the moment a window is reported. The cap is
-   * what a click that opens nothing costs on a plan that admits windows -
-   * paid per settle until the next action, never on a plan that does not.
-   */
-  const windowGrace = Math.min(settleTimeout, 2_000);
 
   /**
    * The window this attempt acts in, when a window is where it is.
@@ -155,33 +120,12 @@ export function createPlaywrightCeremonyPage(
    * This is the rule frames did not need. A frame is there to be found: name
    * it, resolve it on every read, refuse when it is absent. A window is not
    * there until the page opens it, so "act in the declared window" would
-   * refuse the attempt before it pressed the button that opens one. The rule
-   * is therefore: act in the page until a window at an admitted origin
-   * exists, then act in that, and act in the page again once it has closed.
-   *
-   * What makes that safe is the same discipline as the frame rule, applied
-   * on every read and every action. Only a window the page itself opened is a
-   * candidate. One at an origin the plan does not admit ends the attempt -
-   * the page has chosen where the next document lives, and nothing in it is
-   * read, let alone acted in. Two at admitted origins identify no document,
-   * and refuse for the reason two frames do. A window that has not committed
-   * its first document is at `about:blank` and is not anything yet: neither
-   * adopted nor refused, and `settle` is what waits for it.
+   * refuse the attempt before it pressed the button that opens one. The
+   * tracker's rule is therefore: act in the page until a window at an
+   * admitted origin exists, then act in that, and act in the page again once
+   * it has closed - with an undeclared or second window refused by name.
    */
-  const windowOf = (): PopupLike | undefined => {
-    adopted = undefined;
-    if (popupOrigins.length === 0) return undefined;
-    const arrived = [...windows].filter(
-      (opened) => !opened.isClosed() && opened.url() !== "about:blank",
-    );
-    if (
-      arrived.some((opened) => !popupOrigins.includes(originOf(opened.url())))
-    )
-      throw new StaleTargetError("popup-undeclared");
-    if (arrived.length > 1) throw new StaleTargetError("popup-ambiguous");
-    adopted = arrived[0];
-    return adopted;
-  };
+  const windowOf = (): PopupLike | undefined => windows.current();
 
   /**
    * Which document this attempt observes and acts in.
@@ -241,31 +185,12 @@ export function createPlaywrightCeremonyPage(
     // an interpreter shown that page has nothing left to do but wait and then
     // give up - which is how TARGET-POPUP failed on a loaded CI runner. So a
     // click that may have opened a window waits, bounded, for the page to say
-    // what it opened. It is closed here rather than by making the driver's
+    // what it opened, and every window just opened is given until its first
+    // document commits. It is closed here rather than by making the driver's
     // `wait` sleep, because only the adapter knows a click happened while a
     // window could still arrive, and so only here can the wait end the moment
     // the report does.
-    if (windowMayOpen && noWindowOpen()) {
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      await new Promise<void>((resolve) => {
-        arrivals.push(resolve);
-        timer = setTimeout(resolve, windowGrace);
-      });
-      clearTimeout(timer);
-      arrivals = [];
-    }
-    // A window that has just opened is at `about:blank` until its first
-    // document commits. Waiting here, bounded the same way, is what lets the
-    // next read see where the window went instead of reading past it.
-    await Promise.all(
-      [...windows]
-        .filter((opened) => !opened.isClosed())
-        .map((opened) =>
-          opened
-            .waitForLoadState("domcontentloaded", { timeout: settleTimeout })
-            .catch(() => {}),
-        ),
-    );
+    await windows.settle(windowMayOpen);
   };
   return {
     url: async () => {
@@ -343,8 +268,8 @@ export function createPlaywrightCeremonyPage(
         if (
           error instanceof StaleTargetError &&
           error.reason === "target-closed" &&
-          adopted !== undefined &&
-          adopted.isClosed()
+          adopted() !== undefined &&
+          adopted()!.isClosed()
         )
           return;
         throw error;
