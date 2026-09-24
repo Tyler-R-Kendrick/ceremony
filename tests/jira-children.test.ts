@@ -29,6 +29,7 @@ import {
   type JiraSetupPolicy,
 } from "../src/server/jira-setup.js";
 import type { RunRecord } from "../src/server/commands.js";
+import { AgentCoordinator } from "../src/server/agent/coordinator.js";
 
 async function fixture(t: TestContext, now?: () => number) {
   const token = randomBytes(32).toString("hex");
@@ -1720,4 +1721,200 @@ test("Jira superseded workers cannot persist reusable access after a provider re
     (await f.commands.snapshot(f.actor, run.id)).nodes[2]!.verified,
     false,
   );
+});
+
+test("a Jira step inside a GitHub run takes owner setup and the person's consent on Jira's own pages", async (t) => {
+  const f = await fixture(t);
+  // A version of its own, so nothing passes by matching the run's.
+  f.behavior.version = "jira-v2";
+  let actor = f.actor;
+  const designatedOwner = "integration-owner";
+  const delivered: { provider: string; target: string }[] = [];
+  const authorized: {
+    operationId: string;
+    provider: string;
+    scope?: string;
+  }[] = [];
+  const runtime = createGitHubRuntime({
+    store: f.store,
+    identity: { authenticate: async () => actor },
+    origin: "https://app.example",
+    environment: "test",
+    configurationVersion: "v1",
+    authorize: async (requester, run, operationId) => {
+      authorized.push({
+        operationId,
+        provider: run.provider,
+        ...(run.scope ? { scope: run.scope.connectorId } : {}),
+      });
+      return requester.subjectId === run.subjectId;
+    },
+    jira: {
+      configuration: async () => ({
+        version: f.behavior.version,
+        siteUrl: f.config.siteUrl,
+      }),
+      setupOwner: async () => designatedOwner,
+      deliverOwnerSetup: async ({ run }) => {
+        delivered.push({ provider: run.provider, target: run.target });
+      },
+      fetch: f.fetch,
+    },
+  });
+  const jira = {
+    connectorId: "jira",
+    provider: "jira",
+    profile: "jira-3lo",
+    target: f.config.siteUrl,
+    origin: "https://app.example",
+    environment: "test",
+    configurationVersion: "jira-v2",
+  };
+  const validated = await validateRecipe(
+    jiraConnectionRecipe,
+    f.registry,
+    async () => {
+      throw new Error("Unexpected child");
+    },
+  );
+  const run = await runtime.commands.createRun(
+    f.actor,
+    {
+      provider: "github",
+      profile: "github-app",
+      target: "acme",
+      origin: "https://app.example",
+      environment: "test",
+      configurationVersion: "v1",
+    },
+    validated.leaves.map((node) => {
+      assert.equal(node.use.kind, "operation");
+      return {
+        id: node.id,
+        operationId: node.use.id,
+        operationVersion: node.use.version,
+        dependsOn: node.dependsOn,
+        bindings: node.bindings,
+        context: jira,
+      };
+    }),
+    {},
+  );
+  const request = (path: string, body?: unknown) =>
+    teachingHttp(
+      new Request(`https://app.example/api/v1/teaching${path}`, {
+        method: body === undefined ? "GET" : "POST",
+        headers: {
+          origin: "https://app.example",
+          ...(body === undefined ? {} : { "content-type": "application/json" }),
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      }),
+      runtime,
+    );
+  const human = `/jira/${run.id}/human`;
+  const advanced = await runtime.commands.advance(
+    f.actor,
+    run.id,
+    "app",
+    run.revision,
+    `step:${randomUUID()}`,
+  );
+  // The shared app is resolved in the Jira step's own context; none yet.
+  assert.equal(advanced.state, "awaiting-human");
+  assert.equal(
+    (
+      await new AgentCoordinator(f.store, runtime.commands).turnOutcome(
+        f.actor,
+        run.id,
+        "turn-1",
+      )
+    ).handoff?.path,
+    `/api/v1/teaching/jira/${encodeURIComponent(run.id)}/human`,
+  );
+  for (const guessed of ["stripe", "supabase"])
+    assert.equal((await request(`/${guessed}/${run.id}/human`)).status, 403);
+  actor = { ...f.actor, subjectId: "mallory" };
+  assert.equal((await request(human)).status, 403);
+  actor = f.actor;
+  assert.match(await (await request(human)).text(), /Request owner setup/);
+
+  // The owner is asked to set up the app for the Jira step's site.
+  const assignPath = `/jira/${run.id}/owner-setup`;
+  const current = await runtime.commands.snapshot(actor, run.id);
+  const assignment = await (
+    await request(assignPath, { revision: current.revision })
+  ).json();
+  assert.deepEqual(delivered, [{ provider: "jira", target: f.config.siteUrl }]);
+  actor = {
+    ...f.actor,
+    subjectId: designatedOwner,
+    sessionId: "owner-session",
+    capabilities: ["admin"],
+  };
+  const ownerPath = `/jira/owner-setup/${assignment.id}`;
+  assert.equal(
+    (await (await request(ownerPath)).json()).siteUrl,
+    f.config.siteUrl,
+  );
+  assert.equal(
+    (
+      await request(ownerPath, {
+        revision: assignment.revision,
+        values: {
+          clientId: f.config.clientId,
+          clientSecret: f.config.clientSecret,
+        },
+      })
+    ).status,
+    200,
+  );
+  actor = f.actor;
+  const configured = await (await request(assignPath)).json();
+  assert.equal(configured.state, "configured");
+  assert.equal(
+    (
+      await request(assignPath, {
+        revision: configured.revision,
+        action: "continue",
+      })
+    ).status,
+    200,
+  );
+  // The app step is done; the person's own consent is next, on Jira's page.
+  const waiting = await runtime.commands.snapshot(actor, run.id);
+  assert.deepEqual(
+    waiting.nodes.map((node) => [node.id, node.state]),
+    [
+      ["app", "complete"],
+      ["session", "awaiting-human"],
+      ["access", "pending"],
+    ],
+  );
+  authorized.length = 0;
+  const handoff = await request(human);
+  assert.equal(handoff.status, 303);
+  assert.deepEqual(authorized.at(0), {
+    operationId: "jira.human",
+    provider: "jira",
+    scope: "jira",
+  });
+  const authorization = new URL(handoff.headers.get("location")!);
+  const callback = `/jira/authorization-return?state=${authorization.searchParams.get("state")}&code=${randomUUID()}`;
+  actor = { ...f.actor, subjectId: "mallory", sessionId: "other-session" };
+  assert.equal((await request(callback)).status, 403);
+  assert.equal(f.effects.exchanges, 0);
+  actor = f.actor;
+  assert.equal((await request(callback)).status, 303);
+  const completed = await runtime.commands.snapshot(actor, run.id);
+  assert.equal(completed.status, "complete");
+  assert.ok(completed.nodes.every((node) => node.provider === "jira"));
+  assert.deepEqual(f.effects, { exchanges: 1, sites: 1, users: 1 });
+  assert.equal((await request(human)).status, 403);
+  const ledger = await f.store.transaction(async (tx) => ({
+    audit: await tx.list("tenant", "audit"),
+    events: await tx.list("tenant", "event"),
+  }));
+  assert.equal(JSON.stringify(ledger).includes(f.config.clientSecret), false);
+  assert.equal(JSON.stringify(ledger).includes(f.token), false);
 });

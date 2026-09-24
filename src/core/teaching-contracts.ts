@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   identifierSchema,
+  operationIdSchema,
   publicValueSchema,
   semanticVersionSchema,
 } from "./operation-contracts.js";
@@ -22,7 +23,7 @@ export const commandEnvelopeSchema = z
     runId: identifierSchema,
     nodeId: identifierSchema,
     expectedRevision: z.number().int().nonnegative(),
-    operationId: identifierSchema,
+    operationId: operationIdSchema,
     operationVersion: semanticVersionSchema,
     bindings: z
       .record(identifierSchema, bindingSchema)
@@ -48,7 +49,7 @@ export const demonstrationEventSchema = z
     demonstrationId: identifierSchema,
     sequence: z.number().int().nonnegative(),
     nodeId: identifierSchema,
-    operationId: identifierSchema,
+    operationId: operationIdSchema,
     operationVersion: semanticVersionSchema,
     actorKind: z.enum(["human", "agent", "system"]),
     kind: z.enum([

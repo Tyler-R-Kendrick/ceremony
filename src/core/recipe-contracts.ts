@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   identifierSchema,
+  operationIdSchema,
   publicValueSchema,
   registeredInputContractSchema,
   semanticVersionSchema,
@@ -88,7 +89,7 @@ export const recipeInvocationSchema = z
       z
         .object({
           kind: z.literal("operation"),
-          id: identifierSchema,
+          id: operationIdSchema,
           version: semanticVersionSchema,
         })
         .strict(),
