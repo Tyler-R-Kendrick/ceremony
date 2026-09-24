@@ -14,10 +14,13 @@ import {
 } from "../core/browser-session-contracts.js";
 import { unmetCapabilities } from "../core/browser-session-contracts.js";
 import {
+  consentKindsSchema,
+  sortedConsent,
   derivedRoleOf,
   heldCredentialKinds,
   issuedDeclarationSchema,
   pageLabelSchema,
+  type ConsentKind,
   type IssuedDeclaration,
   type IssuedSinkKind,
 } from "../core/browser-contracts.js";
@@ -158,6 +161,18 @@ export const connectionDraftSchema = z
         "At most 8 choices",
       )
       .optional(),
+    /**
+     * The person's advance consent: which kinds of legal box - `terms`,
+     * `privacy`, `age` - this login may tick on their behalf. Accepting a
+     * provider's terms is a legal act, so without the kind here the box is
+     * handed to a person, or the login ends `consent-required`. Marketing and
+     * newsletter opt-ins have no kind and are never ticked.
+     *
+     * A person's to give and nobody else's: the compiler refuses it from any
+     * caller the host did not identify as that person, and the agent tool
+     * surface does not offer it at all.
+     */
+    consents: consentKindsSchema.optional(),
   })
   .strict();
 export type ConnectionDraft = z.infer<typeof connectionDraftSchema>;
@@ -193,6 +208,12 @@ export const planRejectionReasons = [
    * replays it keeps exactly that too.
    */
   "recording-issued-mismatch",
+  /**
+   * The draft carries advance consent to terms, a privacy policy or an age
+   * attestation, and did not come from the person. Consent is not something
+   * an agent or a model can give on somebody's behalf.
+   */
+  "consent-not-delegable",
 ] as const;
 export const planRejectionReasonSchema = z.enum(planRejectionReasons);
 export type PlanRejectionReason = z.infer<typeof planRejectionReasonSchema>;
@@ -253,6 +274,8 @@ export type EffectiveLoginPlan = {
   issued?: IssuedDeclaration;
   /** Options this login chooses, by field label. */
   choices?: Readonly<Record<string, string>>;
+  /** What the person consented to in advance, in canonical order. */
+  consents?: readonly ConsentKind[];
   revision: number;
   digest: string;
 };
@@ -303,6 +326,13 @@ export type CompileOptions = {
    * a place a secret may be sent.
    */
   issuedSinks?: ReadonlySet<IssuedSinkKind>;
+  /**
+   * Whether this draft comes from the person themselves, as the host
+   * authenticated them - not from an agent acting for them. Only then may
+   * it carry `consents`. The host decides, from the actor it authenticated;
+   * nothing in the draft can say so.
+   */
+  fromPerson?: boolean;
   revision: number;
 };
 
@@ -430,6 +460,13 @@ export function compileLoginPlan(
   if (draft.issued && options.issuedSinks?.has(draft.issued.sink) !== true)
     throw new PlanRejected("issued-sink-unavailable", draft.issued.sink);
 
+  // Consent given by anyone but the person is not consent. Refused rather
+  // than dropped: a plan that quietly lost it would hand every terms box to
+  // a person the caller believed had already agreed.
+  const consents = sortedConsent(draft.consents ?? []);
+  if (consents.length > 0 && options.fromPerson !== true)
+    throw new PlanRejected("consent-not-delegable");
+
   // "Whichever account is there" has to be said, not assumed. Without an
   // explicit policy a run would quietly accept the first session it found.
   if (
@@ -462,6 +499,7 @@ export function compileLoginPlan(
     ...(draft.choices && Object.keys(draft.choices).length > 0
       ? { choices: draft.choices }
       : {}),
+    ...(consents.length > 0 ? { consents } : {}),
     revision: options.revision,
   };
   return { ...withoutDigest, digest: planDigest(withoutDigest) };

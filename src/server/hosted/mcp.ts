@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { AgentTurnLauncher } from "../agent-tools.js";
 import { createCeremonyMcpHandler } from "../mcp.js";
 import { createMcpIdentity } from "../mcp-identity.js";
 import { getHostedRuntime, type HostedRuntime } from "./runtime.js";
@@ -22,8 +23,19 @@ let instance: Promise<McpEndpoint | undefined> | undefined;
 
 type McpEndpoint = Awaited<ReturnType<typeof createCeremonyMcpHandler>>;
 
-export function getHostedMcp(): Promise<McpEndpoint | undefined> {
-  return (instance ??= createHostedMcp().catch(() => {
+/**
+ * The process's endpoint. `startAgent` is how the deployment runs an agent
+ * turn durably - the same workflow launcher the HTTP start route is given -
+ * and is read when the endpoint is first built.
+ */
+export function getHostedMcp(
+  startAgent?: AgentTurnLauncher,
+): Promise<McpEndpoint | undefined> {
+  return (instance ??= createHostedMcp(
+    process.env,
+    undefined,
+    startAgent,
+  ).catch(() => {
     instance = undefined;
     return undefined;
   }));
@@ -33,6 +45,8 @@ export async function createHostedMcp(
   env: NodeJS.ProcessEnv = process.env,
   /** The runtime to serve; the process runtime when omitted. Tests pass their own. */
   hosted?: HostedRuntime,
+  /** Where `ceremony_agent_start` runs a turn; inline when omitted. */
+  startAgent?: AgentTurnLauncher,
 ): Promise<McpEndpoint | undefined> {
   const config = z
     .strictObject({
@@ -70,6 +84,7 @@ export async function createHostedMcp(
     issuer: config.data.issuer,
     authenticate,
     serverName: "Ceremony",
+    ...(startAgent ? { startAgent } : {}),
     /*
      * Connector tools, when this deployment composed a connector runtime.
      * Both halves: the connector tools (catalog, status, connect by

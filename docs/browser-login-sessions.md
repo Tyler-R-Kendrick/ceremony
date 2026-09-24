@@ -275,10 +275,28 @@ secret". A draft declares that in `issued`:
 ```
 
 Each field is named by the **exact label** of the read-only input that shows
-it, and each kind (`client-id`, `client-secret`) appears once, under one label;
-an unknown kind, a repeated label or kind, more fields than kinds, a label
-shaped like a value, or an `oauth-client` sink without a `client-id` is refused
-by the schema. The declaration is compiled into the plan and its digest.
+it, and each kind (`client-id`, `client-secret`, `access-token`) appears once,
+under one label; an unknown kind, a repeated label or kind, more fields than
+kinds, a label shaped like a value, an `oauth-client` sink without a
+`client-id`, or an `access-token` kept by anything but `credential-custody` is
+refused by the schema. The declaration is compiled into the plan and its
+digest.
+
+A newly generated personal access token is often not in a field at all but in
+a `<code>` or `<pre>` block beside a copy button. Such a block is described in
+the snapshot like a read-only field (`kind: "input"`, `type: "code"`,
+`readOnly`, `filled`) when it is labelled by `aria-label`, `aria-labelledby`, a
+`<label for>`, or a heading or label right before it, and never by its text.
+An element that wraps the block (a wrapping `<label>`, or a `<label for>` or
+`aria-labelledby` target around it) labels nothing, and neither does any label
+sharing eight characters in a row with what the block shows: either would
+carry the value, or a slice of it once the label is cut to 200 characters,
+into the snapshot. `issued` names it by that
+label (`{ "sink": "credential-custody", "fields": [{ "kind": "access-token",
+"label": "Personal access token" }] }`) and the same rules apply: every field
+from one page or none, the value guarded like a typed password once read, and
+the driver never fills, clicks or ticks the block. A value that contains
+anything the attempt typed is not kept under any label.
 
 `sink` is a **kind the host registered**, never a callback: `oauth-client`
 (the host mints a run-bound `common.oauth-client` handle with
@@ -316,6 +334,44 @@ observation listed, and a fallback interpreter repairing that replay may not.
 The adapter revalidates the control exactly as it does for `fill`. A secret
 role is never filled into a select. A required choice the plan did not make is
 not guessed: it is handed to a person (`choice`), or ends `choice-required`.
+
+### Consent
+
+Ticking a box that accepts a provider's terms of service or privacy policy, or
+attests to the person's age, is a legal act on their behalf. The driver (not
+the interpreter) reads every proposed `check` - and a `click` on a checkbox,
+which it applies as a `check` - against the box's own words
+(`checkboxConsent` in `src/core/browser-contracts.ts`) and ticks such a box only
+when the plan carries the person's advance consent to **every** kind it names:
+`consents: ["terms", "privacy", "age"]`, any subset. The kinds are canonical and
+part of the digest. Without them the box is handed to a person (`consent`), who
+ticks it themselves, or the login ends `consent-required` (`requires-human` /
+`consent` through the service). A marketing or newsletter opt-in is never
+ticked, whatever the plan says: an optional one is left alone and a required
+one is the person's. That includes one bundled into the terms sentence ("I
+agree to the Terms and to receive emails from us", "... to be contacted by
+sales", "keep me informed", "hear about new features"): the box is read for
+receiving mail, messages or news, being contacted, product updates, tips,
+features and data sharing, and any of them makes it an opt-in, not terms.
+
+A box is read by everything that describes it: its label, the element its
+`aria-describedby` names, and - when it has no label - the text right beside
+it (or beside its wrapper), which the snapshot carries as its label; and its
+`name`, so `accept_tos` reads as terms. Terms wording includes "ToS", "terms
+of use", "accept our", a bare "agree" and "I have read". A **required box that
+says nothing a person could read** (no label, caption or placeholder, at most a
+`name`) cannot be told from a terms box, so it is never ticked as a form
+detail: it is the person's (`consent`), whatever consent the plan carries. A
+required box whose words name none of these, such as "I understand this token
+grants access", is still an ordinary form detail and is ticked.
+
+`consents` is the person's to set and nobody else's. The compiler refuses it
+with `consent-not-delegable` unless the host identified the caller as the
+person (`actorKind: "human"`), and the MCP `browser_login` and
+`browser_record_login` tools do not offer the field at all, so a model is never
+shown a knob that agrees to anything. A recording keeps the kinds a tick
+accepted and never widens them; see
+[recorded ceremonies](recorded-ceremonies.md#drift).
 
 ## Handoffs
 
@@ -394,10 +450,11 @@ allowed origin into a form posting to one; the device code never reaches a
 page. Without it the request's reason is `device-code` and its `path` is the
 verification URI - origin and pathname, so the code a
 `verification_uri_complete` query carries is not in it - and a person holding
-the device enters the code there. An unmade required choice is `choice`. The
+the device enters the code there. An unmade required choice is `choice`, and a terms, privacy or age box the
+person did not consent to in advance is `consent`. The
 interpreter only reports these walls; the driver checks the page really is one
 before asking anybody. With nobody to ask they end as `requires-human` with
-`device-code` or `choice`. The reference host configures none: its managed browsers are
+`device-code`, `choice` or `consent`. The reference host configures none: its managed browsers are
 headless on the server, with no surface a person could act in.
 
 ## Enabling it in a host

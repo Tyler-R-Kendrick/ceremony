@@ -114,7 +114,17 @@ export const derivedRoleOf: Readonly<Record<HeldCredentialKind, CeremonyRole>> =
  * goes to the plan's own sink — in a run, straight into a run-bound
  * `common.oauth-client` record — and nowhere else.
  */
-export const issuedValueKinds = ["client-id", "client-secret"] as const;
+export const issuedValueKinds = [
+  "client-id",
+  "client-secret",
+  /**
+   * A personal access token a provider just generated, shown once - often in
+   * a `<code>` or `<pre>` block beside a copy button rather than in a field.
+   * Kept only into `credential-custody`: it is a credential for the person's
+   * account, not part of an OAuth client.
+   */
+  "access-token",
+] as const;
 export const issuedValueKindSchema = z.enum(issuedValueKinds);
 export type IssuedValueKind = z.infer<typeof issuedValueKindSchema>;
 /**
@@ -125,6 +135,7 @@ export type IssuedValueKind = z.infer<typeof issuedValueKindSchema>;
  */
 export const secretIssuedValueKinds: readonly IssuedValueKind[] = [
   "client-secret",
+  "access-token",
 ];
 
 /**
@@ -188,6 +199,13 @@ export const issuedDeclarationSchema = z
       context.addIssue({
         code: "custom",
         message: "An oauth-client sink keeps a client-id",
+      });
+    // An access token is the person's credential, not part of a client: it
+    // goes to custody and nowhere else.
+    if (kinds.has("access-token") && declaration.sink !== "credential-custody")
+      context.addIssue({
+        code: "custom",
+        message: "An access-token is kept only by a credential-custody sink",
       });
   });
 export type IssuedDeclaration = z.infer<typeof issuedDeclarationSchema>;
@@ -365,6 +383,13 @@ export const blockedReasons = [
    * no value for. Choosing on somebody's behalf is not something to guess at.
    */
   "choice-required",
+  /**
+   * A box accepting terms, a privacy policy or an age attestation that the
+   * plan carries no advance consent for, or a required marketing opt-in, and
+   * nobody to tick it. Accepting on somebody's behalf is a legal act, never a
+   * form detail.
+   */
+  "consent-required",
 ] as const;
 export const blockedReasonSchema = z.enum(blockedReasons);
 export type BlockedReason = z.infer<typeof blockedReasonSchema>;
@@ -429,6 +454,12 @@ export type CeremonyStep = {
   role?: CeremonyRole;
   reason?: BlockedReason;
   note?: string;
+  /**
+   * On a `check`: the legal acts ticking that box performed under the plan's
+   * advance consent. Kinds, never page text, so a transcript says "accepted
+   * the terms" without repeating the provider's wording.
+   */
+  consent?: ConsentKind[];
 };
 
 const alertSelector =
@@ -518,6 +549,89 @@ export function snapshotDocument(
     if (onElement) onElement(control, entry.index);
     elements.push(entry);
   }
+  // Values a page shows rather than asks for. A provider that has just
+  // generated a personal access token often prints it in a `<code>` or
+  // `<pre>` block beside a copy button, not in a field. Such a block is
+  // described like a read-only field - its label and whether it shows
+  // anything, never its text - and only when it is labelled: by
+  // `aria-label`, `aria-labelledby`, a `<label for>`, or a heading or label
+  // right before it. An unlabelled block is page prose, and not described.
+  //
+  // A label that contains the block's own text is no label: it would carry
+  // the value into the snapshot. A wrapping `<label>` always would, so it is
+  // not consulted here at all.
+  const shownLabel = (block: Element): string => {
+    // An element that wraps the block - a `<label for>` or an
+    // `aria-labelledby` target around it - has the value in its own text, so
+    // it labels nothing. Checked by containment rather than by comparing
+    // text: the label is cut to 200 characters, and a long prose label cut
+    // part-way into the value would otherwise carry a prefix of it.
+    const apart = (element: Element | null | undefined): element is Element =>
+      element != null && !element.contains(block) && !block.contains(element);
+    const own = (element: Element): string => {
+      const aria = trim(element.getAttribute("aria-label"), 200);
+      if (aria) return aria;
+      const labelledBy = element.getAttribute("aria-labelledby");
+      if (labelledBy) {
+        const named = labelledBy
+          .split(/\s+/)
+          .filter(Boolean)
+          .map((id) => doc.getElementById(id))
+          .map((labelling) =>
+            apart(labelling) ? (labelling.textContent ?? "") : "",
+          )
+          .filter(Boolean)
+          .join(" ");
+        if (named) return trim(named, 200);
+      }
+      const id = element.getAttribute("id");
+      if (id && /^[A-Za-z][\w:.-]*$/.test(id)) {
+        const explicit = doc.querySelector(`label[for="${id}"]`);
+        if (apart(explicit)) return trim(explicit.textContent, 200);
+      }
+      return "";
+    };
+    const inner =
+      block.tagName.toLowerCase() === "pre"
+        ? block.querySelector("code")
+        : null;
+    let label = own(block) || (inner ? own(inner) : "");
+    if (!label) {
+      const before = block.previousElementSibling;
+      if (before && /^(h[1-6]|label)$/i.test(before.tagName))
+        label = trim(before.textContent, 200);
+    }
+    // And whatever labelled it, a label sharing any eight characters in a row
+    // with what the block shows is not used: the whole value, or a slice of
+    // it, would reach the snapshot as page text.
+    const shown = (block.textContent ?? "").replace(/\s+/g, " ").trim();
+    for (let at = 0; at + 8 <= shown.length; at++)
+      if (label.includes(shown.slice(at, at + 8))) return "";
+    return shown.length >= 4 && label.includes(shown) ? "" : label;
+  };
+  for (const block of Array.from(doc.querySelectorAll("pre,code"))) {
+    if (elements.length >= 60) break;
+    if (block.tagName.toLowerCase() === "code" && block.closest("pre"))
+      continue;
+    const style =
+      typeof globalThis.getComputedStyle === "function"
+        ? globalThis.getComputedStyle(block)
+        : undefined;
+    if (style && (style.display === "none" || style.visibility === "hidden"))
+      continue;
+    const label = shownLabel(block);
+    if (!label) continue;
+    const entry: SnapshotElement = {
+      index: elements.length,
+      kind: "input",
+      type: "code",
+      label,
+      readOnly: true,
+      filled: trim(block.textContent, 1).length > 0,
+    };
+    if (onElement) onElement(block, entry.index);
+    elements.push(entry);
+  }
   function snapshotControl(
     control: Element,
     index: number,
@@ -549,6 +663,59 @@ export function snapshotDocument(
     if (autocomplete && entry.kind === "input")
       entry.autocomplete = autocomplete;
     if (label) entry.label = label;
+    // What a checkbox agrees to is often not in its label. The terms may sit
+    // in the element `aria-describedby` names, or in plain text beside the
+    // box with no `<label>` at all - "<input type=checkbox><span>I agree to
+    // the Terms</span>" - which left the box unnamed and read as agreeing to
+    // nothing. For a checkbox those words are what it is described by, so
+    // they are part of what the snapshot says about it.
+    if (entry.kind === "checkbox") {
+      const described = trim(
+        (control.getAttribute("aria-describedby") ?? "")
+          .split(/\s+/)
+          .filter(Boolean)
+          .map((id) => doc.getElementById(id)?.textContent ?? "")
+          .join(" "),
+        200,
+      );
+      const beside = (): string => {
+        // The text right after the box, or - when the box is alone in its
+        // wrapper - right after the wrapper. Never a control's own words.
+        const after = (node: Node | null): string => {
+          for (let next = node; next; next = next.nextSibling) {
+            if (next.nodeType === 3) {
+              const words = trim(next.textContent, 200);
+              if (words) return words;
+              continue;
+            }
+            if (next.nodeType !== 1) continue;
+            const element = next as Element;
+            if (
+              /^(input|select|textarea|button)$/i.test(element.tagName) ||
+              element.querySelector("input,select,textarea,button")
+            )
+              return "";
+            return trim(element.textContent, 200);
+          }
+          return "";
+        };
+        const own = after(control.nextSibling);
+        if (own) return own;
+        const parent = control.parentElement;
+        return parent &&
+          parent.children.length === 1 &&
+          !/^(form|body|label)$/i.test(parent.tagName)
+          ? after(parent.nextSibling)
+          : "";
+      };
+      // The description is often the very text beside the box; said once.
+      const named = label || beside();
+      const words = trim(
+        [named, described === named ? "" : described].filter(Boolean).join(" "),
+        200,
+      );
+      if (words) entry.label = words;
+    }
     if (placeholder) entry.placeholder = placeholder;
     if (entry.kind === "button" || entry.kind === "link") {
       const caption =
@@ -794,13 +961,15 @@ export const elementUsableSource = `((element) => {
 export const readOnlyValueSource = `((element) => {
   if (!element || !element.isConnected) return null;
   const tag = String(element.tagName || '').toLowerCase();
-  if (tag !== 'input' && tag !== 'textarea') return null;
-  if (element.readOnly !== true || element.disabled === true) return null;
-  if (String(element.type || '').toLowerCase() === 'hidden') return null;
+  const block = tag === 'code' || tag === 'pre';
+  if (tag !== 'input' && tag !== 'textarea' && !block) return null;
+  if (!block && (element.readOnly !== true || element.disabled === true)) return null;
+  if (!block && String(element.type || '').toLowerCase() === 'hidden') return null;
   const rects = typeof element.getClientRects === 'function' ? element.getClientRects() : [];
   if (rects.length === 0) return null;
   const style = typeof getComputedStyle === 'function' ? getComputedStyle(element) : undefined;
   if (style && (style.visibility === 'hidden' || style.display === 'none')) return null;
+  if (block) return String(element.textContent || '').trim();
   return typeof element.value === 'string' ? element.value : null;
 })`;
 
@@ -840,8 +1009,133 @@ export const humanStepReasons = [
   "device-code",
   /** A required choice the plan provided no value for. */
   "choice",
+  /**
+   * A box accepting a provider's terms, privacy policy or an age attestation
+   * that the plan carries no advance consent for, or a required marketing
+   * opt-in. Ticking one is a legal act on the person's behalf, so it is the
+   * person's to tick.
+   */
+  "consent",
 ] as const;
 export type HumanStepReason = (typeof humanStepReasons)[number];
+
+/**
+ * What a person may consent to in advance, so that a login ticks the box
+ * saying so on their behalf.
+ *
+ * Accepting a provider's terms of service or privacy policy, or attesting to
+ * being old enough, is a legal act. An agent does not get to perform one
+ * because the form happens to need it: it performs one only when the plan
+ * carries the person's explicit consent for that kind, set by the person, part
+ * of the plan's digest and of any recording's review. Nothing a model says and
+ * no agent tool can add one.
+ *
+ * Marketing and newsletter opt-ins are deliberately not a kind. There is no
+ * advance consent that ticks one: a person who wants the newsletter can tick
+ * it themselves.
+ */
+export const consentKinds = ["terms", "privacy", "age"] as const;
+export const consentKindSchema = z.enum(consentKinds);
+export type ConsentKind = z.infer<typeof consentKindSchema>;
+
+/**
+ * A set of consent kinds, as a plan or a recording carries one: no repeats,
+ * so two that say the same thing digest the same once sorted.
+ */
+export const consentKindsSchema = z
+  .array(consentKindSchema)
+  .max(consentKinds.length)
+  .refine(
+    (kinds) => new Set(kinds).size === kinds.length,
+    "Duplicate consent kind",
+  );
+
+/** Consent kinds in their canonical order, so equal sets are equal bytes. */
+export function sortedConsent(kinds: readonly ConsentKind[]): ConsentKind[] {
+  return consentKinds.filter((kind) => kinds.includes(kind));
+}
+
+/** What a checkbox asks a person to agree to, read from its own words. */
+export type CheckboxConsent = {
+  /** The legal acts ticking it performs. Empty for an ordinary box. */
+  kinds: ConsentKind[];
+  /**
+   * The box opts into marketing or a newsletter, alone or bundled with
+   * anything else. Never ticked by an agent, whatever the plan says.
+   */
+  marketing: boolean;
+  /**
+   * The box says nothing a person could read - no label, no caption, at
+   * most a `name`. What ticking it agrees to cannot be told, so it is the
+   * person's to tick, never a form detail.
+   */
+  unlabelled: boolean;
+};
+
+/**
+ * Opt-ins that are nobody's to give: marketing, newsletters, being contacted,
+ * and sharing the person's data with partners. "I agree" is how these are
+ * worded too - and they are usually bundled into the terms sentence ("I agree
+ * to the Terms and to receive emails from us") - so a box naming one is never
+ * read as terms alone. Deliberately broad: a false positive leaves a box for
+ * the person, a false negative signs them up.
+ */
+const marketingWords =
+  /newsletter|marketing|promot|special offers|\boffers\b|\bupdates\b|\bnews\b|\btips\b|\bfeatures\b|subscribe|partners|third[- ]part(y|ies)|share my (data|information)|receiv(e|ing) (e-?mails?|communications?|messages?|news|updates|offers|information|texts?|sms|calls?)|(e-?mail|send|text|call|message) me|\bcontact(ed)? (me|by)|keep me (informed|updated|posted|in the loop)|hear (about|from|more)|communications? from/i;
+const consentWords: Readonly<Record<ConsentKind, RegExp>> = {
+  // A bare "I agree" or "I accept" is read as terms: it is the conservative
+  // reading, since it asks a person rather than ticking.
+  terms:
+    /terms|conditions|\btos\b|\beula\b|user agreement|acceptable use|\bagree\b|\baccept (our|the|all)\b|\bi accept\b|i have read|i('ve| have) (read|reviewed)/i,
+  privacy: /privacy|data (processing|protection)|personal data|cookie/i,
+  age: /old enough|years of age|\b(1[3-9]|2[01]) ?(\+|years|or (older|over))|of (legal )?age|age of (majority|consent)|\b(over|at least) (1[3-9]|2[01])\b|minimum age/i,
+};
+
+/**
+ * What ticking a checkbox would agree to, from the words the page shows for
+ * it.
+ *
+ * Shared by the model-free interpreter, which decides whether to tick, and by
+ * the driver, which refuses any interpreter's tick the plan did not consent
+ * to - so a model reading the same box differently cannot tick it anyway. It
+ * errs toward consent on purpose: a false positive asks a person to tick an
+ * ordinary box, a false negative would perform a legal act nobody agreed to.
+ */
+export function checkboxConsent(
+  element: Pick<SnapshotElement, "label" | "text" | "name" | "placeholder">,
+): CheckboxConsent {
+  // Separators read as spaces, so a `name` such as `accept_tos` or
+  // `agree-terms` says what it is as plainly as a label would.
+  const text = [element.label, element.text, element.name, element.placeholder]
+    .filter((part): part is string => typeof part === "string")
+    .join(" ")
+    .replace(/[_\-.:[\]]+/g, " ");
+  return {
+    kinds: consentKinds.filter((kind) => consentWords[kind].test(text)),
+    marketing: marketingWords.test(text),
+    unlabelled: !(element.label || element.text || element.placeholder),
+  };
+}
+
+/**
+ * Whether a plan's advance consent covers ticking this box. A marketing
+ * opt-in is never covered; a box naming several kinds needs every one.
+ */
+export function consentCovers(
+  consent: CheckboxConsent,
+  given: readonly ConsentKind[],
+): boolean {
+  return (
+    !consent.marketing &&
+    !consent.unlabelled &&
+    consent.kinds.every((kind) => given.includes(kind))
+  );
+}
+
+/** Whether ticking this box is a person's decision rather than a form detail. */
+export function needsConsent(consent: CheckboxConsent): boolean {
+  return consent.marketing || consent.unlabelled || consent.kinds.length > 0;
+}
 
 /**
  * Wording that names a device authorization verification page, read from the

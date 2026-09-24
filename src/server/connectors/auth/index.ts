@@ -138,6 +138,7 @@ export {
   completeAuthorizationCode,
   credentialScopeFor,
   DEFAULT_HANDOFF_TTL_MS,
+  ID_TOKEN_SIGNING_ALGORITHMS,
   OAUTH_CODE_EXCHANGE_OPERATION,
   OAUTH_REFRESH_OPERATION,
   refreshAccessToken,

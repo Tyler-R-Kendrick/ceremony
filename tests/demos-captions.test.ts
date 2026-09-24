@@ -74,6 +74,7 @@ const events: CaptionEvent[] = [
   { kind: "click", actor: "agent", control: "button", phase: "consent" },
   { kind: "click", actor: "agent", control: "link", phase: "no-account" },
   { kind: "check", actor: "agent" },
+  { kind: "check", actor: "agent", consent: ["terms", "privacy"] },
   { kind: "wait", actor: "agent" },
   { kind: "claim-done", actor: "agent" },
   { kind: "inbox", stage: "provisioned" },
@@ -124,6 +125,21 @@ test("DEMO-CAPTIONS: captions name the role and the actor", () => {
     caption({ kind: "step", index: 4, total: 7, phase: "verify-email" }),
     "Step 4/7 · verify email via inbox",
   );
+  // A tick that accepts terms says what, by kind, and that it was consented
+  // to; a kind nobody wrote a name for is dropped rather than echoed.
+  assert.equal(
+    caption({ kind: "check", actor: "agent", consent: ["terms", "privacy"] }),
+    "Agent: accept the terms and privacy policy (consented)",
+  );
+  assert.equal(
+    caption({ kind: "check", actor: "agent", consent: ["newsletter"] }),
+    "Agent: tick a required checkbox",
+  );
+  assert.equal(
+    caption({ kind: "blocked", reason: "consent-required" }),
+    "Driver: stopped — the person has to accept",
+  );
+
   // Reading issued values is the driver's doing: the agent never sees them.
   assert.equal(
     caption({ kind: "connector", stage: "secret-kept" }),

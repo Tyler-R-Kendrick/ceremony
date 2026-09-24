@@ -659,6 +659,7 @@ export function createCatalogHttpAdapter(
         credentialRef: ref,
         scope,
         stillStale: stale,
+        parameters: resolvedParameters(entry, auth.refreshParams ?? {}, values),
       });
       return;
     }
@@ -707,6 +708,7 @@ export function createCatalogHttpAdapter(
         credentialRef: ref,
         scope,
         stillStale,
+        parameters: resolvedParameters(entry, auth.refreshParams ?? {}, values),
       });
     } catch (error) {
       if (
@@ -744,8 +746,17 @@ export function createCatalogHttpAdapter(
     auth: AuthCode | ClientCredentials,
     values: Record<string, string>,
   ): Record<string, string> {
+    return resolvedParameters(entry, auth.tokenParams, values);
+  }
+
+  /** A reviewed entry's static parameters, filled from the connection's fields. */
+  function resolvedParameters(
+    entry: ProviderCatalogEntry,
+    templates: Readonly<Record<string, string>>,
+    values: Record<string, string>,
+  ): Record<string, string> {
     return Object.fromEntries(
-      Object.entries(auth.tokenParams).map(([name, template]) => [
+      Object.entries(templates).map(([name, template]) => [
         name,
         resolveValueTemplate(entry, template, values),
       ]),

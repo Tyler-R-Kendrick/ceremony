@@ -401,6 +401,56 @@ describe("SCHEMA: a recording cannot hold a value", () => {
     assert.ok(recordedCeremonySchema.safeParse(base()).success);
   });
 
+  test("a tick says what it accepts, and a newsletter is never a step", () => {
+    const ticking = (label: string, consent?: unknown) => {
+      const recording = base() as unknown as { steps: unknown[] };
+      recording.steps.push({
+        id: "step-2",
+        page: { origin: "https://idp.example", path: "/signin" },
+        action: {
+          kind: "check",
+          target: { kind: "checkbox", label, ordinal: 0, of: 1 },
+          ...(consent === undefined ? {} : { consent }),
+        },
+        optional: false,
+      });
+      return recordedCeremonySchema.safeParse(recording).success;
+    };
+    assert.equal(ticking("Keep me signed in"), true);
+    assert.equal(ticking("I agree to the Terms of Service", ["terms"]), true);
+    // A reviewer reading the step has to read the whole of what it accepts.
+    assert.equal(ticking("I agree to the Terms of Service"), false);
+    assert.equal(
+      ticking("I accept the terms and the privacy policy", ["terms"]),
+      false,
+    );
+    assert.equal(ticking("I agree to the Terms", ["terms", "terms"]), false);
+    assert.equal(ticking("I agree to the Terms", ["marketing"]), false);
+    // Whatever it declares, a marketing opt-in is not something to replay.
+    assert.equal(
+      ticking("Send me product news and special offers", ["terms"]),
+      false,
+    );
+    // Pressing a box ticks it, with no consent recorded; a box is checked.
+    const clicked = base() as unknown as { steps: unknown[] };
+    clicked.steps.push({
+      id: "step-2",
+      page: { origin: "https://idp.example", path: "/signin" },
+      action: {
+        kind: "click",
+        expect: "same-page",
+        target: {
+          kind: "checkbox",
+          label: "I agree to the Terms of Service",
+          ordinal: 0,
+          of: 1,
+        },
+      },
+      optional: false,
+    });
+    assert.equal(recordedCeremonySchema.safeParse(clicked).success, false);
+  });
+
   test("a value field is not a field", () => {
     const withValue = base() as unknown as {
       steps: { action: Record<string, unknown> }[];
@@ -651,6 +701,53 @@ describe("COMPILE: the trace is scrubbed, and then checked as if it were not", (
     );
     assert.equal(recording.steps.length, 1);
     assert.equal(recording.steps[0]!.page.path, "/flows/*/password");
+  });
+
+  test("an identifier the provider assigned after a create is a wildcard; a path the run was sent to is not", () => {
+    const origin = "https://idp.example";
+    const button = (text: string) => [
+      { index: 0, kind: "button" as const, text },
+    ];
+    const paths = (
+      entryUrl: string,
+      pages: readonly [string, string][],
+    ): string[] => {
+      const recording = compileRecording(
+        pages.map(([path, text]) => ({
+          snapshot: snapshot(`${origin}${path}`, button(text)),
+          action: "click" as const,
+          element: 0,
+        })),
+        { ...options, entryUrl: `${origin}${entryUrl}` },
+      );
+      return recording.steps.map((step) => step.page.path);
+    };
+    // Created, then numbered - short or a UUID, the number is the app's.
+    assert.deepEqual(
+      paths("/api/1/apps/new", [
+        ["/api/1/apps/new", "Create app"],
+        ["/api/1/apps/7", "Generate a new secret"],
+        ["/api/1/apps/7/keys/3f2b6c1e-8d4a-4e1f-9b7c-2a6d5e4f3c21", "Done"],
+      ]),
+      ["/api/1/apps/new", "/api/1/apps/*", "/api/1/apps/*/keys/*"],
+    );
+    // A number the run was sent to, or reached by "Continue", is the page's.
+    assert.deepEqual(
+      paths("/signup/step/1", [
+        ["/signup/step/1", "Continue"],
+        ["/signup/step/2", "Continue"],
+      ]),
+      ["/signup/step/1", "/signup/step/2"],
+    );
+    // A number that was already there before anything was created stays,
+    // even when it shows up again afterwards.
+    assert.deepEqual(
+      paths("/orgs/2/apps/new", [
+        ["/orgs/2/apps/new", "Register application"],
+        ["/orgs/2/apps/2", "Done"],
+      ]),
+      ["/orgs/2/apps/new", "/orgs/2/apps/2"],
+    );
   });
 
   test("a trace the recording format cannot hold is refused by name, never thrown as a parse error", () => {

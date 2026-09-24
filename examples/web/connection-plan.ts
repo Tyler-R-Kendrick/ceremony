@@ -675,6 +675,11 @@ export const rejectionGuidance: Record<
       "The recorded sign-in keeps different provider-issued values than this configuration says. A recording keeps exactly what it was reviewed keeping; match it, or choose another recording.",
     step: 3,
   },
+  "consent-not-delegable": {
+    message:
+      "This configuration accepts a provider's terms, privacy policy or age check in advance, and it was not sent by the person those belong to. Only they can agree to them.",
+    step: 3,
+  },
   "unknown-credential-reference": {
     message:
       "The stored credential this configuration names is not one this workspace holds.",

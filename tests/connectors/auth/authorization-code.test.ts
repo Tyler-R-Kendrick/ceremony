@@ -5,6 +5,7 @@ import {
   completeAuthorizationCode,
   callbackUri,
   refreshAccessToken,
+  ID_TOKEN_SIGNING_ALGORITHMS,
   reviewPermissionEscalation,
   scopeEnforcement,
   credentialScopeFor,
@@ -163,6 +164,83 @@ test("AC-AUTH-03: an ID token signed by a key the issuer never published cannot 
   assert.equal(
     harness.ports.inspect.effects()[0]?.outcome?.code,
     "oauth.token.invalid-response",
+  );
+});
+
+test("an ID token signed with HS256, not at all, or outside the pin is refused, even from an issuer that advertises it", async (t) => {
+  // Pinned, not inherited: the list is this engine's own statement.
+  assert.deepEqual(ID_TOKEN_SIGNING_ALGORITHMS, [
+    "RS256",
+    "PS256",
+    "ES256",
+    "EdDSA",
+  ]);
+  for (const algorithm of ["HS256", "none", "ES384"] as const) {
+    const harness = await authHarness(t, {
+      configuration: { OAUTH_CLIENT_ID: "fixture-client" },
+      server: {
+        openidConnect: true,
+        subject: "ada",
+        misbehave: { idTokenSignedWith: algorithm },
+      },
+    });
+    const ctx = harness.ctx();
+    const { record } = await begun(harness, ctx);
+    const callback = await harness.server.authorize(
+      record.private["authorizationUrl"]!,
+    );
+    await assert.rejects(
+      completeAuthorizationCode(ctx, {
+        url: new URL(callback),
+        handoff: record,
+        server: harness.resolved,
+        client: harness.client,
+        policy: harness.policy,
+      }),
+      (error: unknown) =>
+        error instanceof ConnectorError &&
+        error.code === "upstream-rejected" &&
+        error.detail === "oauth.token.invalid-response",
+      algorithm,
+    );
+    assert.deepEqual(harness.ports.inspect.credentialRefs(), [], algorithm);
+    assert.equal(inspectHandoffs(harness)[0]?.state, "denied", algorithm);
+  }
+});
+
+test("a client-level algorithm override cannot widen the pin", async (t) => {
+  // oauth4webapi prefers a client's `id_token_signed_response_alg` over the
+  // issuer's list; the engine drops it, so HS256 named there is still refused.
+  const harness = await authHarness(t, {
+    configuration: { OAUTH_CLIENT_ID: "fixture-client" },
+    server: {
+      openidConnect: true,
+      subject: "ada",
+      misbehave: { idTokenSignedWith: "HS256" },
+    },
+  });
+  const ctx = harness.ctx();
+  const { record } = await begun(harness, ctx);
+  const callback = await harness.server.authorize(
+    record.private["authorizationUrl"]!,
+  );
+  await assert.rejects(
+    completeAuthorizationCode(ctx, {
+      url: new URL(callback),
+      handoff: record,
+      server: harness.resolved,
+      client: {
+        ...harness.client,
+        client: {
+          ...harness.client.client,
+          id_token_signed_response_alg: "HS256",
+        },
+      },
+      policy: harness.policy,
+    }),
+    (error: unknown) =>
+      error instanceof ConnectorError &&
+      error.detail === "oauth.token.invalid-response",
   );
 });
 
@@ -930,6 +1008,59 @@ test("an extra token parameter that names one the grant owns is refused before t
     assert.equal(harness.server.counts.token, 0, name);
     assert.deepEqual(harness.ports.inspect.effects(), [], name);
   }
+});
+
+test("declared refresh parameters ride on the refresh request, under the same reserved names", async (t) => {
+  const harness = await authHarness(t, {
+    configuration: { OAUTH_CLIENT_ID: "fixture-client" },
+  });
+  const ctx = harness.ctx();
+  const { record } = await begun(harness, ctx, { scopes: ["profile"] });
+  const callback = await harness.server.authorize(
+    record.private["authorizationUrl"]!,
+  );
+  const completed = await completeAuthorizationCode(ctx, {
+    url: new URL(callback),
+    handoff: record,
+    server: harness.resolved,
+    client: harness.client,
+    policy: harness.policy,
+  });
+  const scope = credentialScopeFor(ctx, record);
+  const refresh = (parameters: Record<string, string>) =>
+    refreshAccessToken(ctx, {
+      server: harness.resolved,
+      client: harness.client,
+      policy: harness.policy,
+      credentialRef: completed.credentialRef!,
+      scope,
+      parameters,
+    });
+  // A name the refresh grant owns is refused before the refresh token is
+  // presented: nothing reaches the wire or the journal.
+  const before = harness.server.counts.token;
+  for (const name of [
+    "refresh_token",
+    "grant_type",
+    "client_secret",
+    "client_assertion",
+    "scope",
+    "resource",
+    "not a name",
+  ])
+    await assert.rejects(
+      refresh({ [name]: "chosen-elsewhere" }),
+      (error: unknown) =>
+        error instanceof ConnectorError &&
+        error.detail === "oauth.token-parameter.reserved",
+      name,
+    );
+  assert.equal(harness.server.counts.token, before);
+  await refresh({ audience: "https://api.fixture.example" });
+  const sent = harness.server.tokenRequests.find(
+    (item) => item.grantType === "refresh_token",
+  );
+  assert.equal(sent?.parameters["audience"], "https://api.fixture.example");
 });
 
 test("a pre-joined scope value containing openid still binds a nonce", async (t) => {

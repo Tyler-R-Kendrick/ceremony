@@ -194,6 +194,8 @@ export async function record(session: DemoSession) {
       allowedOrigins: [provider.origin],
       onApplied: session.applied,
       redirectUri: provider.redirectUri,
+      // The advance consent the title card states.
+      consents: session.entry.consents ?? [],
       protectedValues: [account.password],
       maxSteps: 30,
     });

@@ -55,11 +55,23 @@ function fixture(
   options: {
     waitsOnPerson?: boolean;
     person?: () => ActorContext;
+    /** Configure a model, so the server's agent can be started at all. */
+    model?: boolean;
+    /** The host's policy on handing a run to the agent, asked each time. */
+    agentAllowed?: () => boolean;
   } & Partial<Parameters<typeof createTeachingRuntime>[0]> = {},
 ) {
-  const { waitsOnPerson: _waits, person: _person, ...runtimeOptions } = options;
+  const {
+    waitsOnPerson: _waits,
+    person: _person,
+    model: _model,
+    agentAllowed: _agentAllowed,
+    ...runtimeOptions
+  } = options;
   void _waits;
   void _person;
+  void _model;
+  void _agentAllowed;
   const store = new SQLiteCeremonyStore(":memory:", {
     current: "key",
     keys: { key: randomBytes(32) },
@@ -113,7 +125,17 @@ function fixture(
       ],
     ]),
     context: async () => context,
-    authorize: async () => true,
+    authorize: async (_actor, _run, purpose) =>
+      purpose !== "agent" || options.agentAllowed?.() !== false,
+    ...(options.model
+      ? {
+          // Never reached: a turn at a person's step does not ask the model.
+          modelConfiguration: {
+            model: "fixture",
+            endpoint: "http://127.0.0.1:1/v1/chat/completions",
+          },
+        }
+      : {}),
     // Authoring discovery never leaves the process in these tests.
     authoringFetch: async () => new Response("", { status: 404 }),
     ...runtimeOptions,
@@ -874,6 +896,137 @@ test("a run that waits on a person tells the MCP caller where that person contin
     assert.deepEqual(read.value().handoff, expected);
   } finally {
     await f.store.close();
+  }
+});
+
+test("ceremony_agent_start is offered only where a model is configured", async () => {
+  for (const model of [false, true]) {
+    const f = fixture({ model });
+    try {
+      const names = (
+        await toolsFor(
+          handlerFor(f.runtime, () => actor),
+          "good",
+        )
+      ).map((tool) => tool.name);
+      assert.equal(names.includes("ceremony_agent_start"), model);
+    } finally {
+      await f.store.close();
+    }
+  }
+});
+
+test("starting the server agent over MCP answers as the start route does, handoff included", async () => {
+  const f = fixture({ waitsOnPerson: true, model: true });
+  try {
+    const mcp = handlerFor(f.runtime, () => actor);
+    await call(mcp, "good", initialize);
+    const run = (
+      await invoke(mcp, "good", "ceremony_connect", { connectorId: "fixture" })
+    ).value();
+    const started = await invoke(mcp, "good", "ceremony_agent_start", {
+      runId: run.id,
+    });
+    assert.equal(started.isError, false, started.text);
+    const answer = started.value();
+    assert.equal(answer.status, "awaiting-human");
+    assert.ok(answer.turnId);
+    assert.deepEqual(answer.handoff, {
+      kind: "person",
+      runId: run.id,
+      nodeId: "node",
+      operationId: "verify",
+      nodeState: "awaiting-human",
+      reason: "human-step",
+      path: `/api/v1/teaching/fixture-provider/${encodeURIComponent(run.id)}/human`,
+    });
+    assert.doesNotMatch(started.text, /[?&](code|state|token)=|https?:\/\//);
+    // The web application's start button, for the same person and run: the
+    // same projection, turn id aside.
+    const route = (await (
+      await teachingHttp(
+        new Request(`${context.origin}/api/v1/teaching/agent/${run.id}/start`, {
+          method: "POST",
+          headers: {
+            origin: context.origin,
+            "content-type": "application/json",
+          },
+          body: "{}",
+        }),
+        f.runtime,
+      )
+    ).json()) as Record<string, unknown>;
+    assert.deepEqual(
+      { ...route, turnId: undefined },
+      { ...answer, turnId: undefined },
+    );
+  } finally {
+    await f.store.close();
+  }
+});
+
+test("a host's launcher takes the turn, as it does for the start route", async () => {
+  const f = fixture({ waitsOnPerson: true, model: true });
+  try {
+    const launched: Array<[string, string]> = [];
+    const mcp = createCeremonyMcpHandler(f.runtime, {
+      resourceUrl: endpoint,
+      issuer,
+      authenticate: () => actor,
+      startAgent: async (runId, turnId) => {
+        launched.push([runId, turnId]);
+      },
+    });
+    await call(mcp, "good", initialize);
+    const run = (
+      await invoke(mcp, "good", "ceremony_connect", { connectorId: "fixture" })
+    ).value();
+    const started = (
+      await invoke(mcp, "good", "ceremony_agent_start", { runId: run.id })
+    ).value();
+    assert.equal(started.status, "running");
+    assert.deepEqual(launched, [[run.id, started.turnId]]);
+  } finally {
+    await f.store.close();
+  }
+});
+
+test("starting the server agent is gated like the start route", async () => {
+  for (const [label, refusesAgent, who] of [
+    ["another subject", false, { ...actor, subjectId: "somebody-else" }],
+    ["no executor capability", false, { ...actor, capabilities: ["reviewer"] }],
+    ["the host's policy refuses it", true, actor],
+  ] as const) {
+    // The policy lets the run be connected, then refuses handing it over.
+    let allowed = true;
+    const f = fixture({
+      waitsOnPerson: true,
+      model: true,
+      agentAllowed: () => allowed,
+    });
+    try {
+      const run = await ceremonyAgentTools(f.runtime).connect(actor, {
+        connectorId: "fixture",
+      });
+      allowed = !refusesAgent;
+      const mcp = handlerFor(f.runtime, () => who as ActorContext);
+      await call(mcp, "good", initialize);
+      const refused = await invoke(mcp, "good", "ceremony_agent_start", {
+        runId: run.id,
+      });
+      assert.equal(refused.isError, true, label);
+      assert.doesNotMatch(refused.text, /turn:/, label);
+      // The route refuses the same caller the same way.
+      await assert.rejects(
+        ceremonyAgentTools(f.runtime).startAgent(who as ActorContext, {
+          runId: run.id,
+        }),
+        /denied/,
+        label,
+      );
+    } finally {
+      await f.store.close();
+    }
   }
 });
 

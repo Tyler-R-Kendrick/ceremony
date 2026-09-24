@@ -218,6 +218,62 @@ test("openid is refused for a comma-separated provider", async (t) => {
   assert.equal(server.counts.metadata, 0);
 });
 
+test("a Nango entry whose discovery URL names its issuer can ask for openid, and one without cannot", async (t) => {
+  const server = await startOAuthServer(t, {
+    openidConnect: true,
+    subject: "ada",
+    scopes: ["openid", "items.read"],
+  });
+  const api = await startProviderApi(t);
+  const connectWith = async (extra: Record<string, unknown>) => {
+    const harness = await catalogHarness(t);
+    harness.setConfiguration(harness.actor, "NANGO_IDP_CLIENT_ID", CLIENT_ID);
+    harness.setConfiguration(
+      harness.actor,
+      "NANGO_IDP_CLIENT_SECRET",
+      CLIENT_SECRET,
+    );
+    const { definitions } = await importDocument(harness, {
+      "nango-idp": {
+        display_name: "Nango IdP",
+        auth_mode: "OAUTH2",
+        authorization_url: `${server.origin}/authorize`,
+        token_url: `${server.origin}/token`,
+        // Declared by the entry: a caller may name a reviewed scope, never
+        // add one, and openid is no exception.
+        default_scopes: ["items.read", "openid"],
+        proxy: { base_url: `${api.origin}/v2` },
+        ...extra,
+      },
+    });
+    const approved = await approve(harness, {
+      definitionRef: definitions[0]!.definitionRef,
+      destination: `${api.origin}/v2`,
+      profileId: "oauth2",
+    });
+    const view = harness.service.connect(harness.actor, {
+      bindingRef: approved.reference.bindingRef,
+      intent: { profileId: "oauth2", requestedPermissions: ["openid"] },
+    });
+    return { harness, view };
+  };
+
+  const discovered = await connectWith({
+    well_known_url: `${server.issuer}/.well-known/openid-configuration`,
+  });
+  const url = presented(await discovered.view);
+  assert.ok(url);
+  assert.ok(new URL(url).searchParams.get("nonce"), "a nonce is sent");
+  const done = await completeRedirect(discovered.harness, url);
+  assert.equal((done as { lifecycle: string }).lifecycle, "active");
+  assert.ok(server.counts.jwks >= 1, "the signature was checked");
+  assert.ok(JSON.stringify(done).includes("ada"));
+
+  // No issuer named anywhere: the same entry refuses openid, as before.
+  const unnamed = await connectWith({});
+  await assert.rejects(unnamed.view, refused("catalog.scope.openid"));
+});
+
 test("a key set on an origin host policy has not admitted is refused at review", async (t) => {
   // The review hands the entry's OAuth origins, key set included, to host
   // issuer policy; an undeclared, unlisted origin never becomes a binding.
