@@ -20,6 +20,7 @@
 - [Architecture](architecture.md): current ownership and trust boundaries; [product scope](../PRODUCT.md) and [reference design](../DESIGN.md).
 - [Testing](testing.md) and [contract testing](contract-testing.md): reproducible checks and honest coverage boundaries.
 - [Auth scenario doubles](auth-scenario-doubles.md): self-hosted provider pages for each auth situation, and the ceremony contracts driven against them.
+- [Demo videos](demos.md): webreel recordings of the real driver against those doubles, led by account registration, plus a stitched run from "no account" to verified API access. They show what is real and what is a double, and how to regenerate them.
 - [Browser login and retained sessions](browser-login-sessions.md): logging into a selected browser, proving which account arrived there, and what releasing it does and does not do — including which backends are proven and which are not.
 - [Ceremony discovery](ceremony-discovery.md): reading a provider to work out what getting in requires, without submitting anything, and writing it down as a shareable plan.
 - [Recorded ceremonies](recorded-ceremonies.md): recording a real browser login on a service the code has never seen as a value-free artifact, publishing it through human review, and replaying it with no model — stopping by name when the provider drifts.

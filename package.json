@@ -95,6 +95,7 @@
     "test:scenarios": "node --import tsx --test tests/contracts/auth-scenarios.test.ts tests/browser-driver.test.ts",
     "test:flows": "node --import tsx --test tests/flows/*.flow.ts",
     "flows:gallery": "node scripts/flow-gallery.mjs",
+    "demos:record": "node --import tsx scripts/demos/record.ts",
     "build:gallery": "node --import tsx scripts/build-gallery.mjs",
     "test:snapshots": "node --import tsx --test tests/characterization.test.ts",
     "test:snapshots:update": "node --import tsx --test --test-update-snapshots tests/characterization.test.ts",
@@ -141,6 +142,7 @@
     "@types/pg": "8.23.1",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
+    "@webreel/core": "0.1.4",
     "@workflow/vitest": "4.0.23",
     "agent-browser": "^0.37.1",
     "c8": "12.0.0",
@@ -156,6 +158,7 @@
     "typescript": "^5.9.0",
     "vite": "^7.1.0",
     "vitest": "5.0.0",
+    "webreel": "0.1.4",
     "workflow": "4.8.7"
   },
   "peerDependencies": {
