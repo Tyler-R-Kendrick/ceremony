@@ -3,7 +3,7 @@ import { z } from "zod";
 import { boundedJson } from "./authorization.js";
 import { AuthorizationError } from "./identity.js";
 import type { AsyncCeremonyStore, StoredRecord } from "./persistence/index.js";
-import type { RunRecord } from "./commands.js";
+import { pendingProviderStep, type RunRecord } from "./commands.js";
 import type { OperationContext } from "./recipes/registry.js";
 import type { AsyncJiraChildren } from "./recipes/jira.js";
 import type { JiraSetupAssignments } from "./jira-setup.js";
@@ -40,7 +40,9 @@ export async function jiraHuman(
 ): Promise<Response> {
   if (
     context.actor.actorKind !== "human" ||
-    record.value.provider !== "jira" ||
+    // The Jira step's own context: the run's, or the Jira connector's when the
+    // step runs inside another provider's run.
+    context.provider !== "jira" ||
     record.value.id !== context.runId ||
     record.value.subjectId !== context.actor.subjectId ||
     record.value.sessionId !== context.actor.sessionId ||
@@ -52,17 +54,10 @@ export async function jiraHuman(
     "referrer-policy": "no-referrer",
     "x-content-type-options": "nosniff",
   };
-  const pending = await store.transaction(async (tx) => {
-    for (const node of record.value.nodes) {
-      const state = await tx.get<{ verified: boolean; state: string }>({
-        tenant: context.actor.tenantId,
-        kind: "node",
-        id: `${context.runId}:${node.id}`,
-      });
-      if (!state?.value.verified) return { node, state: state?.value.state };
-    }
-    return undefined;
-  });
+  const step = await store.transaction((tx) =>
+    pendingProviderStep(tx, context, record.value, "jira-3lo"),
+  );
+  const pending = step && { node: step.node, state: step.state?.state };
   if (
     !pending ||
     !["awaiting-human", "uncertain"].includes(pending.state ?? "")

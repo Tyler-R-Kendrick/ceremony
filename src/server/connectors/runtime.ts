@@ -27,6 +27,7 @@ import {
   type AgentIntent,
 } from "./agents/intents.js";
 import { createApprovedFetch, type NetworkPolicy } from "./import/network.js";
+import type { SupportLabelOptions } from "./support.js";
 
 /*
  * One composition root for connector interoperability.
@@ -96,6 +97,13 @@ export interface ConnectorRuntimeOptions {
   /** Exact HTTPS origins the default policy admits for a reviewed OAuth issuer policy, beyond those a description declares. */
   issuers?: readonly string[];
   callTimeoutMs?: number;
+  /**
+   * Evidence-derived support labels. `evidence` adds the host's own dated
+   * entries (validated at startup: a malformed or future-dated entry stops
+   * the runtime from being built); `minimumForProduction` is the opt-in gate
+   * for bindings that reach beyond loopback fixtures. Both default off.
+   */
+  support?: SupportLabelOptions;
 }
 
 export interface ConnectorRuntime {
@@ -163,6 +171,7 @@ export function createConnectorRuntime(
     ...(options.callTimeoutMs === undefined
       ? {}
       : { callTimeoutMs: options.callTimeoutMs }),
+    ...(options.support ? { support: options.support } : {}),
   });
 
   const http = createConnectorHttp(service, {

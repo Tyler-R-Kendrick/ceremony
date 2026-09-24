@@ -30,7 +30,7 @@ const patterns = {
     /display name|your name|full name|application name|token name|key name/i,
   birthDate: /birth|birthday/i,
   verification: /confirmation code|verification code|digit code|\bcode\b/i,
-  totp: /authenticator|two-factor|one-time|2fa/i,
+  totp: /authenticat|two-factor|one-time|2fa/i,
   userCode: /device code|pairing code|code shown/i,
   terms: /agree|accept|terms|privacy|old enough|consent/i,
   signUpAction:
@@ -41,6 +41,8 @@ const patterns = {
   submitAction:
     /continue|next|submit|confirm|verify|send|generate|create|issue|install/i,
   resendAction: /resend|send a new|email me again/i,
+  /** A page that says a message is on its way and has nothing to fill. */
+  awaitingMail: /check your (e-?mail|inbox)|we sent/i,
   retryAction: /try again|retry|go back|back to sign/i,
   completed:
     /you are signed in|signed in as|device is now approved|account is ready/i,
@@ -94,12 +96,15 @@ function findButton(
   snapshot: PageSnapshot,
   pattern: RegExp,
   kinds: SnapshotElement["kind"][] = ["button"],
+  /** Captions that never count as this action, whatever else they say. */
+  except?: RegExp,
 ): SnapshotElement | undefined {
   return snapshot.elements.find(
     (element) =>
       kinds.includes(element.kind) &&
       pattern.test(describe(element)) &&
-      !patterns.denyAction.test(describe(element)),
+      !patterns.denyAction.test(describe(element)) &&
+      !except?.test(describe(element)),
   );
 }
 
@@ -123,7 +128,7 @@ export type ScriptedInterpreterOptions = {
 export function createScriptedInterpreter(
   options: ScriptedInterpreterOptions = {},
 ): CeremonyInterpreter {
-  return async ({ goal, snapshot, available, history }) => {
+  return async ({ goal, snapshot, available, history, choices = {} }) => {
     const alerts = snapshot.alerts.join(" ");
     const headings = snapshot.headings.join(" ");
     const has = (role: CeremonyRole) => available.includes(role);
@@ -202,7 +207,24 @@ export function createScriptedInterpreter(
       if (!role) continue;
       if (role === "username" && !has("username") && has("email"))
         return act({ action: "fill", element: element.index, role: "email" });
+      // "Email or username" takes either, so a caller holding only the
+      // username still fills it rather than leaving the identifier empty.
+      if (
+        role === "email" &&
+        !has("email") &&
+        has("username") &&
+        patterns.identifier.test(describe(element))
+      )
+        return act({
+          action: "fill",
+          element: element.index,
+          role: "username",
+        });
       if (!has(role)) {
+        // The code a device shows is on the device, not in this caller's
+        // hands; only a person holding it can enter it.
+        if (role === "user-code" && element.filled !== true)
+          return act({ action: "blocked", reason: "device-code-required" });
         // A confirmation field with no code on offer means the confirmation
         // arrives out of band; waiting is the only honest move.
         if (role === "verification-code" && element.filled !== true)
@@ -214,6 +236,19 @@ export function createScriptedInterpreter(
     }
     if (awaited && count(history, "wait") < 4)
       return act({ action: "wait", note: "awaiting confirmation" });
+
+    // A choice the plan made is made by the label the page shows; a required
+    // one it did not make is a person's, never the first option's.
+    const selects = snapshot.elements.filter(
+      (element) => element.kind === "select" && element.filled !== true,
+    );
+    for (const element of selects) {
+      const option = element.label ? choices[element.label] : undefined;
+      if (option !== undefined && element.options?.includes(option))
+        return act({ action: "select", element: element.index, option });
+    }
+    if (selects.some((element) => element.required))
+      return act({ action: "blocked", reason: "choice-required" });
 
     const checkbox = snapshot.elements.find(
       (element) =>
@@ -254,11 +289,24 @@ export function createScriptedInterpreter(
                 patterns.submitAction,
                 patterns.approveAction,
               ];
+    // "Resend code" says "send", but asking for another message is not a
+    // step forward.
     const submit = order.reduce<SnapshotElement | undefined>(
-      (found, pattern) => found ?? findButton(snapshot, pattern),
+      (found, pattern) =>
+        found ??
+        findButton(snapshot, pattern, ["button"], patterns.resendAction),
       undefined,
     );
     if (submit) return act({ action: "click", element: submit.index });
+
+    // A page that only says a message is on its way: the confirmation arrives
+    // out of band, so waiting is the honest move.
+    if (
+      patterns.awaitingMail.test(headings) &&
+      fields.length === 0 &&
+      count(history, "wait") < 4
+    )
+      return act({ action: "wait", note: "awaiting confirmation" });
 
     if (patterns.unverified.test(alerts)) {
       const resend = findButton(snapshot, patterns.resendAction);

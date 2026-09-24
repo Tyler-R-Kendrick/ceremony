@@ -18,6 +18,7 @@ import {
   recordingReferenceSchema,
 } from "../core/recorded-ceremony.js";
 import { identifierSchema } from "../core/operation-contracts.js";
+import type { IssuedSinkKind } from "../core/browser-contracts.js";
 import { AuthorizationError, requireCapability } from "./identity.js";
 import type { ActorContext } from "./identity.js";
 import { LeaseConflict, SessionLost } from "./browser-sessions.js";
@@ -238,6 +239,11 @@ export type BrowserLoginToolDeps = {
    * refused as a plan rather than as a login.
    */
   modelAvailable?: boolean;
+  /**
+   * The issued-value sinks the service was given, by kind, so a plan naming
+   * one the host never registered is refused as a plan.
+   */
+  issuedSinks?: ReadonlySet<IssuedSinkKind>;
 };
 
 /**
@@ -340,6 +346,7 @@ export function createBrowserLoginTools(deps: BrowserLoginToolDeps) {
         // undefined is what makes `requireVerification: false` a rejection.
         ...(deps.allowUnverified === true ? { allowUnverified: true } : {}),
         ...(deps.modelAvailable === true ? { modelAvailable: true } : {}),
+        ...(deps.issuedSinks ? { issuedSinks: deps.issuedSinks } : {}),
         revision: deps.revision?.() ?? 1,
       },
     );
@@ -363,6 +370,21 @@ export function createBrowserLoginTools(deps: BrowserLoginToolDeps) {
     for (const origin of published.recording.origins)
       if (!plan.navigationOrigins.includes(origin))
         throw new PlanRejected("recording-origin-not-declared", origin);
+    // What a replay keeps is what its reviewer approved it keeping - no more,
+    // no less, and into the same kind of sink. Compared field by field in a
+    // fixed order, so two declarations listing the same fields differently
+    // are the same declaration.
+    const keeps = (declaration: typeof plan.issued) =>
+      declaration
+        ? JSON.stringify([
+            declaration.sink,
+            [...declaration.fields]
+              .map((field) => [field.kind, field.label])
+              .sort(),
+          ])
+        : "";
+    if (keeps(plan.issued) !== keeps(published.recording.issued))
+      throw new PlanRejected("recording-issued-mismatch");
     return published;
   }
 

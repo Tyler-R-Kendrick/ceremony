@@ -247,6 +247,13 @@ export const browserOperationReasons = [
    * the remedy is a new recording or a repair, not a retry.
    */
   "recording-drift",
+  /**
+   * The plan keeps values a provider page issues, and the login ended
+   * without every one of them read from one page and handed to the host's
+   * sink. Whatever else the login established, the thing it was for is not
+   * in hand, so it is not reported as though it were.
+   */
+  "issued-value-missing",
   /** The provider reported an error the ceremony cannot act on. */
   "provider-error",
 ] as const;
@@ -442,6 +449,10 @@ export const loginResultSchema = z.discriminatedUnion("status", [
       "native-dialog",
       "push-approval",
       "account-selection",
+      /** A device verification page wants the code shown on a device. */
+      "device-code",
+      /** A required choice the plan did not make. */
+      "choice",
     ]),
   }),
   z.strictObject({

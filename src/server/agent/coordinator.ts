@@ -66,7 +66,7 @@ export type AgentCommandPort = Pick<
 >;
 type RunView = Awaited<ReturnType<AgentCommandPort["snapshot"]>>;
 export interface AgentCoordinatorOptions {
-  /** Mount point of the teaching routes; the human route is `<prefix>/<provider>/<run>/human`. */
+  /** Mount point of the teaching routes; the human route is `<prefix>/<provider>/<run>/human`, for the waiting step's provider. */
   humanRoutePrefix?: string;
 }
 const empty = (): Budget => ({ calls: 0, tools: 0, stopped: false, turns: {} });
@@ -104,6 +104,11 @@ function project(run: RunView) {
       operationVersion: node.operationVersion,
       state: node.state,
       verified: node.verified,
+      // A step under another connector names whose context it runs in, and
+      // so whose page a person uses for it.
+      ...(node.provider !== undefined && node.profile !== undefined
+        ? { provider: node.provider, profile: node.profile }
+        : {}),
     })),
   };
   for (const value of [
@@ -114,6 +119,7 @@ function project(run: RunView) {
       node.id,
       node.operationId,
       node.operationVersion,
+      ...(node.provider !== undefined ? [node.provider, node.profile!] : []),
     ]),
   ])
     validateAgentText(value);
@@ -173,10 +179,26 @@ export class AgentCoordinator {
                 : "no-progress",
       ...(node.state === "awaiting-human"
         ? {
-            path: `${this.humanRoutePrefix}/${encodeURIComponent(run.provider)}/${encodeURIComponent(run.id)}/human`,
+            // The waiting step's own provider: a step planned under another
+            // connector waits on that provider's page, not the run's.
+            path: `${this.humanRoutePrefix}/${encodeURIComponent(node.provider ?? run.provider)}/${encodeURIComponent(run.id)}/human`,
           }
         : {}),
     };
+  }
+  /**
+   * The handoff for a run that is waiting on a person right now, in the same
+   * projection a turn records. Transports that return a run to an assistant
+   * (the MCP run tools) attach it, so the assistant can say where the person
+   * continues rather than only that the run is waiting. Undefined when no
+   * node waits, or when the run carries an identifier model context refuses.
+   */
+  pendingHandoff(run: RunView): AgentHandoff | undefined {
+    try {
+      return this.handoffFor(project(run));
+    } catch {
+      return undefined;
+    }
   }
   async status(actor: ActorContext, runId: string, turnId?: string) {
     const run = await this.commands.snapshot(actor, runId);

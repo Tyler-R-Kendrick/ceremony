@@ -4,6 +4,18 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { format } from "prettier";
 import { z } from "zod";
 import { requiredWorkItems } from "./connector-evidence.js";
+import {
+  computeSupportLabel,
+  evidenceLevelSchema,
+  legacyCheckTarget,
+  liveEvidenceLevels,
+  supportEvidenceProblems,
+  supportEvidenceSchema,
+  supportLabelRules,
+  supportLabels,
+  type SupportEvidence,
+  type SupportLabelResult,
+} from "../src/core/connectors/index.js";
 
 /*
  * Generates the public connector support matrix, the human-readable source
@@ -33,6 +45,10 @@ const evidenceDirectory = join(
 const ledgerDirectory = join(evidenceDirectory, "ledger");
 const sourceLockPath = join(evidenceDirectory, "source-lock.json");
 const reportPath = join(evidenceDirectory, "report.json");
+const recordedEvidencePath = join(
+  root,
+  "src/server/connectors/recorded-evidence.ts",
+);
 
 /** The twelve reported dimensions, in the order `supportDimensions` declares them. */
 export const dimensions = [
@@ -109,9 +125,34 @@ const ledgerItemSchema = z.object({
 });
 const ledgerSchema = z.object({
   swarm: z.string(),
+  /**
+   * The UTC day this ledger's work items were recorded. It dates their
+   * evidence levels for the support-label staleness rule; a ledger without
+   * one still joins its requirements, but its items earn no label.
+   */
+  recordedAt: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
   workItems: z.array(ledgerItemSchema).default([]),
+  /**
+   * Dated support-evidence entries. Each is validated by
+   * `supportEvidenceSchema` in `collectSupportEvidence` rather than here, so
+   * one malformed entry is named exactly instead of discarding the whole
+   * ledger. (Not `evidence`: a swarm already uses that key for prose.)
+   */
+  supportEvidence: z.array(z.unknown()).default([]),
   unmet: z.array(z.unknown()).default([]),
-  externalEffectsPerformed: z.array(z.string()).default([]),
+  /*
+   * A sentence or a structured record, as in scripts/connector-evidence.ts.
+   * This schema used to accept strings only, so the two ledgers that recorded
+   * their effects structurally (AUTOMATION and BINDINGS) failed the shape,
+   * were dropped whole, and every adapter they delivered read `not-recorded`
+   * in the matrix.
+   */
+  externalEffectsPerformed: z
+    .array(z.union([z.string(), z.record(z.string(), z.unknown())]))
+    .default([]),
   securityFindings: z.array(z.unknown()).default([]),
 });
 export type Ledger = z.infer<typeof ledgerSchema>;
@@ -122,19 +163,29 @@ export function loadSourceLock(): SourceLock {
   );
 }
 
-export function loadLedgers(): { ledgers: Ledger[]; problems: string[] } {
+export function loadLedgers(directory = ledgerDirectory): {
+  ledgers: Ledger[];
+  problems: string[];
+} {
   const ledgers: Ledger[] = [];
   const problems: string[] = [];
-  if (!existsSync(ledgerDirectory)) return { ledgers, problems };
-  for (const name of readdirSync(ledgerDirectory).sort()) {
+  if (!existsSync(directory)) return { ledgers, problems };
+  for (const name of readdirSync(directory).sort()) {
     if (!name.endsWith(".json")) continue;
     try {
       const raw: unknown = JSON.parse(
-        readFileSync(join(ledgerDirectory, name), "utf8"),
+        readFileSync(join(directory, name), "utf8"),
       );
       const parsed = ledgerSchema.safeParse(raw);
       if (!parsed.success) {
-        problems.push(`ledger/${name}: does not match the ledger shape`);
+        // Name the first issues. "Does not match" alone let two ledgers fail
+        // on one field unnoticed while their adapters read `not-recorded`.
+        problems.push(
+          `ledger/${name}: does not match the ledger shape (${parsed.error.issues
+            .slice(0, 3)
+            .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+            .join("; ")})`,
+        );
         continue;
       }
       // A ledger with no `workItems` array cannot be joined to the charter's
@@ -174,6 +225,8 @@ export type AdapterFacts = {
   service: string;
   displayName: string;
   support: string;
+  /** "definition" for a generic adapter whose evidence speaks for one definition at a time. */
+  evidenceScope: string;
   custody: string[];
   profiles: string[];
   configuration: Array<{
@@ -323,6 +376,7 @@ export async function readAdapters(): Promise<{
         service: String(shaped["service"] ?? ""),
         displayName: String(shaped["displayName"] ?? ""),
         support: String(shaped["support"] ?? ""),
+        evidenceScope: String(shaped["evidenceScope"] ?? "adapter"),
         custody: Array.isArray(shaped["custody"])
           ? (shaped["custody"] as string[]).map(String)
           : [],
@@ -444,13 +498,225 @@ function evidenceFor(
   };
 }
 
+export type SupportEvidenceCollection = {
+  /** Every admissible entry, explicit and derived, sorted. */
+  entries: SupportEvidence[];
+  /** The ledger each entry came from, keyed like `entryKey`. */
+  sources: Map<string, string>;
+  /** Entries refused: malformed, future-dated, unknown adapter or missing check file. Any one fails generation. */
+  refused: string[];
+  /** Ledgers whose work items earn no label, and why. Reported, not fatal. */
+  notes: string[];
+  /** The newest day any entry was recorded: the day the published labels are evaluated as of. */
+  asOf?: string;
+};
+
+const entryKey = (entry: SupportEvidence) =>
+  `${entry.adapterId}\u0000${entry.check}\u0000${entry.target}\u0000${entry.recordedAt}`;
+
+/**
+ * Turns the ledgers into support-evidence entries.
+ *
+ * Explicit entries (a ledger's `supportEvidence` array) are validated by the core
+ * schema and refused, by name, when malformed, dated after `today`, naming an
+ * adapter this generator cannot construct, or citing a repository path that
+ * does not exist: a label may only rest on a check a reader can open.
+ *
+ * Work items recorded before entries existed are still evidence, dated by
+ * their ledger's `recordedAt`. Each becomes one entry per adapter it joins
+ * (by module directory, exactly as the evidence column joins them), with
+ * check `ledger:<SWARM>/<ID>` and the weakest target its level could mean
+ * (`legacyCheckTarget`), which is never above an in-process fixture. A
+ * legacy live level is refused: a live claim needs an explicit entry that
+ * names its check, its day and, if attended, who attended it. A ledger with
+ * no `recordedAt` earns nothing, and says so.
+ *
+ * The published labels are then evaluated as of the newest recorded day,
+ * not the wall clock, so `--check` cannot drift on a calendar tick; the
+ * runtime evaluates the same entries against its own clock.
+ */
+export function collectSupportEvidence(
+  ledgers: Ledger[],
+  adapters: AdapterFacts[],
+  options: { today: number; exists?: (path: string) => boolean },
+): SupportEvidenceCollection {
+  const exists =
+    options.exists ?? ((path: string) => existsSync(join(root, path)));
+  const known = new Set(adapters.map((adapter) => adapter.id));
+  const byDirectory = new Map<string, string[]>();
+  for (const adapter of adapters) {
+    const directory = adapter.module.split("/").slice(0, -1).join("/");
+    byDirectory.set(directory, [
+      ...(byDirectory.get(directory) ?? []),
+      adapter.id,
+    ]);
+  }
+  const entries = new Map<string, SupportEvidence>();
+  const sources = new Map<string, string>();
+  const refused: string[] = [];
+  const notes: string[] = [];
+  const admit = (entry: SupportEvidence, swarm: string) => {
+    entries.set(entryKey(entry), entry);
+    sources.set(entryKey(entry), swarm);
+  };
+  for (const ledger of ledgers) {
+    const problems = supportEvidenceProblems(ledger.supportEvidence, {
+      asOf: options.today,
+    });
+    for (const problem of problems)
+      refused.push(`ledger ${ledger.swarm}: ${problem}`);
+    ledger.supportEvidence.forEach((raw, index) => {
+      const parsed = supportEvidenceSchema.safeParse(raw);
+      if (!parsed.success) return;
+      if (problems.some((problem) => problem.startsWith(`evidence[${index}]`)))
+        return;
+      const entry = parsed.data;
+      if (!known.has(entry.adapterId)) {
+        refused.push(
+          `ledger ${ledger.swarm}: evidence[${index}]: no constructible adapter is named ${entry.adapterId}`,
+        );
+        return;
+      }
+      if (!entry.check.includes(":") && !exists(entry.check)) {
+        refused.push(
+          `ledger ${ledger.swarm}: evidence[${index}]: ${entry.check} does not exist`,
+        );
+        return;
+      }
+      admit(entry, ledger.swarm);
+    });
+
+    if (!ledger.recordedAt) {
+      if (ledger.workItems.length > 0)
+        notes.push(
+          `ledger ${ledger.swarm} has no \`recordedAt\`, so its work items earn no support label`,
+        );
+      continue;
+    }
+    for (const item of ledger.workItems) {
+      const level = evidenceLevelSchema.safeParse(item.evidenceLevel);
+      if (
+        level.success &&
+        (liveEvidenceLevels as readonly string[]).includes(level.data)
+      ) {
+        refused.push(
+          `ledger ${ledger.swarm}: ${item.id}: legacy level ${level.data} is refused; a live level needs an explicit, dated, attributed entry`,
+        );
+        continue;
+      }
+      const target = level.success ? legacyCheckTarget(level.data) : undefined;
+      if (!target) continue;
+      const joined = new Set<string>();
+      for (const file of item.files)
+        for (const adapterId of byDirectory.get(
+          file.split("/").slice(0, -1).join("/"),
+        ) ?? [])
+          joined.add(adapterId);
+      for (const adapterId of [...joined].sort()) {
+        const candidate = {
+          adapterId,
+          check: `ledger:${ledger.swarm}/${item.id}`,
+          target,
+          recordedAt: ledger.recordedAt,
+        };
+        const problems = supportEvidenceProblems([candidate], {
+          asOf: options.today,
+        });
+        if (problems.length > 0) {
+          refused.push(
+            `ledger ${ledger.swarm}: ${item.id}: ${problems.join("; ")}`,
+          );
+          continue;
+        }
+        admit(supportEvidenceSchema.parse(candidate), ledger.swarm);
+      }
+    }
+  }
+  const sorted = [...entries.values()].sort((a, b) =>
+    entryKey(a).localeCompare(entryKey(b)),
+  );
+  const asOf = sorted.reduce<string | undefined>(
+    (latest, entry) =>
+      !latest || entry.recordedAt > latest ? entry.recordedAt : latest,
+    undefined,
+  );
+  return {
+    entries: sorted,
+    sources,
+    refused,
+    notes,
+    ...(asOf ? { asOf } : {}),
+  };
+}
+
+/** The published label for one adapter, evaluated as of the collection's day. */
+export function labelFor(
+  adapter: AdapterFacts,
+  collection: SupportEvidenceCollection,
+): SupportLabelResult {
+  const configured = adapter.configuration.every((item) => !item.required);
+  return computeSupportLabel(adapter.id, collection.entries, {
+    asOf: collection.asOf ? Date.parse(`${collection.asOf}T00:00:00.000Z`) : 0,
+    configured,
+    // Adapter-wide: the row describes the code path, never one definition.
+    definitionScoped: adapter.evidenceScope === "definition",
+  });
+}
+
+function labelBasis(result: SupportLabelResult): string {
+  if (!result.basis) return "no fresh entry";
+  const check = result.basis.check.includes(":")
+    ? result.basis.check
+    : `\`${result.basis.check}\``;
+  return `${check} (${result.basis.target}, ${result.basis.recordedAt})`;
+}
+
+/**
+ * The runtime copy of the collected entries. It is generated rather than
+ * read from docs/ at run time because a packaged deployment has no docs/,
+ * and generated rather than hand-kept so it cannot disagree with the ledgers:
+ * `--check` compares it like any other output.
+ */
+export function renderRecordedEvidence(
+  collection: SupportEvidenceCollection,
+): string {
+  return [
+    "/*",
+    " * Generated by scripts/connector-support-matrix.ts from the dated evidence in",
+    " * docs/implementation-evidence/connector-interoperability/ledger. Do not edit:",
+    " * add a dated entry to a ledger and regenerate. `npm run docs:connectors:check`",
+    " * fails when this file drifts from the ledgers. None of these entries is live;",
+    " * a deployment adds its own live or attended entries through",
+    " * `ConnectorRuntimeOptions.support.evidence`.",
+    " */",
+    'import type { SupportEvidence } from "../../core/connectors/index.js";',
+    "",
+    "/** The newest day any entry below was recorded. */",
+    `export const recordedEvidenceAsOf = ${JSON.stringify(collection.asOf ?? "")};`,
+    "",
+    `export const recordedSupportEvidence: readonly SupportEvidence[] = ${JSON.stringify(collection.entries)};`,
+    "",
+  ].join("\n");
+}
+
 export function renderSupportMatrix(input: {
   adapters: AdapterFacts[];
   adapterProblems: AdapterProblem[];
   ledgers: Ledger[];
   lock: SourceLock;
+  evidence: SupportEvidenceCollection;
 }): string {
   const index = indexLedgers(input.ledgers);
+  const labels = new Map(
+    input.adapters.map((adapter) => [
+      adapter.id,
+      labelFor(adapter, input.evidence),
+    ]),
+  );
+  const label = (adapter: AdapterFacts) => labels.get(adapter.id)!;
+  const expired = input.adapters.flatMap((adapter) =>
+    label(adapter).expired.map((entry) => ({ adapter, entry })),
+  );
   const columns: Array<{ heading: string; dimension?: Dimension }> = [
     { heading: "Import", dimension: "import" },
     { heading: "Configure", dimension: "configure" },
@@ -473,14 +739,49 @@ export function renderSupportMatrix(input: {
     "",
     `Generated from ${input.adapters.length} constructible adapter${input.adapters.length === 1 ? "" : "s"} and ${input.ledgers.length} ledger${input.ledgers.length === 1 ? "" : "s"}.`,
     "",
+    "## Support labels",
+    "",
+    `A support label is computed from dated evidence entries, never from the adapter family (\`computeSupportLabel\` in \`src/core/connectors/support-labels.ts\`). The label is the strongest one any fresh, admissible entry earns. An entry older than its window has expired and earns nothing. Live and certified entries count only where the configuration they were measured with is present. The labels below are evaluated as of ${input.evidence.asOf ?? "no recorded day"}, the newest day any entry was recorded; a running deployment evaluates the same entries against its own clock, so they can only lapse there, never strengthen.`,
+    "",
+    "| Label | Earned by at least one entry against | Fresh for | Needs configuration |",
+    "| --- | --- | --- | --- |",
+    "| `unverified` | nothing: no fresh entry | — | — |",
+    ...supportLabels.flatMap((name) =>
+      name === "unverified"
+        ? []
+        : [
+            `| \`${name}\` | \`${supportLabelRules[name].target}\` or stronger | ${supportLabelRules[name].freshForDays} days | ${supportLabelRules[name].needsConfiguration ? "yes" : "no"} |`,
+          ],
+    ),
+    "",
+    "Work items recorded before entries were dated carry only an evidence level, which names no check and no target. Each counts at most as an in-process fixture, dated by its ledger's `recordedAt`, and a legacy live level is refused. Raising an adapter above `fixture` therefore takes an explicit entry naming its target and the test that ran. No entry anywhere is live, so no label here is `live` or `certified`.",
+    "",
+    "A generic adapter (`evidenceScope: definition`: the OpenAPI and provider-catalog adapters) runs whatever description a person imported, so its row describes the code path only: it counts entries that name no definition and never reads `live` or `certified`. The production gate and provider-backed promotion evaluate it per definition, from entries that name that definition, so an imported description nobody exercised is `unverified` there whatever this row says.",
+    "",
+    ...(expired.length > 0
+      ? [
+          `Expired entries (${expired.length}), kept visible rather than dropped:`,
+          "",
+          ...expired.map(
+            ({ adapter, entry }) =>
+              `- \`${adapter.id}\`: ${entry.check} (${entry.target}, ${entry.recordedAt})`,
+          ),
+          "",
+        ]
+      : ["No recorded entry has expired.", ""]),
+    ...(input.evidence.notes.length > 0
+      ? [...input.evidence.notes.map((note) => `- ${note}`), ""]
+      : []),
     "## Support by dimension",
     "",
-    `| Adapter | Service | Runtime | Support | Custody | ${columns.map((column) => column.heading).join(" | ")} |`,
-    `| --- | --- | --- | --- | --- | ${columns.map(() => "---").join(" | ")} |`,
+    "`Support` is what the adapter declares about how it runs; `Label` is what the recorded evidence earns.",
+    "",
+    `| Adapter | Service | Runtime | Support | Label | Custody | ${columns.map((column) => column.heading).join(" | ")} |`,
+    `| --- | --- | --- | --- | --- | --- | ${columns.map(() => "---").join(" | ")} |`,
   ];
   for (const adapter of input.adapters)
     lines.push(
-      `| \`${adapter.id}\` | ${adapter.service} | ${adapter.runtime} | ${adapter.support} | ${adapter.custody.join(", ")} | ${columns
+      `| \`${adapter.id}\` | ${adapter.service} | ${adapter.runtime} | ${adapter.support} | ${label(adapter).label}${adapter.evidenceScope === "definition" ? " (code path)" : ""} | ${adapter.custody.join(", ")} | ${columns
         .map((column) => cell(adapter.rows[column.dimension as string]))
         .join(" | ")} |`,
     );
@@ -501,15 +802,21 @@ export function renderSupportMatrix(input: {
     "",
     "## Required configuration and recorded evidence",
     "",
-    "A `provider-backed` adapter missing required configuration is shown in the directory as `unconfigured`: implemented, not usable here. The evidence column is the strongest level any ledger recorded for the adapter's own module directory.",
+    "A `provider-backed` adapter missing required configuration is shown in the directory as `unconfigured`: implemented, not usable here. The evidence column is the strongest level any ledger recorded for the adapter's own module directory. The label basis is the entry that earned the label.",
     "",
-    "| Adapter | Adapter version | Required configuration | Evidence | Recorded by | Protocol profiles |",
-    "| --- | --- | --- | --- | --- | --- |",
+    "| Adapter | Adapter version | Required configuration | Evidence | Label basis | Recorded by | Protocol profiles |",
+    "| --- | --- | --- | --- | --- | --- | --- |",
   );
   for (const adapter of input.adapters) {
     const evidence = evidenceFor(adapter, index);
+    const swarms = new Set(evidence.swarms);
+    for (const entry of input.evidence.entries)
+      if (entry.adapterId === adapter.id) {
+        const swarm = input.evidence.sources.get(entryKey(entry));
+        if (swarm) swarms.add(swarm);
+      }
     lines.push(
-      `| \`${adapter.id}\` | ${adapter.adapterVersion || "unversioned"} | ${requiredConfiguration(adapter)} | ${evidence.level} | ${evidence.swarms.join(", ") || "no ledger entry"} | ${adapter.profiles.map((profile) => `\`${profile}\``).join(", ") || "none declared"} |`,
+      `| \`${adapter.id}\` | ${adapter.adapterVersion || "unversioned"} | ${requiredConfiguration(adapter)} | ${evidence.level} | ${labelBasis(label(adapter))} | ${[...swarms].sort().join(", ") || "no ledger entry"} | ${adapter.profiles.map((profile) => `\`${profile}\``).join(", ") || "none declared"} |`,
     );
   }
   lines.push("", "## Native limitations, as each adapter reports them", "");
@@ -802,7 +1109,8 @@ export function renderEvidenceReport(input: {
   );
   const effects = input.ledgers.flatMap((ledger) =>
     ledger.externalEffectsPerformed.map(
-      (effect) => `${ledger.swarm}: ${effect}`,
+      (effect) =>
+        `${ledger.swarm}: ${typeof effect === "string" ? effect : JSON.stringify(effect)}`,
     ),
   );
   const recordedTests = joined.flatMap((item) =>
@@ -1051,6 +1359,16 @@ export async function generate(): Promise<Generated[]> {
   const lock = loadSourceLock();
   const { ledgers, problems: ledgerProblems } = loadLedgers();
   const { adapters, problems: adapterProblems } = await readAdapters();
+  const evidence = collectSupportEvidence(ledgers, adapters, {
+    today: Date.now(),
+  });
+  // A refused entry is not reported and published around: a label must not
+  // be computed while any evidence behind the ledgers is malformed or dated
+  // in the future, so both generation and `--check` stop here.
+  if (evidence.refused.length > 0)
+    throw new Error(
+      `support evidence refused:\n${evidence.refused.map((line) => `  - ${line}`).join("\n")}`,
+    );
   const matrixPath = join(
     root,
     "docs/specifications/connector-support-matrix.md",
@@ -1061,9 +1379,22 @@ export async function generate(): Promise<Generated[]> {
     {
       path: matrixPath,
       content: await markdown(
-        renderSupportMatrix({ adapters, adapterProblems, ledgers, lock }),
+        renderSupportMatrix({
+          adapters,
+          adapterProblems,
+          ledgers,
+          lock,
+          evidence,
+        }),
         matrixPath,
       ),
+    },
+    {
+      path: recordedEvidencePath,
+      content: await format(renderRecordedEvidence(evidence), {
+        parser: "typescript",
+        filepath: recordedEvidencePath,
+      }),
     },
     {
       path: lockPath,

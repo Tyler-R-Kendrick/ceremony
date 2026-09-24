@@ -8,6 +8,12 @@ import { createHash, randomBytes, randomInt } from "node:crypto";
 import { SignJWT, jwtVerify } from "jose";
 import type { AddressInfo } from "node:net";
 import { createMarkup, type Markup } from "./markup.js";
+import {
+  developerSettingsPages,
+  oauthAppsPath,
+  type NewOAuthAppValues,
+} from "./developer-settings.js";
+import type { AuthLayout } from "./layouts.js";
 import { totpCode } from "../../../src/server/totp.js";
 import {
   verifyRequestSignature,
@@ -25,7 +31,9 @@ import {
  *
  * Because every page is regenerated per instance from a seed, the double is a
  * contract fixture rather than a golden page: passing it means the driver
- * understood the page, not that it memorised this provider.
+ * understood the page, not that it memorised this provider. A realistic
+ * `layout` swaps that shape for a fixed, styled page modelled on common
+ * real-world sign-in patterns; the protocol behind it is the same.
  */
 
 export type SeedAccount = {
@@ -37,9 +45,24 @@ export type SeedAccount = {
 
 export type ProviderBehavior = {
   seed?: number;
+  /**
+   * How pages look. `randomized` (the default) regenerates field names, label
+   * wording and attachment, control order and captions per seed, to stress a
+   * driver. The realistic layouts in `layouts.ts` render the conventional,
+   * styled pages real providers ship, for demonstrations and to prove the
+   * driver reads those too. Markup only: sessions, codes and redirects are
+   * unchanged, except that `identifier-first` implies `identifierFirst`.
+   */
+  layout?: AuthLayout;
   accounts?: readonly SeedAccount[];
   /** Registration requires accepting terms before the account is created. */
   requireTerms?: boolean;
+  /**
+   * Registration asks for a country or region from a required `<select>`,
+   * whose first option is an empty "Select a country". The account is not
+   * created without one of the listed regions.
+   */
+  requireRegion?: boolean;
   /** Sign-in is followed by a one-time code page. */
   requireMfa?: boolean;
   /**
@@ -103,9 +126,41 @@ export type ProviderBehavior = {
    * agent passes straight through, an unrecognised one meets a person's work.
    */
   requireSignature?: boolean;
+  /**
+   * Only registered clients may authorize or redeem a code, as at a real
+   * provider. `/authorize` refuses an unknown `client_id` or a `redirect_uri`
+   * that is not exactly the one registered, with an error page and no
+   * redirect; `/token` requires a confidential client to authenticate with its
+   * secret (`client_secret_basic` or `client_secret_post`) and the code to
+   * have been issued to that client. Clients are registered by a person at
+   * "Developer settings → OAuth apps → New OAuth app", or through dynamic
+   * registration, whose redirect URIs are then enforced too. The double's own
+   * default client stays registered as a public client for its redirect URI.
+   *
+   * Off by default, which keeps the permissive behaviour every existing
+   * scenario was written against: any `client_id` accepted.
+   */
+  strictClients?: boolean;
   clientId?: string;
   redirectUri?: string;
 };
+
+/**
+ * The regions registration offers when `requireRegion` is on, by the label a
+ * person sees and the code the form submits. The labels are what a plan
+ * names and a snapshot lists; the codes are markup nobody is shown.
+ */
+export const regionList = [
+  { code: "CA", name: "Canada" },
+  { code: "DE", name: "Germany" },
+  { code: "JP", name: "Japan" },
+  { code: "GB", name: "United Kingdom" },
+  { code: "US", name: "United States" },
+] as const;
+const regionField = "country";
+const regionOptions = `<option value="">Select a country</option>${regionList
+  .map((entry) => `<option value="${entry.code}">${entry.name}</option>`)
+  .join("")}`;
 
 export type MailMessage = {
   to: string;
@@ -147,6 +202,12 @@ export type ProviderDouble = {
   };
   deviceUrl(userCode: string): string;
   issueDeviceCode(): string;
+  /** User codes issued so far, oldest first: what each device showed. */
+  issuedDeviceCodes(): readonly string[];
+  /** Which account approved a device's user code, if one has. */
+  deviceApprovedBy(userCode: string): string | undefined;
+  /** The region an address registered with, when registration asked. */
+  regionOf(email: string): string | undefined;
   account(email: string): Account | undefined;
   accounts(): readonly Account[];
   mailbox: {
@@ -175,6 +236,18 @@ export type ProviderDouble = {
   verifyAccess(email: string): Promise<boolean>;
   /** Access tokens the provider displayed. Never something an agent may hold. */
   issuedTokens(): readonly string[];
+  /**
+   * OAuth apps registered at developer settings, as their owner sees them in
+   * a list: no secret, and no hash of one, only how many exist.
+   */
+  oauthApps(): readonly {
+    clientId: string;
+    name: string;
+    homepageUrl: string;
+    callbackUrl: string;
+    owner: string;
+    secrets: number;
+  }[];
   /** Applications a person installed, and accounts a federation accepted. */
   installed(): readonly string[];
   federated(): readonly string[];
@@ -219,11 +292,36 @@ function cookies(request: IncomingMessage): Record<string, string> {
   );
 }
 
-async function readBody(request: IncomingMessage): Promise<URLSearchParams> {
+async function readText(request: IncomingMessage): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of request) chunks.push(chunk as Buffer);
-  return new URLSearchParams(Buffer.concat(chunks).toString("utf8"));
+  return Buffer.concat(chunks).toString("utf8");
 }
+
+async function readBody(request: IncomingMessage): Promise<URLSearchParams> {
+  return new URLSearchParams(await readText(request));
+}
+
+/**
+ * A client the provider knows. `confidential` clients were registered by a
+ * person and must authenticate with a secret they generated; the double's
+ * default and dynamically registered clients are public, bound by PKCE and
+ * their redirect URIs alone. Only a hash of each secret is kept, as a real
+ * provider keeps it, which is also why the page can show a secret only once.
+ */
+type RegisteredClient = {
+  name: string;
+  homepageUrl: string;
+  callbackUrls: string[];
+  owner: string;
+  confidential: boolean;
+  secretHashes: string[];
+  /** The settings path segment, for clients registered by a person. */
+  appId?: string;
+};
+
+const hashSecret = (secret: string) =>
+  createHash("sha256").update(secret).digest("hex");
 
 const digits = (length: number) =>
   Array.from({ length }, () => randomInt(0, 10)).join("");
@@ -231,7 +329,11 @@ const digits = (length: number) =>
 export async function startAuthProvider(
   behavior: ProviderBehavior = {},
 ): Promise<ProviderDouble> {
-  let markup = createMarkup(behavior.seed ?? 1);
+  const layout = behavior.layout ?? "randomized";
+  let markup = createMarkup(behavior.seed ?? 1, layout);
+  /** A two-step sign-in, asked for directly or implied by the layout. */
+  const identifierFirst =
+    behavior.identifierFirst ?? layout === "identifier-first";
   const clientId = behavior.clientId ?? "ceremony-test-client";
   const verification = behavior.verification ?? "code";
   const accounts = new Map<string, Account>();
@@ -257,6 +359,8 @@ export async function startAuthProvider(
     }
   >();
   const devices = new Map<string, { approved: boolean; email?: string }>();
+  /** Region chosen at registration, by address. */
+  const regions = new Map<string, string>();
   /** Identifier-first: which account a browser named before its password. */
   const identified = new Map<string, string>();
   /** Challenge tokens issued, and the browsers that have cleared one. */
@@ -272,6 +376,17 @@ export async function startAuthProvider(
   let closed = false;
   const clients = new Map<string, string>();
   const tokens = new Map<string, string>();
+  /** The OAuth client registry `strictClients` enforces. */
+  const registry = new Map<string, RegisteredClient>();
+  /** Settings path segment → client ID, for apps a person registered. */
+  const appIds = new Map<string, string>();
+  /** A secret waiting to be shown once, keyed by session and app. */
+  const reveals = new Map<string, string>();
+  /** Access tokens issued at the token endpoint, for introspection and userinfo. */
+  const accessTokens = new Map<
+    string,
+    { sub: string; clientId: string; scope: string }
+  >();
   const outbox: MailMessage[] = [];
   let faults = behavior.faultySignIns ?? 0;
 
@@ -287,6 +402,14 @@ export async function startAuthProvider(
   const { port } = server.address() as AddressInfo;
   const origin = `http://127.0.0.1:${port}`;
   const redirectUri = behavior.redirectUri ?? `${origin}/callback`;
+  registry.set(clientId, {
+    name: "Ceremony Test Client",
+    homepageUrl: origin,
+    callbackUrls: [redirectUri],
+    owner: "",
+    confidential: false,
+    secretHashes: [],
+  });
 
   const sessionOf = (request: IncomingMessage) => {
     const id = cookies(request)["sid"];
@@ -328,8 +451,8 @@ export async function startAuthProvider(
   ): Promise<void> {
     const url = new URL(request.url ?? "/", origin);
     const method = request.method ?? "GET";
-    const body =
-      method === "POST" ? await readBody(request) : new URLSearchParams();
+    const raw = method === "POST" ? await readText(request) : "";
+    const body = new URLSearchParams(raw);
     // A browser identity exists before any session does, so state such as a
     // cleared challenge can belong to the browser a person actually used.
     const existingBrowser = cookies(request)["bid"];
@@ -449,6 +572,19 @@ export async function startAuthProvider(
       const action =
         behavior.hijackSignInTo ??
         `${url.pathname}?next=${encodeURIComponent(next)}`;
+      if (markup.pages)
+        return send(
+          200,
+          markup.pages.signIn({
+            action,
+            next,
+            signupPath: markup.signupPath,
+            ...(error ? { error } : {}),
+            identifierOnly: identifierFirst,
+            conditionalPasskey: behavior.conditionalPasskey === true,
+            inert: behavior.inertSignIn === true,
+          }),
+        );
       const fields = markup.arrange("sign-in", [
         markup.field(
           markup.labels.identifier,
@@ -458,7 +594,7 @@ export async function startAuthProvider(
             ? 'required autocomplete="username webauthn"'
             : "required",
         ),
-        ...(behavior.identifierFirst
+        ...(identifierFirst
           ? []
           : [
               markup.field(
@@ -497,6 +633,17 @@ export async function startAuthProvider(
 
     const signUpPage = (next: string, error?: string) => {
       if (blocked("sign-up")) return challengePage();
+      if (markup.pages)
+        return send(
+          200,
+          markup.pages.signUp({
+            action: `${markup.signupPath}?next=${encodeURIComponent(next)}`,
+            next,
+            ...(error ? { error } : {}),
+            inUse: error === markup.messages.emailInUse,
+            ...(behavior.requireRegion ? { regions: regionList } : {}),
+          }),
+        );
       const fields = markup.arrange("sign-up", [
         markup.field(
           markup.labels.email,
@@ -534,6 +681,13 @@ export async function startAuthProvider(
               ),
             ]
           : []),
+        ...(behavior.requireRegion
+          ? [
+              // Labelled by `for`, not by wrapping: a wrapping label's text
+              // would take in every option's too.
+              `<label for="field_${regionField}">Country or region</label> <select id="field_${regionField}" name="${regionField}" required>${regionOptions}</select>`,
+            ]
+          : []),
         ...(behavior.requireTerms
           ? [markup.checkbox(markup.labels.terms, markup.names.terms)]
           : []),
@@ -553,11 +707,22 @@ export async function startAuthProvider(
     };
 
     const confirmPage = (token: string, next: string, error?: string) =>
-      send(
-        200,
-        markup.page(
-          "Confirm your account",
-          `${markup.alert(error)}
+      markup.pages
+        ? send(
+            200,
+            markup.pages.verifyEmail({
+              action: `/confirm?p=${token}&next=${encodeURIComponent(next)}`,
+              resendAction: `/resend?p=${token}`,
+              address: pending.get(token)?.email ?? "",
+              mode: verification === "link" ? "link" : "code",
+              ...(error ? { error } : {}),
+            }),
+          )
+        : send(
+            200,
+            markup.page(
+              "Confirm your account",
+              `${markup.alert(error)}
            <h1>${markup.messages.checkInbox}</h1>
            <form method="post" action="/confirm?p=${token}&next=${encodeURIComponent(next)}">
              ${markup.field(markup.labels.verification, markup.names.code, "text", 'required inputmode="numeric"')}
@@ -566,37 +731,51 @@ export async function startAuthProvider(
            <form method="post" action="/resend?p=${token}">
              <button type="submit">${markup.captions.resend}</button>
            </form>`,
-        ),
-      );
+            ),
+          );
 
     const mfaPage = (id: string, target: string, error?: string) =>
       send(
         200,
-        markup.page(
-          "Two-factor",
-          `${markup.alert(error)}
+        markup.pages
+          ? markup.pages.twoFactor({
+              action: `/mfa?next=${encodeURIComponent(target)}`,
+              ...(error ? { error } : {}),
+            })
+          : markup.page(
+              "Two-factor",
+              `${markup.alert(error)}
            <h1>Enter your ${markup.escape(markup.labels.totp)}</h1>
            <form method="post" action="/mfa?next=${encodeURIComponent(target)}">
              ${markup.field(markup.labels.totp, markup.names.code, "text", "required")}
              <button type="submit">${markup.captions.submitCode}</button>
            </form>`,
-        ),
+            ),
         { "set-cookie": `sid=${id}; Path=/; HttpOnly` },
       );
 
     const passwordPage = (next: string, error?: string) =>
-      send(
-        200,
-        markup.page(
-          "Password",
-          `${markup.alert(error)}
+      markup.pages
+        ? send(
+            200,
+            markup.pages.password({
+              next,
+              identifier: identified.get(browser()) ?? "",
+              ...(error ? { error } : {}),
+            }),
+          )
+        : send(
+            200,
+            markup.page(
+              "Password",
+              `${markup.alert(error)}
            <h1>${markup.headings.signIn}</h1>
            <form method="post" action="/signin/password?next=${encodeURIComponent(next)}">
              ${markup.field(markup.labels.password, markup.names.password, "password", "required")}
              <button type="submit">${markup.captions.signIn}</button>
            </form>`,
-        ),
-      );
+            ),
+          );
 
     /** Whether a submitted second factor is the one this account expects. */
     const codeAccepted = (account: Account, code: string) =>
@@ -616,6 +795,21 @@ export async function startAuthProvider(
       return redirect(next, { "set-cookie": cookie });
     };
 
+    /** An unconfirmed account's password was accepted: mail a code first. */
+    const confirmUnverified = (found: Account) => {
+      const token = randomBytes(12).toString("hex");
+      const code = digits(6);
+      pending.set(token, {
+        email: found.email,
+        username: found.username,
+        password: found.password,
+        code,
+        token,
+      });
+      deliver(found.email, code, token);
+      return confirmPage(token, next, markup.messages.unverified);
+    };
+
     const dashboard = (email: string) =>
       send(
         200,
@@ -625,6 +819,56 @@ export async function startAuthProvider(
            <p data-account="${markup.escape(email)}">Signed in as ${markup.escape(email)}.</p>
            <form method="post" action="/signout"><button type="submit">Sign out</button></form>`,
         ),
+      );
+
+    /**
+     * The client a token-endpoint request presents, by `client_secret_basic`
+     * or, failing that, `client_secret_post`. Basic credentials are
+     * form-urlencoded before encoding (RFC 6749 section 2.3.1), so they are
+     * decoded the same way; a malformed header presents nobody.
+     */
+    const presentedClient = ():
+      { clientId: string; secret?: string } | undefined => {
+      const header = request.headers.authorization ?? "";
+      if (/^basic\s/i.test(header)) {
+        const decoded = Buffer.from(header.slice(6).trim(), "base64").toString(
+          "utf8",
+        );
+        const at = decoded.indexOf(":");
+        if (at <= 0) return undefined;
+        try {
+          return {
+            clientId: decodeURIComponent(decoded.slice(0, at)),
+            secret: decodeURIComponent(decoded.slice(at + 1)),
+          };
+        } catch {
+          return undefined;
+        }
+      }
+      const id = body.get("client_id");
+      if (!id) return undefined;
+      const secret = body.get("client_secret");
+      return secret ? { clientId: id, secret } : { clientId: id };
+    };
+    /**
+     * Whether the presented client is one this provider knows and has proved
+     * itself: a confidential client by one of its secrets, a public client by
+     * presenting none.
+     */
+    const authenticatedClient = (presented = presentedClient()) => {
+      const client = presented ? registry.get(presented.clientId) : undefined;
+      if (!presented || !client) return undefined;
+      if (!client.confidential) return presented.secret ? undefined : presented;
+      return presented.secret &&
+        client.secretHashes.includes(hashSecret(presented.secret))
+        ? presented
+        : undefined;
+    };
+    const invalidClient = () =>
+      json(
+        401,
+        { error: "invalid_client" },
+        { "www-authenticate": 'Basic realm="token"' },
       );
 
     const next = url.searchParams.get("next") ?? "/";
@@ -643,6 +887,16 @@ export async function startAuthProvider(
         ...(behavior.dynamicRegistration
           ? { registration_endpoint: `${origin}/oauth/register` }
           : {}),
+        ...(behavior.strictClients
+          ? {
+              introspection_endpoint: `${origin}/oauth/introspect`,
+              token_endpoint_auth_methods_supported: [
+                "client_secret_basic",
+                "client_secret_post",
+                "none",
+              ],
+            }
+          : {}),
         response_types_supported: ["code"],
         grant_types_supported: ["authorization_code"],
       });
@@ -658,6 +912,13 @@ export async function startAuthProvider(
       if (method === "GET") return signInPage(next);
       if (faults > 0) {
         faults--;
+        if (markup.pages)
+          return send(
+            503,
+            markup.pages.unavailable({
+              retryHref: `${url.pathname}?next=${encodeURIComponent(next)}`,
+            }),
+          );
         return send(
           503,
           markup.page(
@@ -670,7 +931,7 @@ export async function startAuthProvider(
       }
       if (behavior.neverAccept) return signInPage(next);
       const identifier = (body.get(markup.names.identifier) ?? "").trim();
-      if (behavior.identifierFirst) {
+      if (identifierFirst) {
         const named = [...accounts.values()].find(
           (account) =>
             account.username.toLowerCase() === identifier.toLowerCase() ||
@@ -688,23 +949,11 @@ export async function startAuthProvider(
       );
       if (!found || found.password !== password)
         return signInPage(next, markup.messages.rejected);
-      if (!found.verified) {
-        const token = randomBytes(12).toString("hex");
-        const code = digits(6);
-        pending.set(token, {
-          email: found.email,
-          username: found.username,
-          password: found.password,
-          code,
-          token,
-        });
-        deliver(found.email, code, token);
-        return confirmPage(token, next, markup.messages.unverified);
-      }
+      if (!found.verified) return confirmUnverified(found);
       return signedIn(found);
     }
 
-    if (url.pathname === "/signin/password" && behavior.identifierFirst) {
+    if (url.pathname === "/signin/password" && identifierFirst) {
       const email = identified.get(browser());
       const found = email ? accounts.get(email) : undefined;
       if (!found) return redirect(`/signin?next=${encodeURIComponent(next)}`);
@@ -712,6 +961,9 @@ export async function startAuthProvider(
       if ((body.get(markup.names.password) ?? "") !== found.password)
         return passwordPage(next, markup.messages.rejected);
       identified.delete(browser());
+      // The same rule as the one-page form: a right password on an
+      // unconfirmed account earns a confirmation step, not a session.
+      if (!found.verified) return confirmUnverified(found);
       return signedIn(found);
     }
 
@@ -751,6 +1003,12 @@ export async function startAuthProvider(
       const confirm = body.get(markup.names.confirm) ?? "";
       if (behavior.requireTerms && body.get(markup.names.terms) !== "yes")
         return signUpPage(next, markup.messages.termsRequired);
+      const region = body.get(regionField) ?? "";
+      if (
+        behavior.requireRegion &&
+        !regionList.some((entry) => entry.code === region)
+      )
+        return signUpPage(next, "Choose your country or region.");
       if (!email.includes("@") || password.length < 8)
         return signUpPage(
           next,
@@ -760,6 +1018,7 @@ export async function startAuthProvider(
         return signUpPage(next, markup.messages.mismatch);
       if (accounts.has(email))
         return signUpPage(next, markup.messages.emailInUse);
+      if (behavior.requireRegion) regions.set(email, region);
       const username = email.split("@")[0] ?? email;
       if (verification === "none") {
         accounts.set(email, {
@@ -818,6 +1077,28 @@ export async function startAuthProvider(
     }
 
     if (url.pathname === "/authorize") {
+      // A client this provider does not know, or a callback it never
+      // registered, is refused on a page of its own and never redirected:
+      // redirecting would hand whatever follows to an address nobody vouched
+      // for (RFC 6749 section 4.1.2.1). Checked before sign-in, so nobody
+      // signs in on behalf of an application that does not exist.
+      if (behavior.strictClients) {
+        const known = registry.get(url.searchParams.get("client_id") ?? "");
+        const callback = url.searchParams.get("redirect_uri") ?? "";
+        if (!known || !known.callbackUrls.includes(callback))
+          return send(
+            400,
+            markup.page(
+              "Application error",
+              `<h1>${known ? "Redirect URI mismatch" : "Application not found"}</h1>
+               ${markup.alert(
+                 known
+                   ? "The redirect_uri in this request is not the authorization callback URL registered for this application."
+                   : "The client_id in this request does not belong to a registered OAuth app.",
+               )}`,
+            ),
+          );
+      }
       const session = sessionOf(request);
       if (!session || (behavior.requireMfa && session.factors < 2))
         return redirect(
@@ -848,6 +1129,24 @@ export async function startAuthProvider(
       });
       // Delegation is a different question from access, so the page asks it
       // out loud: this names the agent, not just the client asking.
+      if (markup.pages)
+        return send(
+          200,
+          markup.pages.consent({
+            requestId,
+            clientId: url.searchParams.get("client_id") ?? clientId,
+            scope: url.searchParams.get("scope") ?? "",
+            account: session.email,
+            actor: behavior.delegation ? actor : "",
+            ...(behavior.strictClients
+              ? {
+                  application:
+                    registry.get(url.searchParams.get("client_id") ?? "")
+                      ?.name ?? "",
+                }
+              : {}),
+          }),
+        );
       const delegation =
         behavior.delegation && actor
           ? `<p>${markup.escape(actor)} will act on your behalf.</p>`
@@ -857,7 +1156,11 @@ export async function startAuthProvider(
         markup.page(
           "Authorize",
           `<h1>${markup.headings.consent}</h1>
-           <p>${markup.escape(clientId)} is requesting ${markup.escape(url.searchParams.get("scope") ?? "access")}.</p>
+           <p>${markup.escape(
+             (behavior.strictClients
+               ? registry.get(url.searchParams.get("client_id") ?? "")?.name
+               : undefined) ?? clientId,
+           )} is requesting ${markup.escape(url.searchParams.get("scope") ?? "access")}.</p>
            ${delegation}
            <form method="post" action="/consent">
              <input type="hidden" name="r" value="${requestId}">
@@ -896,6 +1199,14 @@ export async function startAuthProvider(
     }
 
     if (url.pathname === "/token" && method === "POST") {
+      // Under a registry, the client authenticates before anything about the
+      // code is looked at, and a code redeems only for the client it was
+      // issued to.
+      let authenticated: { clientId: string } | undefined;
+      if (behavior.strictClients) {
+        authenticated = authenticatedClient();
+        if (!authenticated) return invalidClient();
+      }
       const code = body.get("code") ?? "";
       const grant = grants.get(code);
       const verifier = body.get("code_verifier") ?? "";
@@ -903,7 +1214,8 @@ export async function startAuthProvider(
       if (
         !grant ||
         grant.verifier !== derived ||
-        body.get("redirect_uri") !== grant.redirectUri
+        body.get("redirect_uri") !== grant.redirectUri ||
+        (authenticated && authenticated.clientId !== grant.clientId)
       )
         return json(400, { error: "invalid_grant" });
       // Delegation is only real if the agent authenticates too: a code alone
@@ -937,6 +1249,11 @@ export async function startAuthProvider(
         // is what lets a consumer check it got the audience it requested.
         ...(grant.resource ? { aud: grant.resource } : {}),
       };
+      accessTokens.set(String(issued["access_token"]), {
+        sub: grant.email,
+        clientId: grant.clientId,
+        scope: "openid",
+      });
       if (behavior.openidConnect)
         // A real signed assertion, so a consumer's nonce and issuer checks are
         // exercised rather than assumed.
@@ -955,6 +1272,16 @@ export async function startAuthProvider(
     }
 
     if (url.pathname === "/userinfo") {
+      // A relying party asks with the access token it redeemed, server to
+      // server, where there is no browser cookie to read.
+      const bearer = /^bearer\s+(.+)$/i.exec(
+        request.headers.authorization ?? "",
+      )?.[1];
+      if (bearer) {
+        const token = accessTokens.get(bearer.trim());
+        if (!token) return json(401, { error: "invalid_token" });
+        return json(200, { sub: token.sub, email: token.sub });
+      }
       const session = sessionOf(request);
       if (!session) return json(401, { error: "invalid_token" });
       return json(200, { sub: session.email, email: session.email });
@@ -964,6 +1291,31 @@ export async function startAuthProvider(
       const session = sessionOf(request);
       if (!session)
         return redirect(`/signin?next=${encodeURIComponent("/device")}`);
+      // A realistic layout renders the verification page whole, in its own
+      // shell; the randomized one assembles it from parts below.
+      if (markup.pages) {
+        if (method === "GET")
+          return send(
+            200,
+            markup.pages.device({ action: "/device", account: session.email }),
+          );
+        const entered = (body.get(markup.names.userCode) ?? "")
+          .replace(/[\s-]/g, "")
+          .toUpperCase();
+        const device = devices.get(entered);
+        if (!device)
+          return send(
+            200,
+            markup.pages.device({
+              action: "/device",
+              account: session.email,
+              error: markup.messages.badCode,
+            }),
+          );
+        device.approved = true;
+        device.email = session.email;
+        return send(200, markup.pages.deviceConnected());
+      }
       if (method === "GET")
         return send(
           200,
@@ -1022,6 +1374,126 @@ export async function startAuthProvider(
       challenges.delete(solved);
       cleared.add(browser());
       return redirect(url.searchParams.get("to") ?? "/");
+    }
+
+    // Developer settings: a person registers an OAuth app and generates its
+    // client secret, which is shown once and then only ever held as a hash.
+    if (url.pathname === "/settings/developers") return redirect(oauthAppsPath);
+    if (
+      url.pathname === oauthAppsPath ||
+      url.pathname.startsWith(`${oauthAppsPath}/`)
+    ) {
+      const session = sessionOf(request);
+      if (!session || (behavior.requireMfa && session.factors < 2))
+        return redirect(
+          `/signin?next=${encodeURIComponent(url.pathname + url.search)}`,
+        );
+      const pages = developerSettingsPages(markup);
+      const owned = [...registry.entries()].filter(
+        ([, client]) => client.owner === session.email && client.appId,
+      );
+      const view = (id: string, client: RegisteredClient) => ({
+        id: client.appId ?? "",
+        clientId: id,
+        name: client.name,
+        homepageUrl: client.homepageUrl,
+        callbackUrl: client.callbackUrls[0] ?? "",
+        secrets: client.secretHashes.length,
+      });
+      if (url.pathname === oauthAppsPath)
+        return send(
+          200,
+          pages.list(owned.map(([id, client]) => view(id, client))),
+        );
+      if (url.pathname === `${oauthAppsPath}/new`) {
+        // Values may arrive in the query, as a relying app's "register this
+        // app" link fills them in; the person still reviews and submits.
+        const source = method === "POST" ? body : url.searchParams;
+        const values: NewOAuthAppValues = {
+          name: (
+            source.get("application_name") ??
+            source.get("name") ??
+            ""
+          ).trim(),
+          homepageUrl: (source.get("homepage_url") ?? "").trim(),
+          description: (source.get("description") ?? "").trim(),
+          callbackUrl: (source.get("callback_url") ?? "").trim(),
+        };
+        if (method === "GET") return send(200, pages.newApp(values));
+        const web = (value: string) => {
+          try {
+            const parsed = new URL(value);
+            return parsed.protocol === "https:" || parsed.protocol === "http:";
+          } catch {
+            return false;
+          }
+        };
+        const problem = !values.name
+          ? "Application name can't be blank."
+          : values.name.length > 100
+            ? "Application name is too long."
+            : !web(values.homepageUrl)
+              ? "Homepage URL must be a valid URL."
+              : !web(values.callbackUrl)
+                ? "Authorization callback URL must be a valid URL."
+                : undefined;
+        if (problem) return send(422, pages.newApp(values, problem));
+        const id = `oac_${randomBytes(10).toString("hex")}`;
+        const appId = String(appIds.size + 1);
+        appIds.set(appId, id);
+        registry.set(id, {
+          name: values.name,
+          homepageUrl: values.homepageUrl,
+          callbackUrls: [values.callbackUrl],
+          owner: session.email,
+          confidential: true,
+          secretHashes: [],
+          appId,
+        });
+        return redirect(`${oauthAppsPath}/${appId}`);
+      }
+      const [appId, action] = url.pathname
+        .slice(oauthAppsPath.length + 1)
+        .split("/");
+      const id = appIds.get(appId ?? "");
+      const client = id ? registry.get(id) : undefined;
+      if (!id || !client || client.owner !== session.email)
+        return send(404, markup.page("Not found", "<h1>Not found</h1>"));
+      const sid = cookies(request)["sid"] ?? "";
+      const revealKey = `${sid}:${appId}`;
+      if (action === "secrets" && method === "POST") {
+        const secret = `ocs_${randomBytes(20).toString("hex")}`;
+        client.secretHashes.push(hashSecret(secret));
+        reveals.set(revealKey, secret);
+        return redirect(`${oauthAppsPath}/${appId}`);
+      }
+      if (action !== undefined)
+        return send(404, markup.page("Not found", "<h1>Not found</h1>"));
+      // Shown to the session that generated it, on the next page, once.
+      const revealed = reveals.get(revealKey);
+      reveals.delete(revealKey);
+      return send(200, pages.app(view(id, client), revealed));
+    }
+
+    // RFC 7662 token introspection. Only a client that authenticates may ask,
+    // and it learns about its own tokens only; asking with a made-up token is
+    // also how a relying party checks, before it saves them, that a client ID
+    // and secret are ones this provider accepts.
+    if (url.pathname === "/oauth/introspect" && method === "POST") {
+      if (!behavior.strictClients) return json(404, { error: "not_found" });
+      const presented = authenticatedClient();
+      if (!presented || !registry.get(presented.clientId)?.confidential)
+        return invalidClient();
+      const token = accessTokens.get(body.get("token") ?? "");
+      if (!token || token.clientId !== presented.clientId)
+        return json(200, { active: false });
+      return json(200, {
+        active: true,
+        client_id: token.clientId,
+        sub: token.sub,
+        scope: token.scope,
+        token_type: "Bearer",
+      });
     }
 
     // Personal access tokens: the value is shown on the page, never in a field.
@@ -1247,6 +1719,30 @@ export async function startAuthProvider(
         return json(404, { error: "not_found" });
       const id = `client_${randomBytes(8).toString("hex")}`;
       clients.set(id, "dynamic");
+      // Under a registry the redirect URIs a client registers are the only
+      // ones `/authorize` will send it back to, so they are required.
+      if (behavior.strictClients) {
+        let requested: unknown;
+        try {
+          requested = (JSON.parse(raw) as { redirect_uris?: unknown })
+            .redirect_uris;
+        } catch {
+          requested = undefined;
+        }
+        const uris = Array.isArray(requested)
+          ? requested.filter((uri): uri is string => typeof uri === "string")
+          : [];
+        if (uris.length === 0)
+          return json(400, { error: "invalid_redirect_uri" });
+        registry.set(id, {
+          name: id,
+          homepageUrl: "",
+          callbackUrls: uris,
+          owner: "",
+          confidential: false,
+          secretHashes: [],
+        });
+      }
       return json(201, { client_id: id, token_endpoint_auth_method: "none" });
     }
 
@@ -1318,7 +1814,7 @@ export async function startAuthProvider(
       return markup;
     },
     restyle(seed: number) {
-      markup = createMarkup(seed);
+      markup = createMarkup(seed, layout);
     },
     behavior,
     clientId,
@@ -1348,6 +1844,12 @@ export async function startAuthProvider(
       return { url: target.href, verifier, state, nonce, clientId: client };
     },
     deviceUrl: (userCode) => `${origin}/device?user_code=${userCode}`,
+    issuedDeviceCodes: () => [...devices.keys()],
+    deviceApprovedBy: (userCode) => {
+      const device = devices.get(userCode);
+      return device?.approved ? device.email : undefined;
+    },
+    regionOf: (email) => regions.get(email.toLowerCase()),
     issueDeviceCode: () => {
       const code = randomBytes(3).toString("hex").toUpperCase();
       devices.set(code, { approved: false });
@@ -1412,6 +1914,17 @@ export async function startAuthProvider(
       }
     },
     issuedTokens: () => [...tokens.keys()],
+    oauthApps: () =>
+      [...registry.entries()]
+        .filter(([, client]) => client.appId !== undefined)
+        .map(([id, client]) => ({
+          clientId: id,
+          name: client.name,
+          homepageUrl: client.homepageUrl,
+          callbackUrl: client.callbackUrls[0] ?? "",
+          owner: client.owner,
+          secrets: client.secretHashes.length,
+        })),
     installed: () => [...installations],
     federated: () => [...assertions],
     authenticatedBasic: () => [...basicAccounts],

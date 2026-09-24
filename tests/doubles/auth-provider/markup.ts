@@ -8,6 +8,12 @@
  * seed makes a failure reproducible, so a broken case can be replayed exactly.
  */
 
+import {
+  createRealisticMarkup,
+  type AuthLayout,
+  type RealisticPages,
+} from "./layouts.js";
+
 /** Stable 32-bit hash so a page's shape derives from its name, not call order. */
 export function hashKey(value: string): number {
   let hash = 0x811c9dc5;
@@ -88,9 +94,72 @@ const pools = {
   ],
 } as const;
 
-export type Markup = ReturnType<typeof createMarkup>;
+type Names =
+  | "identifier"
+  | "email"
+  | "password"
+  | "confirm"
+  | "displayName"
+  | "birthDate"
+  | "terms"
+  | "code"
+  | "userCode";
+type Labels = Exclude<Names, "code"> | "verification" | "totp";
+type Captions =
+  | "signIn"
+  | "signUp"
+  | "submitCode"
+  | "approve"
+  | "deny"
+  | "resend"
+  | "signUpLink";
+type Messages =
+  | "emailInUse"
+  | "rejected"
+  | "unverified"
+  | "mismatch"
+  | "termsRequired"
+  | "badCode"
+  | "checkInbox";
 
-export function createMarkup(seed: number) {
+/**
+ * Everything the server needs to render a page, whichever layout drew it.
+ * `pages` is present only for a realistic layout, which renders its sign-in,
+ * registration, verification, two-factor and consent pages whole rather than
+ * from the parts the randomized shape assembles.
+ */
+export type Markup = {
+  seed: number;
+  layout: AuthLayout;
+  names: Readonly<Record<Names, string>>;
+  labels: Readonly<Record<Labels, string>>;
+  captions: Readonly<Record<Captions, string>>;
+  messages: Readonly<Record<Messages, string>>;
+  signupPath: string;
+  includeDisplayName: boolean;
+  includeBirthDate: boolean;
+  emailInputType: string;
+  headings: Readonly<Record<"signIn" | "signUp" | "consent", string>>;
+  escape(value: string): string;
+  field(label: string, name: string, type: string, attributes?: string): string;
+  checkbox(label: string, name: string): string;
+  alert(message?: string): string;
+  page(title: string, body: string): string;
+  arrange<T>(key: string, items: readonly T[]): T[];
+  pages?: RealisticPages;
+};
+
+/**
+ * The page shape for one provider instance. `randomized`, the default, is the
+ * robustness fixture this file describes; any other layout is a realistic,
+ * fixed page from `layouts.ts`, for demonstrations and for proving a driver
+ * also reads the pages people actually meet.
+ */
+export function createMarkup(
+  seed: number,
+  layout: AuthLayout = "randomized",
+): Markup {
+  if (layout !== "randomized") return createRealisticMarkup(layout, seed);
   const random = seededRandom(seed);
   const pick = <T>(items: readonly T[]): T =>
     items[Math.floor(random() * items.length)]!;
@@ -205,6 +274,7 @@ export function createMarkup(seed: number) {
 
   return {
     seed,
+    layout,
     names,
     labels,
     captions,

@@ -6,6 +6,7 @@ import {
   type CatalogEntry,
   type ConnectionSummary,
   type ConnectorHandoffSummary,
+  type SupportLabel,
 } from "../../../core/connectors/index.js";
 import type { ActorContext } from "../../../core/operation-contracts.js";
 import { explainConnectorError } from "../errors.js";
@@ -13,7 +14,7 @@ import { explainConnectorError } from "../errors.js";
 /*
  * Connector tools on the existing Ceremony MCP server.
  *
- * These tools are added beside the five that were already there; nothing
+ * These tools are added beside the ceremony tools already there; nothing
  * about those changes. They obey the same two rules as the rest of that file:
  * the actor comes from the host's `authenticate` path and never from an
  * argument, and nothing a model can read carries a credential, a destination,
@@ -90,6 +91,15 @@ export interface ConnectorToolDependencies {
     actor: ActorContext,
     connectionRef: string,
   ): Promise<ConnectionSummary | undefined>;
+  /**
+   * The evidence-derived support label of the adapter behind a connection
+   * (`ConnectorCommandService.connectionSupportLabel`). Optional so a host
+   * without labels still mounts; when present, `connector_status` shows it.
+   */
+  supportLabel?(
+    actor: ActorContext,
+    connectionRef: string,
+  ): Promise<SupportLabel | undefined>;
   connect(
     actor: ActorContext,
     input: ConnectorConnectInput,
@@ -159,33 +169,20 @@ export const connectorToolInputs = {
 
 const waiting = new Set<string>(["issued", "waiting"]);
 
-function text(value: unknown) {
-  return { content: [{ type: "text" as const, text: JSON.stringify(value) }] };
-}
-
-function refusal(message: string) {
-  return {
-    isError: true as const,
-    content: [{ type: "text" as const, text: message }],
-  };
-}
-
 /**
- * Registers the connector tools on an existing server. The five ceremony
- * tools are untouched; this only adds.
+ * How a connector handoff leaves for an assistant over MCP: kind and state
+ * always and, while a person is actually awaited, the same-origin path of the
+ * owner's page for that connection (`<route>?connection=<ref>`). The path is
+ * built here from the connection reference the caller already holds, never
+ * from anything a service or provider said, so it carries no code, token,
+ * state or provider URL. The connector tools and the connector intents share
+ * it, so both answer the same way.
  */
-export function registerConnectorServerTools(
-  server: McpServer,
-  deps: ConnectorToolDependencies,
-  context: ConnectorToolContext,
-): void {
-  const route = context.humanRoute ?? "/connectors";
-  if (!/^(?:\/[A-Za-z0-9_.-]+)+$/.test(route))
+export function connectorHandoffViews(humanRoute = "/connectors") {
+  if (!/^(?:\/[A-Za-z0-9_.-]+)+$/.test(humanRoute))
     throw new Error("Invalid connector human route");
-  /** The owner's page for this connection. No code, token, state or provider URL. */
   const personPath = (connectionRef: string) =>
-    `${route}?${new URLSearchParams({ connection: connectionRef })}`;
-  /** Kind and state always; the person-bound path only while a person is actually awaited. */
+    `${humanRoute}?${new URLSearchParams({ connection: connectionRef })}`;
   const handoffView = (
     connectionRef: string,
     handoff: { kind: string; state: string } | undefined,
@@ -201,6 +198,30 @@ export function registerConnectorServerTools(
           },
         }
       : {};
+  return { personPath, handoffView };
+}
+
+function text(value: unknown) {
+  return { content: [{ type: "text" as const, text: JSON.stringify(value) }] };
+}
+
+function refusal(message: string) {
+  return {
+    isError: true as const,
+    content: [{ type: "text" as const, text: message }],
+  };
+}
+
+/**
+ * Registers the connector tools on an existing server. The ceremony tools
+ * are untouched; this only adds.
+ */
+export function registerConnectorServerTools(
+  server: McpServer,
+  deps: ConnectorToolDependencies,
+  context: ConnectorToolContext,
+): void {
+  const { personPath, handoffView } = connectorHandoffViews(context.humanRoute);
   const run = async <T>(operate: (actor: ActorContext) => Promise<T>) => {
     const actor = context.actor();
     if (!actor) return refusal("Sign in to the ceremony application first.");
@@ -218,7 +239,7 @@ export function registerConnectorServerTools(
     "connector_catalog",
     {
       description:
-        "List the connectors this deployment offers, with how each is supported, what configuration it needs and how strong the evidence for it is.",
+        "List the connectors this deployment offers, with how each is supported, what configuration it needs, how strong the evidence for it is and the support label that evidence earns (unverified, fixture, local, live or certified).",
       inputSchema: connectorToolInputs.catalog,
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -234,7 +255,7 @@ export function registerConnectorServerTools(
     "connector_status",
     {
       description:
-        "Read the state of one connection: its lifecycle, whether it is verified and whether a person is being waited on (with the path of the owner's page for it). Never returns credentials, codes or provider links.",
+        "Read the state of one connection: its lifecycle, whether it is verified, the support label its connector's evidence earns, and whether a person is being waited on (with the path of the owner's page for it). Never returns credentials, codes or provider links.",
       inputSchema: connectorToolInputs.status,
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -244,7 +265,17 @@ export function registerConnectorServerTools(
         const summary = await deps.status(actor, checked.connectionRef);
         if (!summary) return { connection: "not-found" };
         const view = agentConnectorProjection(summary);
-        return { ...view, ...handoffView(view.connectionRef, view.handoff) };
+        // Read only after the status read proved the connection is this
+        // actor's; a label never answers for a connection they cannot see.
+        const supportLabel = await deps.supportLabel?.(
+          actor,
+          checked.connectionRef,
+        );
+        return {
+          ...view,
+          ...(supportLabel ? { supportLabel } : {}),
+          ...handoffView(view.connectionRef, view.handoff),
+        };
       }),
   );
 

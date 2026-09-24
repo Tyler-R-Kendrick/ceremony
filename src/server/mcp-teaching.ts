@@ -19,6 +19,7 @@ import {
   importArazzoDraft,
   importRecipeDraft,
   listPublishedRecipes,
+  proposeCredentialVerification,
   teachingIdentifier,
   teachingInputs,
 } from "./teaching-operations.js";
@@ -124,6 +125,24 @@ export function registerTeachingTools(
           ),
       );
     }
+
+  // How an authored key, Basic or form connector proves a collected
+  // credential. The same schema and checks as the HTTP route; the result is
+  // pending until a person approves it there, by digest. No approval tool is
+  // offered, and the service refuses an assistant's approval regardless.
+  if (holds("author"))
+    tool(
+      "ceremony_author_verification_propose",
+      "Propose how an authored connector you installed checks a collected API key or password: one HTTPS request to an origin its provider already declared, with the credential placed in a header, a query parameter, HTTP Basic or a form. The proposal verifies nothing until a person approves it on the connector's page in the application; the result gives the digest they approve. Never include a credential value here.",
+      teachingInputs.verificationPropose,
+      { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      (who, input) =>
+        proposeCredentialVerification(
+          runtime,
+          who,
+          teachingInputs.verificationPropose.parse(input),
+        ),
+    );
 
   // Recording: a demonstration captures the semantic transitions of a run the
   // caller owns while it is advanced (with `ceremony_advance`, or from its
