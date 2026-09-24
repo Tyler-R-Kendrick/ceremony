@@ -150,6 +150,9 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
    */
   const backward =
     /resend|send (a )?new|email me again|cancel|deny|decline|not now|\bback\b|sign out|log out|skip/;
+  /** Sign-up or sign-in through someone else, or without a password. */
+  const elsewhere =
+    /with (google|github|gitlab|apple|microsoft|facebook|linkedin|twitter|x)\b|passkey|security key|\bsso\b|single sign-on/;
   /** A page telling the person to go and read their mail. */
   const awaitingMail =
     /check your (e-?mail|inbox)|we (have )?sent|confirmation (e-?mail|message|link)|verify your e-?mail/;
@@ -210,6 +213,50 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
     }
     if (/incorrect|invalid|did not match|wrong password/.test(alerts))
       return { action: "blocked", reason: "credentials-rejected" };
+
+    // Registering, on a page that is not itself a registration form but links
+    // to one: go there first. Filling a sign-in form here would post the
+    // brand-new password to the provider's sign-in endpoint - a wasted
+    // attempt that may count toward a lockout - before the account exists.
+    //
+    // Only before registration has started. Once anything was typed or ticked,
+    // or the page says the account already exists (a sign-in page reached
+    // after confirming the address), the link would start a second account;
+    // the history window alone is too short to remember the first one. And
+    // only a plain sign-up link: "Sign up with Google" leaves for another
+    // provider, and a passkey sign-up needs a person.
+    if (goal === "registration") {
+      const heading =
+        `${snapshot.title} ${snapshot.headings.join(" ")}`.toLowerCase();
+      const passwords = snapshot.elements.filter(
+        (element) => element.kind === "input" && element.type === "password",
+      ).length;
+      const started = history.some(
+        (entry) => entry.action === "fill" || entry.action === "check",
+      );
+      const exists =
+        /confirmed|verified|(account|was) created|registration (is )?complete/.test(
+          `${heading} ${alerts}`,
+        );
+      const signUp = snapshot.elements.find(
+        (element) =>
+          element.kind === "link" &&
+          toward.registration.test(words(element)) &&
+          !backward.test(words(element)) &&
+          !elsewhere.test(words(element)) &&
+          !history.some(
+            (entry) => entry.action === "click" && entry.note === element.text,
+          ),
+      );
+      if (
+        signUp &&
+        !started &&
+        !exists &&
+        passwords < 2 &&
+        !/create|sign up|regist|join|new account/.test(heading)
+      )
+        return { action: "click", element: signUp.index, note: signUp.text };
+    }
 
     let seenPassword = false;
     for (const element of snapshot.elements) {
