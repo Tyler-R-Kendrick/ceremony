@@ -66,8 +66,6 @@ const heuristicExclusions: Record<string, string> = {
     "`stalled` is the driver's verdict on an interpreter that keeps pressing a dead button; the heuristic reports the page unsupported instead of pressing again, by design",
   "sign-in-that-never-accepts":
     "`exhausted` is the driver's verdict on an interpreter that keeps resubmitting; the heuristic stops after one refill rather than spending the step budget, by design",
-  "access-token-issued-for-private-collection":
-    "the heuristic does not recognise a page displaying an issued credential as the end of the ceremony, on any layout; issuing a credential is outside what these layouts model",
 };
 
 type Run = {
@@ -178,10 +176,15 @@ test("heuristic exclusions stay few and each says why", () => {
   assert.ok(Object.keys(heuristicExclusions).length <= 4);
 });
 
-/** The inputs a person would type into, in page order. */
+/**
+ * The inputs a person would type into, in page order. A read-only field - an
+ * authenticator's setup key - shows a value and takes none.
+ */
 const typed = (snapshot: PageSnapshot): SnapshotElement[] =>
   snapshot.elements.filter(
-    (element) => element.kind === "input" || element.kind === "checkbox",
+    (element) =>
+      (element.kind === "input" && element.readOnly !== true) ||
+      element.kind === "checkbox",
   );
 
 for (const layout of realisticLayouts)
@@ -195,6 +198,7 @@ for (const layout of realisticLayouts)
       "sign-in-unverified-account",
       "registration-with-emailed-code",
       "registration-with-confirmation-link",
+      "registration-enrolls-an-authenticator",
       "authorization-code-with-consent",
     ]) {
       const base = authScenarios.find((scenario) => scenario.id === id)!;
@@ -208,7 +212,7 @@ for (const layout of realisticLayouts)
     const paths = new Set(
       snapshots.map((snapshot) => new URL(snapshot.path).pathname),
     );
-    for (const expected of ["/signin", "/signup", "/authorize"])
+    for (const expected of ["/signin", "/signup", "/mfa/setup", "/authorize"])
       assert.ok(paths.has(expected), `${layout} never showed ${expected}`);
 
     for (const snapshot of snapshots) {

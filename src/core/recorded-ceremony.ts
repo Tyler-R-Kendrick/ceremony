@@ -3,8 +3,12 @@ import {
   blockedReasonSchema,
   ceremonyGoalSchema,
   ceremonyRoleSchema,
+  checkboxConsent,
+  consentKindsSchema,
   issuedDeclarationSchema,
   secretRoles,
+  sortedConsent,
+  type ConsentKind,
   type IssuedDeclaration,
   type CeremonyGoal,
   type CeremonyRole,
@@ -234,6 +238,14 @@ export const recordedActionSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("check"),
     target: elementFingerprintSchema,
+    /**
+     * The legal acts ticking this box performs - accepting terms, a privacy
+     * policy, an age attestation - exactly as the recording saw them. Written
+     * down so a reviewer approves them by name, and never widened: a replay
+     * ticks this box only where the live box names the same kinds, and only
+     * under a plan that carries the person's consent to every one of them.
+     */
+    consent: consentKindsSchema.optional(),
   }),
   /**
    * Choose an option in a `<select>` by the label the page showed. The
@@ -356,6 +368,20 @@ export const recordedCeremonySchema = z
       }
       if (action.kind === "check" && action.target.kind !== "checkbox")
         issue(`step ${step.id} checks something that is not a checkbox`);
+      // Pressing a box ticks it. A step that did so would be a tick with no
+      // consent recorded on it, so a box is only ever checked, never clicked.
+      if (action.kind === "click" && action.target.kind === "checkbox")
+        issue(`step ${step.id} clicks a checkbox instead of checking it`);
+      if (action.kind === "check") {
+        // What the box says it accepts has to be what the step says it
+        // accepts, so a reviewer reading "consent: terms" is reading the
+        // whole of it. A marketing opt-in is never a step at all.
+        const read = checkboxConsent(action.target);
+        if (read.marketing) issue(`step ${step.id} ticks a marketing opt-in`);
+        const recorded = action.consent ?? [];
+        if (read.kinds.some((kind) => !recorded.includes(kind)))
+          issue(`step ${step.id} accepts something it does not declare`);
+      }
       if (action.kind === "select" && action.target.kind !== "select")
         issue(`step ${step.id} chooses in something that is not a select`);
     }
@@ -537,6 +563,8 @@ export type RecordedTraceEntry = {
   role?: CeremonyRole;
   /** For `select`: the option's visible label, as the snapshot listed it. */
   option?: string;
+  /** For `check`: the legal acts the tick performed, under the plan's consent. */
+  consent?: readonly ConsentKind[];
 };
 
 export const recordingRejectionReasons = [
@@ -595,6 +623,28 @@ export type CompileRecordingOptions = {
 };
 
 /**
+ * The shape of an identifier a provider hands out: a number, or a UUID. A
+ * short number on its own could as well be a page's fixed name (`/v1`,
+ * `/step/2`), which is why shape alone generalises only the long ones below
+ * and a short one waits for evidence that the run caused it.
+ */
+function identifierShaped(segment: string): boolean {
+  return (
+    /^\d{1,19}$/.test(segment) ||
+    /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i.test(
+      segment,
+    )
+  );
+}
+
+/**
+ * A control whose press asks the provider to make something: "Register
+ * application", "Create project", "New token", "Add key", "Generate".
+ */
+const creating =
+  /\b(create|register|add|new|generate|save|install|publish|sign up)\b/i;
+
+/**
  * Segments that identify an attempt, or a person, rather than a page.
  *
  * Judged on the decoded segment: `alice%40corp.example` is an address, and
@@ -630,10 +680,20 @@ function generalizeSegment(
   return segment;
 }
 
-/** `excluded` are lower-cased values the login used; see {@link generalizeSegment}. */
+/**
+ * The page pattern for an observed page.
+ *
+ * `excluded` are lower-cased values the login used; see
+ * {@link generalizeSegment}. `assigned` names segments the provider handed
+ * out during the run - an identifier that first appeared after the run asked
+ * the provider to create something. Those are the attempt's, not the page's,
+ * whatever their length: the next run's app is `/oauth-apps/2`, not
+ * `/oauth-apps/1`.
+ */
 export function pageMatchOf(
   observed: string,
   excluded: readonly string[] = [],
+  assigned: ReadonlySet<string> = new Set(),
 ): PageMatch {
   const url = new URL(observed);
   const segments = url.pathname.split("/").slice(1);
@@ -641,13 +701,53 @@ export function pageMatchOf(
   const path =
     "/" +
     (trailing ? segments.slice(0, -1) : segments)
-      .map((segment) => generalizeSegment(segment, excluded))
+      .map((segment) =>
+        assigned.has(segment) ? "*" : generalizeSegment(segment, excluded),
+      )
       .join("/");
   // A pattern holds whole segments: one cut mid-way, or left ending in a
   // slash, would be a page nobody visited, or no pattern at all.
   const bounded =
     path.length <= 256 ? path : path.slice(0, path.lastIndexOf("/", 256));
   return { origin: url.origin, path: bounded || "/" };
+}
+
+/**
+ * The identifier-shaped segments a provider assigned during this run.
+ *
+ * A segment counts only when two things are true: it was nowhere in a path
+ * the run saw before it asked the provider to create anything, and it first
+ * appears after such a request. Everything present before is kept exact,
+ * because it was part of where the run was sent, not something the run
+ * made: `/api/1/...` in the entry URL stays `/api/1/...`. A numbered wizard
+ * step reached by "Continue" stays exact too - nothing was created.
+ */
+function assignedSegments(
+  entryUrl: string,
+  trace: readonly RecordedTraceEntry[],
+): Set<string> {
+  const segmentsOf = (observed: string) =>
+    new URL(observed).pathname.split("/").filter(Boolean);
+  const before = new Set(segmentsOf(entryUrl));
+  const assigned = new Set<string>();
+  let created = false;
+  for (const entry of trace) {
+    for (const segment of segmentsOf(entry.snapshot.path))
+      if (!created) before.add(segment);
+      else if (!before.has(segment) && identifierShaped(segment))
+        assigned.add(segment);
+    const element =
+      entry.element === undefined
+        ? undefined
+        : entry.snapshot.elements[entry.element];
+    if (
+      entry.action === "click" &&
+      element &&
+      creating.test(`${element.text ?? ""} ${element.label ?? ""}`)
+    )
+      created = true;
+  }
+  return assigned;
 }
 
 /**
@@ -732,8 +832,9 @@ export function compileRecording(
   const success: PageMatch[] = [];
   const roles: CeremonyRole[] = [];
   let previousKey = "";
+  const assigned = assignedSegments(options.entryUrl, trace);
   for (const [position, entry] of trace.entries()) {
-    const page = pageMatchOf(entry.snapshot.path, excluded);
+    const page = pageMatchOf(entry.snapshot.path, excluded, assigned);
     if (!allowed.has(page.origin))
       throw new RecordingRejected("undeclared-origin");
     if (entry.action === "done") {
@@ -749,7 +850,14 @@ export function compileRecording(
         if (!entry.role) throw new RecordingRejected("unidentifiable-element");
         action = { kind: "fill", target, role: entry.role };
         if (!roles.includes(entry.role)) roles.push(entry.role);
-      } else if (entry.action === "check") action = { kind: "check", target };
+      } else if (entry.action === "check")
+        action = {
+          kind: "check",
+          target,
+          ...(entry.consent?.length
+            ? { consent: sortedConsent(entry.consent) }
+            : {}),
+        };
       else if (entry.action === "select") {
         const option = clean(entry.option);
         if (option === undefined || option !== entry.option)

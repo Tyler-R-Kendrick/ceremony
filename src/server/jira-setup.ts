@@ -6,7 +6,7 @@ import {
 } from "../core/operation-contracts.js";
 import { AuthorizationError } from "./identity.js";
 import { appendSemanticTransition } from "./demonstrations.js";
-import type { RunRecord } from "./commands.js";
+import { scopedRun, type RunRecord } from "./commands.js";
 import type {
   AsyncCeremonyStore,
   AsyncTransaction,
@@ -90,16 +90,29 @@ export class JiraSetupAssignments {
       kind: "run",
       id: runId,
     });
+    // The app step's own view of the run. A Jira step planned under the Jira
+    // connector inside another provider's run is set up in that connector's
+    // context: its site, origin and configuration, never the parent run's.
+    const view =
+      record &&
+      scopedRun(
+        record.value,
+        record.value.nodes.find(
+          (item) => item.operationId === "jira.prepare-app",
+        ),
+      );
     if (
       !record ||
+      !view ||
       record.value.subjectId !== requester.subjectId ||
       record.value.sessionId !== requester.sessionId ||
       record.value.status !== "active" ||
-      record.value.provider !== "jira" ||
-      record.value.profile !== "jira-3lo"
+      view.provider !== "jira" ||
+      view.profile !== "jira-3lo"
     )
       throw new AuthorizationError("denied");
-    return record;
+    // The stored record stays as it is, for the writes that fence the run.
+    return { ...record, view };
   }
   private async pending(tx: AsyncTransaction, assignment: Assignment) {
     const run = await this.run(tx, assignment.requester, assignment.runId);
@@ -111,7 +124,7 @@ export class JiraSetupAssignments {
     });
     if (
       run.revision !== assignment.runRevision ||
-      this.scope(run.value) !== assignment.scope ||
+      this.scope(run.view) !== assignment.scope ||
       assignment.expires <= (await tx.now()) ||
       node?.operationId !== "jira.prepare-app" ||
       node.operationVersion !== "1.0.0" ||
@@ -127,8 +140,8 @@ export class JiraSetupAssignments {
     const run = await this.store.transaction((tx) =>
       this.run(tx, requester, runId),
     );
-    await this.policy.authorize(requester, run.value);
-    const owner = await this.policy.owner(requester, run.value.target);
+    await this.policy.authorize(requester, run.view);
+    const owner = await this.policy.owner(requester, run.view.target);
     if (!owner) throw new AuthorizationError("denied");
     const node = run.value.nodes.find(
       (item) => item.operationId === "jira.prepare-app",
@@ -143,7 +156,7 @@ export class JiraSetupAssignments {
         runId,
         nodeId: node.id,
         runRevision: revision,
-        scope: this.scope(run.value),
+        scope: this.scope(run.view),
         expires: (await tx.now()) + 86400000,
         state: "pending",
       });
@@ -187,7 +200,7 @@ export class JiraSetupAssignments {
       try {
         await this.policy.deliver?.({
           owner,
-          run: run.value,
+          run: run.view,
           assignmentId: result.id,
           tenantId: requester.tenantId,
         });
@@ -218,9 +231,9 @@ export class JiraSetupAssignments {
         ? this.pending(tx, parsed.data)
         : this.run(tx, parsed.data.requester, parsed.data.runId);
     });
-    await this.policy.authorize(parsed.data.requester, run.value);
+    await this.policy.authorize(parsed.data.requester, run.view);
     if (
-      (await this.policy.owner(parsed.data.requester, run.value.target)) !==
+      (await this.policy.owner(parsed.data.requester, run.view.target)) !==
       owner.subjectId
     )
       throw new AuthorizationError("denied");
@@ -232,15 +245,15 @@ export class JiraSetupAssignments {
     const run = await this.store.transaction((tx) =>
       this.run(tx, requester, runId),
     );
-    const scope = this.scope(run.value);
-    await this.policy.authorize(requester, run.value);
-    const owner = await this.policy.owner(requester, run.value.target);
+    const scope = this.scope(run.view);
+    await this.policy.authorize(requester, run.view);
+    const owner = await this.policy.owner(requester, run.view.target);
     if (!owner) throw new AuthorizationError("denied");
     return this.store.transaction(async (tx) => {
       const current = await this.run(tx, requester, runId);
       if (
         current.revision !== run.revision ||
-        this.scope(current.value) !== scope
+        this.scope(current.view) !== scope
       )
         throw new AuthorizationError("denied");
       const index = await tx.get<{ id: string }>({
@@ -286,8 +299,8 @@ export class JiraSetupAssignments {
       id,
       revision: request.revision,
       state: assignment.state,
-      siteUrl: run.value.target,
-      callbackUrl: `${run.value.origin}/api/v1/teaching/jira/authorization-return`,
+      siteUrl: run.view.target,
+      callbackUrl: `${run.view.origin}/api/v1/teaching/jira/authorization-return`,
       scopes: [...this.policy.scopes],
     };
   }
@@ -305,8 +318,8 @@ export class JiraSetupAssignments {
     const { assignment, run } = await this.authorizedOwner(owner, id);
     const app = jiraOAuthConfigurationSchema.parse({
       ...values.data,
-      siteUrl: run.value.target,
-      callbackUrl: `${run.value.origin}/api/v1/teaching/jira/authorization-return`,
+      siteUrl: run.view.target,
+      callbackUrl: `${run.view.origin}/api/v1/teaching/jira/authorization-return`,
       scopes: this.policy.scopes,
     });
     try {
@@ -389,15 +402,15 @@ export class JiraSetupAssignments {
     const run = await this.store.transaction((tx) =>
       this.run(tx, requester, runId),
     );
-    const scope = this.scope(run.value);
-    await this.policy.authorize(requester, run.value);
-    const owner = await this.policy.owner(requester, run.value.target);
+    const scope = this.scope(run.view);
+    await this.policy.authorize(requester, run.view);
+    const owner = await this.policy.owner(requester, run.view.target);
     if (!owner) return undefined;
     return this.store.transaction(async (tx) => {
       const current = await this.run(tx, requester, runId);
       if (
         current.revision !== run.revision ||
-        this.scope(current.value) !== scope
+        this.scope(current.view) !== scope
       )
         throw new AuthorizationError("denied");
       const record = await tx.get(this.appKey(requester, scope));

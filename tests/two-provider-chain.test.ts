@@ -21,8 +21,15 @@ import {
 import { AuthorizationError } from "../src/server/identity.js";
 import {
   runCeremony,
+  runRecordedCeremony,
   type CeremonyResult,
 } from "../src/server/browser-driver.js";
+import {
+  compileRecording,
+  type RecordedTraceEntry,
+} from "../src/core/recorded-ceremony.js";
+import type { IssuedValues } from "../src/server/browser-driver.js";
+import { oauthAppsPath } from "./doubles/auth-provider/developer-settings.js";
 import {
   createHeuristicInterpreter,
   type InterpreterInput,
@@ -481,6 +488,8 @@ async function fixture(
     store,
     runtime,
     chained,
+    alphaChild,
+    betaChild,
     advance,
     results,
     interpreted,
@@ -681,4 +690,150 @@ test("CHAIN-OTHER-RUN: a client handle from another run configures nothing", asy
   assert.equal(f.chain.b.integration(), undefined);
   // Refused before B, or A, was ever asked.
   assert.deepEqual(f.chain.b.refusedClients(), []);
+});
+
+test("CHAIN-RECORDING: the app's numbered settings page is recorded by pattern, and a replay registers the next app", async (t) => {
+  const chain = await startChainProviders();
+  t.after(() => chain.close());
+  const kept: IssuedValues[] = [];
+  const keep = async (values: IssuedValues) => {
+    kept.push(values);
+  };
+  const { entryUrl, ...plan } = registrationPlan(chain);
+  const trace: RecordedTraceEntry[] = [];
+  const first = createHttpCeremonyPage();
+  await first.goto(entryUrl);
+  const recorded = await runCeremony({
+    ...plan,
+    page: first,
+    interpreter: createHeuristicInterpreter(),
+    issued: { fields: issuedAtA, keep },
+    onApplied: (entry) => trace.push(entry),
+  });
+  assert.equal(recorded.status, "completed", JSON.stringify(recorded));
+  // The provider numbered the app it just made; the run was never told to.
+  assert.ok(
+    trace.some((entry) => entry.snapshot.path.endsWith(`${oauthAppsPath}/1`)),
+  );
+
+  const recording = compileRecording(trace, {
+    id: "alpha-register-app",
+    title: "Register an OAuth app",
+    goal: "obtain-credential",
+    entryUrl,
+    origins: [chain.a.origin],
+    recordedWith: "deterministic",
+    issued: {
+      sink: "oauth-client",
+      fields: Object.entries(issuedAtA).map(([kind, label]) => ({
+        kind: kind as keyof typeof issuedAtA,
+        label,
+      })),
+    },
+    excluded: [
+      chain.account.password,
+      chain.account.username,
+      chain.account.email,
+      ...kept.flatMap((values) => Object.values(values)),
+    ],
+  });
+  const paths = [
+    ...recording.steps.map((step) => step.page.path),
+    ...recording.success.map((match) => match.path),
+  ];
+  // The app's own page is whichever app the run makes, with no author
+  // widening it by hand; the page the run was sent to stays exact.
+  assert.ok(paths.includes(`${oauthAppsPath}/*`), JSON.stringify(paths));
+  assert.equal(
+    paths.some((path) => path === `${oauthAppsPath}/1`),
+    false,
+    JSON.stringify(paths),
+  );
+  assert.equal(recording.entry.path, `${oauthAppsPath}/new`);
+
+  // The same person replays it and gets app 2, with no interpreter at all.
+  const second = createHttpCeremonyPage();
+  await second.goto(entryUrl);
+  const replayed = await runRecordedCeremony({
+    ...plan,
+    page: second,
+    recording,
+    issued: { fields: issuedAtA, keep },
+  });
+  assert.equal(replayed.status, "completed", JSON.stringify(replayed.drift));
+  assert.equal(replayed.interpreterCalls, 0);
+  assert.equal(chain.a.oauthApps().length, 2);
+  assert.equal(kept.length, 2);
+  assert.notEqual(kept[0]!["client-id"], kept[1]!["client-id"]);
+});
+
+test("CHAIN-COMPOSED: composing A's and B's recipes places each under its connector, and the published result runs the chain", async (t) => {
+  const f = await fixture(t);
+  // No connector named anywhere: each provider has one approved connector.
+  const draft = await f.runtime.recipes.composePublished(actor, [
+    f.betaChild,
+    f.alphaChild,
+  ]);
+  assert.deepEqual(draft.diagnostics, []);
+  assert.deepEqual(
+    draft.definition.invocations.map((node) => [
+      node.id,
+      node.use.id,
+      node.connector,
+    ]),
+    [
+      ["part-1", "alpha-oauth-app", "alpha"],
+      ["part-2", "beta-sign-in-with-alpha", "beta"],
+    ],
+  );
+  assert.deepEqual(
+    draft.connectors?.nodes.map((node) => node.source),
+    ["provider", "provider"],
+  );
+
+  // Review and publication stay with a person.
+  await f.runtime.recipes.review(actor, draft.id, draft.revision, draft.digest);
+  const published = await f.runtime.recipes.publish(
+    actor,
+    draft.id,
+    draft.revision,
+    draft.digest,
+  );
+  const run = await f.runtime.executeRecipe(
+    actor,
+    published.definition,
+    {},
+    "alpha",
+  );
+  const steps = [];
+  for (const node of ["part-1.register", "part-2.configure", "part-2.sign-in"])
+    steps.push(await f.advance(run.id, node));
+  assert.deepEqual(
+    steps.map((step) => [step.nodeId, step.state, step.verified]),
+    [
+      ["part-1.register", "complete", true],
+      ["part-2.configure", "complete", true],
+      ["part-2.sign-in", "complete", true],
+    ],
+  );
+  assert.deepEqual(
+    f.seen.map((entry) => [entry.operation, entry.provider]),
+    [
+      ["alpha.register-oauth-app", "alpha"],
+      ["beta.configure-sign-in", "beta"],
+      ["beta.sign-in-with-alpha", "beta"],
+    ],
+  );
+  const [app] = f.chain.a.oauthApps();
+  assert.deepEqual(f.chain.b.integration(), { clientId: app!.clientId });
+  assert.deepEqual(f.chain.b.signIns(), [f.chain.account.email]);
+  // The draft and everything a caller was handed hold no client value.
+  const [handle] = f.minted;
+  const secret =
+    (await readOAuthClient(f.store, { actor, runId: run.id }, handle))
+      ?.clientSecret ?? "";
+  assert.match(secret, /^ocs_/);
+  const visible = JSON.stringify([draft, published, f.results]);
+  for (const value of [secret, app!.clientId, handle!])
+    assert.equal(visible.includes(value), false, value.slice(0, 8));
 });

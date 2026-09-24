@@ -142,13 +142,6 @@ export const accountEnvelopeSchema = z.union([
   accountSchema,
 ]);
 
-export const oauthTokenSchema = z.looseObject({
-  access_token: z.string().min(1),
-  token_type: z.string(),
-  expires_in: z.number().positive(),
-  created_at: z.number().nullish(),
-});
-
 export const connectTokenSchema = z.looseObject({
   token: z.string().regex(/^ctok_[0-9a-f]{32}$/),
   expires_at: z.string(),

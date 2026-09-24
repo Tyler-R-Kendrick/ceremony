@@ -23,6 +23,7 @@ import {
   serviceManifests,
   type GitHubOptions,
   CloudflareHumanBrowser,
+  githubHumanTakeover,
   Agent2Human,
   type A2HOptions,
 } from "../src/server/index.js";
@@ -209,7 +210,12 @@ export async function startReferenceApp(options: ReferenceOptions = {}) {
                     id: instanceId,
                     expiresAt: Date.now() + 600_000,
                   });
-                  await humanBrowser.request(owner, instanceId, token);
+                  await humanBrowser.request(
+                    owner,
+                    instanceId,
+                    token,
+                    githubHumanTakeover(instanceId),
+                  );
                 }
                 if (a2h)
                   await a2h.authorize(

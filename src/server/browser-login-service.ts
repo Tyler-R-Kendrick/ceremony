@@ -54,7 +54,7 @@ import {
 } from "./browser-verification.js";
 import { recipientsFor, type EffectiveLoginPlan } from "./login-plan.js";
 import { effectIsIndeterminate, type EffectLedger } from "./browser-effects.js";
-import { totpCode, totpSeedSpellings } from "./totp.js";
+import { nextTotpCode, totpSeedSpellings } from "./totp.js";
 import { storageStateSchema, type BrowserStateStore } from "./browser-state.js";
 
 /**
@@ -777,7 +777,8 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
           | "passkey"
           | "native-dialog"
           | "device-code"
-          | "choice";
+          | "choice"
+          | "consent";
       }
   > {
     await page.goto(plan.entryUrl);
@@ -817,7 +818,10 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
       values[role] = async () => {
         const seed = await options.credentials.resolve(actor, plan, kind);
         if (seed === undefined) throw new Error("credential unavailable");
-        const code = totpCode(seed, now());
+        // Never a code this process already issued: a sign-in right after
+        // the enrolment that kept this seed, or right after another sign-in,
+        // waits for the next period rather than be refused for reuse.
+        const code = await nextTotpCode(seed, { now });
         resolved.push(code);
         return code;
       };
@@ -912,6 +916,11 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
                   ...Object.values(values).filter(
                     (value): value is string => value !== undefined,
                   ),
+                  // A recording is checked against a kept seed in each
+                  // spelling a page could print it in, as the driver is.
+                  ...(values["totp-seed"]
+                    ? totpSeedSpellings(values["totp-seed"])
+                    : []),
                 );
                 await issuedSink(actor, { runRef, plan }, values);
                 kept = true;
@@ -920,6 +929,7 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
           }
         : {}),
       ...(plan.choices ? { choices: plan.choices } : {}),
+      ...(plan.consents ? { consents: plan.consents } : {}),
       ...(input.human && plan.interactionRounds > 0
         ? { human: { ...input.human, maxRequests: plan.interactionRounds } }
         : {}),
@@ -1025,6 +1035,8 @@ export function createBrowserLoginService(options: LoginServiceOptions) {
         return { kind: "human", reason: "device-code" };
       if (result.reason === "choice-required")
         return { kind: "human", reason: "choice" };
+      if (result.reason === "consent-required")
+        return { kind: "human", reason: "consent" };
       // Refusals that mean a secret was *not* safely deliverable end the
       // attempt here. There is nothing for a verifier to adjudicate: the
       // ceremony stopped before doing the thing it would be verifying.

@@ -32,6 +32,7 @@ import {
   executePublishedRecipe,
   importArazzoDraft,
   importRecipeDraft,
+  listOperations,
   listPublishedRecipes,
   teachingInputs,
 } from "./teaching-operations.js";
@@ -736,6 +737,8 @@ async function recipeHttp(
 ): Promise<Response> {
   if (path === "/recipes" && !post)
     return reply({ recipes: await listPublishedRecipes(runtime, actor) });
+  if (path === "/recipes/operations" && !post)
+    return reply({ operations: listOperations(runtime, actor) });
   const publishedRoute = /^\/recipes\/([^/]+)\/(export|retire)$/.exec(path);
   if (publishedRoute) {
     const recipeId = id.parse(decodeURIComponent(publishedRoute[1]!));
@@ -806,26 +809,15 @@ async function agentHttp(
     }
     if (post && agentRoute[2] === "start") {
       z.strictObject({}).parse(body);
-      if (!runtime.modelConfiguration.model)
-        return reply({ status: "unavailable" });
-      const turnId = await runtime.delegate(actor, runId);
-      if (startAgent) {
-        await startAgent(runId, turnId);
-        return reply({ turnId, status: "running" });
-      }
-      // The same projection the status route answers with: the handoff is
-      // included while the turn waits on a person, so a caller that started
-      // the agent inline learns where the person continues without polling.
-      const outcome = await runtime.agent.turnOutcome(actor, runId, turnId);
-      return reply({
-        turnId,
-        status: outcome.status,
-        ...((outcome.status === "awaiting-human" ||
-          outcome.status === "uncertain") &&
-        outcome.handoff
-          ? { handoff: outcome.handoff }
-          : {}),
-      });
+      // Shared with the MCP `ceremony_agent_start` tool, so the gate and the
+      // answer - including the handoff the status route projects while the
+      // turn waits on a person - are one implementation, not two copies.
+      return reply(
+        await ceremonyAgentTools(runtime, { launch: startAgent }).startAgent(
+          actor,
+          { runId },
+        ),
+      );
     }
     if (!post && agentRoute[2] === "status")
       return reply(

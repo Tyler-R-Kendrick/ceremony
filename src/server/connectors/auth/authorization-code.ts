@@ -61,6 +61,48 @@ export const OAUTH_REFRESH_OPERATION = "oauth.token.refresh";
 /** How far ahead of this host's clock an ID token's `iat` may be. */
 const ID_TOKEN_IAT_SKEW_SECONDS = 60;
 
+/**
+ * The only algorithms an ID token may be signed with, whatever the issuer
+ * advertises.
+ *
+ * oauth4webapi's own default already refuses HMAC and unsigned tokens, but a
+ * default is a promise about a dependency's next release, not this engine's.
+ * Pinned here, the rule is one this code states and a test holds: an
+ * asymmetric signature from the issuer's published keys, in one of four
+ * widely deployed algorithms. `HS256` would let anyone holding the client
+ * secret mint an identity; `none` would let anyone at all.
+ */
+export const ID_TOKEN_SIGNING_ALGORITHMS = [
+  "RS256",
+  "PS256",
+  "ES256",
+  "EdDSA",
+] as const;
+
+/**
+ * The server and client as ID tokens are checked against them: the issuer's
+ * advertised algorithms narrowed to the pinned ones (never widened), and no
+ * per-client override, which oauth4webapi would otherwise prefer to both.
+ * An issuer that advertises none of the pinned algorithms has every ID token
+ * refused.
+ */
+function pinnedForIdTokens(
+  as: oauth.AuthorizationServer,
+  client: oauth.Client,
+): { as: oauth.AuthorizationServer; client: oauth.Client } {
+  const advertised = as.id_token_signing_alg_values_supported;
+  const { id_token_signed_response_alg: _override, ...rest } = client;
+  return {
+    as: {
+      ...as,
+      id_token_signing_alg_values_supported: ID_TOKEN_SIGNING_ALGORITHMS.filter(
+        (alg) => !Array.isArray(advertised) || advertised.includes(alg),
+      ),
+    },
+    client: rest,
+  };
+}
+
 const reservedAuthorizationParameters = new Set([
   "response_type",
   "client_id",
@@ -528,9 +570,10 @@ export async function completeAuthorizationCode(
         },
       },
     );
+    const pinned = pinnedForIdTokens(as, input.client.client);
     tokens = await oauth.processAuthorizationCodeResponse(
-      as,
-      input.client.client,
+      pinned.as,
+      pinned.client,
       response,
       { expectedNonce: open.nonce ?? oauth.expectNoNonce },
     );
@@ -549,7 +592,11 @@ export async function completeAuthorizationCode(
      */
     if (oauth.getValidatedIdTokenClaims(tokens) !== undefined)
       try {
-        await oauth.validateApplicationLevelSignature(as, response, transport);
+        await oauth.validateApplicationLevelSignature(
+          pinned.as,
+          response,
+          transport,
+        );
       } catch (failure) {
         // Every reason this can fail is the same answer: the identity in the
         // token is not proven to be the issuer's. A bad signature, an algorithm
@@ -707,6 +754,13 @@ export type RefreshAccessTokenInput = {
   /** A narrower scope to request on refresh (RFC 6749 §6); never wider than the grant. */
   scopes?: readonly string[] | undefined;
   /**
+   * Extra parameters for the refresh request that a reviewed definition
+   * names (Nango's `refresh_params`). Held to the code exchange's rule: a
+   * name the grant owns - grant type, refresh token, client authentication,
+   * scope, resource - is refused before the refresh token is presented.
+   */
+  parameters?: Readonly<Record<string, string>> | undefined;
+  /**
    * Whether the credential custody now holds is still the one the caller saw
    * fail. False means another worker already renewed it between the failure
    * and this worker taking the lock: the current material is kept and no
@@ -743,6 +797,9 @@ export async function refreshAccessToken(
     throw new ConnectorError("unsupported", {
       detail: "oauth.token-endpoint.missing",
     });
+  // Checked before the lock is taken: a refresh token spent on a request
+  // the reviewer never approved cannot be spent again.
+  const extra = tokenRequestParameters(input.parameters);
   let observed: { rotated: boolean; permissions: PermissionRecord } | undefined;
   let result: { ref: string; expiresAt?: number };
   try {
@@ -816,6 +873,7 @@ export async function refreshAccessToken(
             {
               ...requestOptions(wire(ctx, input.server.allowLoopbackHttp)),
               additionalParameters: {
+                ...extra,
                 ...resourceParameters(
                   current["resource"] ?? input.policy.resource,
                 ),
@@ -823,9 +881,10 @@ export async function refreshAccessToken(
               },
             },
           );
+          const pinned = pinnedForIdTokens(as, input.client.client);
           const tokens = await oauth.processRefreshTokenResponse(
-            as,
-            input.client.client,
+            pinned.as,
+            pinned.client,
             response,
           );
           await ctx.environment.effects.complete(begun.effectRef, {

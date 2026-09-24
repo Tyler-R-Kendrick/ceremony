@@ -1,3 +1,4 @@
+import type { ConsentKind } from "../../src/core/browser-contracts.js";
 import type { Phase } from "./captions.js";
 
 /**
@@ -31,8 +32,24 @@ export type DemoEntry = {
   layout: "classic-card" | "identifier-first" | "split-panel";
   /** Which side of the frame the chain/inbox panel sits on, clear of the form. */
   panelSide?: "left" | "right";
+  /** Whether the run reads mail through the agent inbox. Most do. */
+  mail?: boolean;
+  /**
+   * The video shows an RFC 8628 user code and verification URL, as a device
+   * shows them to a person by design; the title card says so rather than
+   * claim no code or link is ever shown.
+   */
+  showsUserCode?: boolean;
   /** Also published as a small preview under `docs/demos/`. */
   docsPreview: boolean;
+  /**
+   * The advance consent the person gave before a demo that registers an
+   * account: the provider's terms and privacy policy, which every realistic
+   * sign-up page asks the new account to accept. Accepting them is a legal
+   * act, so the driver ticks that box only because this says so, the title
+   * card states it, and the caption on the tick says it was consented to.
+   */
+  consents?: readonly ConsentKind[];
   load: () => Promise<{ record: DemoRecorder }>;
 };
 
@@ -51,7 +68,29 @@ export const demoCatalog: readonly DemoEntry[] = [
     scenario: "registration-with-emailed-code",
     interpreter: "heuristic",
     docsPreview: true,
+    consents: ["terms", "privacy"],
     load: () => import("./agent-creates-account.js"),
+  },
+  {
+    id: "totp-enrollment",
+    layout: "split-panel",
+    panelSide: "left",
+    title: "Register, then set up an authenticator",
+    summary:
+      "The agent registers a new account and the provider requires an authenticator app: the driver reads the setup key into custody, confirms it with a code derived from that seed, and a later sign-in answers the two-factor prompt from the held seed. The seed and every code are boxed out of the video.",
+    scenario: "registration-enrolls-an-authenticator",
+    interpreter: "heuristic",
+    chain: [
+      "register",
+      "verify-email",
+      "enroll-authenticator",
+      "sign-in-again",
+      "second-factor",
+      "verified",
+    ],
+    docsPreview: true,
+    consents: ["terms", "privacy"],
+    load: () => import("./totp-enrollment.js"),
   },
   {
     id: "registration-recovers",
@@ -63,6 +102,7 @@ export const demoCatalog: readonly DemoEntry[] = [
     scenario: "registration-recovers-with-fresh-address",
     interpreter: "heuristic",
     docsPreview: false,
+    consents: ["terms", "privacy"],
     load: () => import("./registration-recovers.js"),
   },
   {
@@ -83,6 +123,7 @@ export const demoCatalog: readonly DemoEntry[] = [
       "verified",
     ],
     docsPreview: true,
+    consents: ["terms", "privacy"],
     load: () => import("./connect-without-account.js"),
   },
   {
@@ -105,6 +146,20 @@ export const demoCatalog: readonly DemoEntry[] = [
     load: () => import("./connect-with-account.js"),
   },
   {
+    id: "device-authorization",
+    layout: "identifier-first",
+    title: "Authorize a device with its code",
+    summary:
+      "A command-line device asks to be authorized and shows a code. The agent signs in at the provider's device page, types the code because the plan supplies it, and approves the consent screen; the device's own token poll proves it is connected. Without a code in the plan, a person enters it instead.",
+    scenario: "device-authorization-with-consent",
+    interpreter: "heuristic",
+    chain: ["device-request", "sign-in", "device-code", "consent", "verified"],
+    mail: false,
+    showsUserCode: true,
+    docsPreview: true,
+    load: () => import("./device-authorization.js"),
+  },
+  {
     id: "chain-two-providers",
     layout: "classic-card",
     title: "Chain two providers in one run",
@@ -125,6 +180,7 @@ export const demoCatalog: readonly DemoEntry[] = [
     scenario: "registration-with-emailed-code",
     interpreter: "heuristic",
     docsPreview: false,
+    consents: ["terms", "privacy"],
     load: () => import("./record-once-replay.js"),
   },
 ];

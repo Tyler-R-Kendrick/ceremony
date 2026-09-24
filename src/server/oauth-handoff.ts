@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import type { ActorContext } from "../core/operation-contracts.js";
-import type { RunRecord } from "./commands.js";
+import { scopedRun, type RunRecord } from "./commands.js";
 import { AuthorizationError } from "./identity.js";
 import { appendSemanticTransition } from "./demonstrations.js";
 import type {
@@ -108,18 +108,22 @@ export class DurableAuthorizationCode<Session> {
       id: context.runId,
     });
     const node = run?.value.nodes.find((node) => node.id === context.nodeId);
+    // The step's own context: it may be planned under this provider's
+    // connector inside another provider's run.
+    const scoped = run && scopedRun(run.value, node);
     if (
       !run ||
       !node ||
+      !scoped ||
       run.value.status === "cancelled" ||
       run.value.subjectId !== context.actor.subjectId ||
       run.value.sessionId !== context.actor.sessionId ||
-      run.value.provider !== this.options.provider ||
-      run.value.profile !== this.options.profile ||
-      run.value.target !== context.target ||
-      run.value.origin !== context.origin ||
-      run.value.environment !== context.environment ||
-      run.value.configurationVersion !== context.configurationVersion ||
+      scoped.provider !== this.options.provider ||
+      scoped.profile !== this.options.profile ||
+      scoped.target !== context.target ||
+      scoped.origin !== context.origin ||
+      scoped.environment !== context.environment ||
+      scoped.configurationVersion !== context.configurationVersion ||
       node.operationId !== this.options.operationId ||
       node.operationVersion !== this.options.operationVersion
     )

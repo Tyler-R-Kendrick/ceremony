@@ -4,10 +4,12 @@ import {
   decodeBase32,
   hotp,
   InvalidTotpSeed,
+  nextTotpCode,
   parseTotpSeed,
   totp,
   totpCode,
   totpSeedSpellings,
+  TotpClockStalled,
   type TotpAlgorithm,
 } from "../src/server/totp.js";
 
@@ -134,5 +136,39 @@ describe("held seeds", () => {
       "gezd gnbv gy3t qojq gezd gnbv gy3t qojq",
     ])
       assert.ok(spellings.includes(expected), expected);
+  });
+});
+
+describe("TOTP-SINGLE-USE: a code is issued once", () => {
+  test("a second code in the same period waits for the next one, and a stalled clock is refused", async () => {
+    // A seed of its own, so no other test's codes are in the record.
+    const seed = "MFRGGZDFMZTWQ2LKNNWG23TPOBYXE43U";
+    const start = 90_000_000_000 + 5_000;
+    let clock = start;
+    const waits: number[] = [];
+    const advancing = {
+      now: () => clock,
+      sleep: async (ms: number) => {
+        waits.push(ms);
+        clock += ms;
+      },
+    };
+    const first = await nextTotpCode(seed, advancing);
+    assert.equal(first, totpCode(seed, start));
+    assert.deepEqual(waits, []);
+    // Ten seconds later, still the same period: the code it would give is
+    // the one it gave, so it waits past the boundary and gives the next.
+    clock += 10_000;
+    const second = await nextTotpCode(seed, advancing);
+    assert.equal(waits.length, 1);
+    assert.ok(waits[0]! > 0 && waits[0]! <= 30_000);
+    assert.equal(Math.floor(clock / 30_000), Math.floor(start / 30_000) + 1);
+    assert.equal(second, totpCode(seed, clock));
+    assert.notEqual(second, first);
+
+    // A clock that never moves cannot produce a new code, and says so
+    // instead of repeating one.
+    const frozen = { now: () => clock, sleep: async () => {} };
+    await assert.rejects(nextTotpCode(seed, frozen), TotpClockStalled);
   });
 });

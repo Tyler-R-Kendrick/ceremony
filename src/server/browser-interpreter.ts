@@ -1,7 +1,11 @@
 import { generateText, Output, type LanguageModel } from "ai";
 import {
   ceremonyRoles,
+  checkboxConsent,
+  consentCovers,
   deviceVerificationField,
+  needsConsent,
+  type ConsentKind,
   driverActionSchema,
   type CeremonyGoal,
   type CeremonyRole,
@@ -47,6 +51,13 @@ export type InterpreterInput = {
    * text on both sides; never a secret.
    */
   choices?: Readonly<Record<string, string>>;
+  /**
+   * What the person consented to in advance: the kinds of box - terms,
+   * privacy policy, age - the plan may tick on their behalf. Only the plan
+   * sets them, so an interpreter reading them can decline a box but never
+   * widen what may be ticked; the driver refuses any other tick anyway.
+   */
+  consents?: readonly ConsentKind[];
 };
 
 export type CeremonyInterpreter = (
@@ -71,13 +82,13 @@ export function interpreterPrompt(input: InterpreterInput): string {
 Choose exactly ONE next action and return only that object.
 - "fill" names an element index and a role. Code substitutes the value; you never see it. Available roles: ${input.available.join(", ") || "none"}.
 - "click" a button or link by element index to submit, continue, approve, or move to the sign-in or registration page you need.
-- "check" a required checkbox, such as terms or age confirmation, by element index.
+- "check" a required checkbox by element index. A box accepting terms, a privacy policy or an age confirmation may be checked only when the person consented in advance to every kind it names: ${JSON.stringify(input.consents ?? [])}. Otherwise it is "blocked" with consent-required. Never check a marketing or newsletter opt-in.
 - "select" chooses an "option" of a select element by its visible label, exactly as listed. Only choose what the plan chose: ${JSON.stringify(input.choices ?? {})}. A required choice the plan did not make is "blocked" with choice-required.
 - "wait" only when the page is mid-transition and no element can be acted on.
 - "done" only when the page shows the ceremony finished. A claim is checked; an unverified claim fails the attempt.
-- "blocked" with a reason when no action can help: human-challenge, credentials-rejected, account-exists, account-missing, consent-denied, provider-error, unsupported-page, device-code-required (a page asking for the code shown on a device when no user-code role is available), choice-required.${
+- "blocked" with a reason when no action can help: human-challenge, credentials-rejected, account-exists, account-missing, consent-denied, provider-error, unsupported-page, device-code-required (a page asking for the code shown on a device when no user-code role is available), choice-required, consent-required.${
     input.issuedLabels?.length
-      ? `\n- The plan keeps what these read-only fields show, privately: ${JSON.stringify(input.issuedLabels)}. Never fill them. Once every one of them shows a value, the ceremony is "done"; do not press anything that would generate a new one.`
+      ? `\n- The plan keeps what these read-only fields show, privately: ${JSON.stringify(input.issuedLabels)}. Never fill them. If the page also asks for something you can fill, such as a code confirming an authenticator it just set up, fill it and submit. Otherwise, once every one of them shows a value, the ceremony is "done"; do not press anything that would generate a new one.`
       : ""
   }
 - "note" is a short public status line. Never put a credential, code or personal value in it.
@@ -309,6 +320,7 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
     history,
     issuedLabels = [],
     choices = {},
+    consents = [],
   }) => {
     if (snapshot.challenge)
       return { action: "blocked", reason: "human-challenge" };
@@ -387,12 +399,37 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
         ),
       );
       if (shown.every((matches) => matches.length === 1)) {
-        if (shown.every(([field]) => field!.filled === true))
-          return { action: "done", note: "issued values shown" };
-        const waited = history.at(-1)?.action === "wait";
-        return waited
-          ? { action: "blocked", reason: "unsupported-page" }
-          : { action: "wait" };
+        // An enrolment page shows its setup key and, on the same form, asks
+        // for a code from the authenticator just set up. A field still asking
+        // for something this caller can now answer is filled and submitted
+        // like any other; only a page with nothing left to answer is the end.
+        const page = [snapshot.title, ...snapshot.headings, ...snapshot.alerts]
+          .join(" ")
+          .toLowerCase();
+        const asked = snapshot.elements.some((element) => {
+          if (element.kind !== "input" || element.readOnly) return false;
+          if (element.filled === true || element.submitsTo) return false;
+          const role = roleOf(element, false, available, page);
+          return role !== undefined && available.includes(role);
+        });
+        // Answered but not yet sent: the form's own button is still to press.
+        const here = (entry: (typeof history)[number]) =>
+          entry.path === snapshot.path;
+        const unsent =
+          history.findLastIndex(
+            (entry) => here(entry) && entry.action === "fill",
+          ) >
+          history.findLastIndex(
+            (entry) => here(entry) && entry.action === "click",
+          );
+        if (!asked && !unsent) {
+          if (shown.every(([field]) => field!.filled === true))
+            return { action: "done", note: "issued values shown" };
+          const waited = history.at(-1)?.action === "wait";
+          return waited
+            ? { action: "blocked", reason: "unsupported-page" }
+            : { action: "wait" };
+        }
       }
     }
 
@@ -401,14 +438,23 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
     // into the field - a mailed code, an authenticator's - would hand the
     // provider a value meant for somewhere else. Without it, a person holding
     // the device has to enter it, and the driver decides whether to ask one.
+    //
+    // A field that is already filled changes nothing. A
+    // `verification_uri_complete` link puts its code in the field, and a
+    // code this caller was never given is not one it can vouch for: pressing
+    // Continue would approve whichever device the link came from.
     const deviceField = deviceVerificationField(snapshot);
     if (
       deviceField &&
-      deviceField.filled !== true &&
       !deviceField.submitsTo &&
       !available.includes("user-code")
     )
       return { action: "blocked", reason: "device-code-required" };
+    // With the code in hand, a field the page filled is typed over with it,
+    // once per document, so what is approved is the plan's code.
+    const typedHere = history.some(
+      (entry) => entry.action === "fill" && entry.path === snapshot.path,
+    );
 
     // Registering, on a page that is not itself a registration form but links
     // to one: go there first. Filling a sign-in form here would post the
@@ -494,7 +540,9 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
         (!role || !available.includes(role))
       )
         unchosen ??= element;
-      if (!role || element.filled || !available.includes(role)) continue;
+      const prefilled = element === deviceField && !typedHere;
+      if (!role || (element.filled && !prefilled) || !available.includes(role))
+        continue;
       // Never type into a form that posts somewhere else; the driver refuses
       // it too, and asking is a wasted step.
       if (element.submitsTo) continue;
@@ -505,27 +553,33 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
     // and submitting without it only earns the provider's refusal.
     if (unchosen) return { action: "blocked", reason: "choice-required" };
 
-    // A required box is ticked for any goal. Registration also ticks the
-    // provider's terms or age confirmation when the page does not mark it
-    // required - many only say so after a refused submit - because accepting
-    // them is part of creating the account the person asked for. Nothing
-    // else optional is ever ticked: "I agree" is also how marketing and
-    // data-sharing boxes are worded, so the wording must name terms or an
-    // age, and must not name mail, offers or partners.
-    const unchecked = snapshot.elements.find(
-      (element) =>
-        element.kind === "checkbox" &&
-        element.filled !== true &&
-        (element.required === true ||
+    // A required box is ticked for any goal - unless ticking it is a legal
+    // act. Accepting terms or a privacy policy, or attesting to an age, is
+    // ticked only under the person's advance consent to every kind the box
+    // names; otherwise it is theirs to tick, and saying so is what brings
+    // them in. Registration also reads an unmarked terms box as needed - many
+    // providers only say so after a refused submit - and holds it to the
+    // same rule. A marketing, newsletter or data-sharing opt-in is never
+    // ticked - "I agree" is how those are worded too, which is why the box is
+    // read for them first - and a required one is a person's call. Nothing
+    // else optional is ticked.
+    for (const element of snapshot.elements) {
+      if (element.kind !== "checkbox" || element.filled === true) continue;
+      const consent = checkboxConsent(element);
+      if (needsConsent(consent)) {
+        const needed =
+          element.required === true ||
           (goal === "registration" &&
-            /\b(terms|conditions|privacy policy|eula|old enough|years of age)\b/.test(
-              words(element),
-            ) &&
-            !/marketing|newsletter|offers|partners|promot|updates/.test(
-              words(element),
-            ))),
-    );
-    if (unchecked) return { action: "check", element: unchecked.index };
+            consent.kinds.length > 0 &&
+            !consent.marketing);
+        if (!needed) continue;
+        if (!consentCovers(consent, consents))
+          return { action: "blocked", reason: "consent-required" };
+        return { action: "check", element: element.index };
+      }
+      if (element.required === true)
+        return { action: "check", element: element.index };
+    }
 
     // Only what was pressed on *this* document counts as already tried.
     //

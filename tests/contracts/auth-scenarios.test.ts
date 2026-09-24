@@ -581,3 +581,39 @@ for (const scenario of authScenarios.filter(
         summary,
       );
   });
+
+test("an issued token is kept however the page labels its code block", async (t) => {
+  const scenario = authScenarios.find(
+    (entry) => entry.id === "access-token-issued-for-private-collection",
+  )!;
+  for (const tokenLabel of [
+    "aria-label",
+    "aria-labelledby",
+    "heading",
+  ] as const)
+    for (const interpreter of [
+      createScriptedInterpreter(),
+      createHeuristicInterpreter(),
+    ]) {
+      const { result, context, state } = await attempt(
+        t,
+        {
+          ...scenario,
+          behavior: (options) => ({
+            ...scenario.behavior(options),
+            tokenLabel,
+          }),
+        },
+        { interpreter },
+      );
+      assert.equal(
+        result.status,
+        "completed",
+        `${tokenLabel}: ${detail(result)}`,
+      );
+      const [issued] = context.provider.issuedTokens();
+      assert.ok(issued);
+      assert.equal(state.kept, issued, tokenLabel);
+      assert.equal(JSON.stringify(result).includes(issued), false);
+    }
+});

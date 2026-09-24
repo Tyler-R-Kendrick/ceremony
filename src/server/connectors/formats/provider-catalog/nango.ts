@@ -18,8 +18,11 @@ import {
  *
  * The file is a map from provider key to a description: `auth_mode`,
  * `authorization_url`, `token_url`, `authorization_params`, `token_params`,
- * `scope_separator`, `default_scopes`, `proxy.base_url`, `proxy.headers`,
- * `connection_config`, `refresh_url`, `docs`, `categories` and `alias`.
+ * `refresh_params`, `scope_separator`, `default_scopes`, `proxy.base_url`,
+ * `proxy.headers`, `connection_config`, `refresh_url`, `docs`, `categories`
+ * and `alias`. Where an entry also names its OpenID issuer - an `issuer`, or
+ * the discovery document at a `well_known_url` - that is kept too, and is
+ * what lets the entry ask for `openid`.
  * Templates in it use `${connectionConfig.x}` for per-connection values and
  * `${apiKey}` (and friends) for where a credential goes.
  *
@@ -130,6 +133,8 @@ const mappedKeys = new Set([
   "connection_config",
   "verification",
   "alias",
+  "issuer",
+  "well_known_url",
 ]);
 
 function text(value: unknown, max: number): string | undefined {
@@ -409,17 +414,21 @@ function mapAuthorizationParams(
   return { params, scopes };
 }
 
+/**
+ * `token_params`, or `refresh_params` for the refresh grant: static extras
+ * for one kind of token request. A parameter the grant sends itself is
+ * dropped when it only repeats it, and refused when it would change it.
+ */
 function tokenParameters(
   raw: Raw,
   key: string,
-  grant: "authorization_code" | "client_credentials",
+  grant: "authorization_code" | "client_credentials" | "refresh_token",
   issues: CompatibilityIssue[],
 ): Record<string, string> {
+  const from = grant === "refresh_token" ? "refresh_params" : "token_params";
   const params: Record<string, string> = {};
-  for (const [name, value] of Object.entries(
-    stringRecord(raw["token_params"]),
-  )) {
-    const at = pointer(key, "token_params", name);
+  for (const [name, value] of Object.entries(stringRecord(raw[from]))) {
+    const at = pointer(key, from, name);
     if (name === "grant_type" && value === grant) {
       issues.push(
         catalogIssue({
@@ -437,14 +446,107 @@ function tokenParameters(
       nonConnectionVariables(value).length
     )
       throw new Unsupported(
-        grant === "authorization_code" ? "OAUTH2" : "OAUTH2_CC",
+        grant === "client_credentials" ? "OAUTH2_CC" : "OAUTH2",
         "A token parameter overrides the grant or references a value the catalog cannot supply.",
-        "catalog.nango.token-params-unsupported",
+        grant === "refresh_token"
+          ? "catalog.nango.refresh-params-unsupported"
+          : "catalog.nango.token-params-unsupported",
         at,
       );
     params[name] = value;
   }
   return params;
+}
+
+/**
+ * The issuer an OAUTH2 entry names, or nothing.
+ *
+ * An ID token names the account, so `openid` is only ever asked for an entry
+ * whose issuer is known, and the adapter then reads that issuer's own metadata
+ * and requires it to agree byte for byte. Nothing is guessed here: an entry
+ * that names no issuer keeps refusing `openid`, and so does one whose issuer
+ * cannot be an issuer identifier (RFC 8414 section 2: an HTTPS URL with no
+ * query or fragment) or is templated per connection - whose keys verify an ID
+ * token is never a per-connection choice. A `well_known_url` yields its issuer
+ * by the discovery rules in reverse: the OpenID Connect suffix removed, or the
+ * RFC 8414 well-known segment taken back out of the path.
+ */
+function mapIssuer(
+  raw: Raw,
+  key: string,
+  issues: CompatibilityIssue[],
+  options: ParseOptions,
+): string | undefined {
+  const identifier = (value: string): URL | undefined => {
+    if (value.includes("${") || value.includes("?") || !URL.canParse(value))
+      return undefined;
+    const url = new URL(value);
+    const loopback =
+      url.protocol === "http:" &&
+      options.allowLoopbackHttp === true &&
+      (url.hostname === "127.0.0.1" || url.hostname === "localhost");
+    if (
+      (url.protocol !== "https:" && !loopback) ||
+      url.hash ||
+      url.username ||
+      url.password
+    )
+      return undefined;
+    return url;
+  };
+  const dropped = (at: string, message: string) => {
+    issues.push(
+      catalogIssue({
+        kind: "warning",
+        code: "catalog.nango.issuer-dropped",
+        pointer: pointer(key, at),
+        message,
+      }),
+    );
+    return undefined;
+  };
+  if (raw["issuer"] !== undefined) {
+    const url =
+      typeof raw["issuer"] === "string" ? identifier(raw["issuer"]) : undefined;
+    if (!url)
+      return dropped(
+        "issuer",
+        "The issuer is not a fixed HTTPS URL without a query or fragment, so it was left out; the entry cannot ask for openid.",
+      );
+    // Kept exactly as written: the metadata has to name it byte for byte.
+    return raw["issuer"] as string;
+  }
+  if (raw["well_known_url"] === undefined) return undefined;
+  const url =
+    typeof raw["well_known_url"] === "string"
+      ? identifier(raw["well_known_url"])
+      : undefined;
+  const path = url?.pathname ?? "";
+  const suffix = "/.well-known/openid-configuration";
+  const derived = !url
+    ? undefined
+    : path.endsWith(suffix)
+      ? `${url.origin}${path.slice(0, -suffix.length)}`
+      : /^\/\.well-known\/(oauth-authorization-server|openid-configuration)(\/|$)/.test(
+            path,
+          )
+        ? `${url.origin}${path.replace(/^\/\.well-known\/[a-z-]+/, "")}`
+        : undefined;
+  if (derived === undefined)
+    return dropped(
+      "well_known_url",
+      "The discovery URL is not an OpenID Connect or RFC 8414 metadata address, so no issuer could be read from it; the entry cannot ask for openid.",
+    );
+  issues.push(
+    catalogIssue({
+      kind: "adapted",
+      code: "catalog.nango.issuer-from-discovery",
+      pointer: pointer(key, "well_known_url"),
+      message:
+        "The issuer was read from the discovery URL. Its metadata must name the same issuer before any ID token is accepted.",
+    }),
+  );
+  return derived;
 }
 
 function clientAuth(
@@ -619,29 +721,15 @@ function mapProvider(
         issues,
       );
       // Sent on the code exchange only; Nango keeps refresh-time extras in
-      // `refresh_params`, handled below.
+      // `refresh_params`, which ride on refresh requests only.
       const tokenParams = tokenParameters(
         raw,
         key,
         "authorization_code",
         issues,
       );
-      let refresh = true;
-      if (
-        isRecord(raw["refresh_params"]) &&
-        Object.keys(raw["refresh_params"]).length
-      ) {
-        refresh = false;
-        issues.push(
-          catalogIssue({
-            kind: "warning",
-            code: "catalog.nango.refresh-params",
-            pointer: pointer(key, "refresh_params"),
-            message:
-              "The provider needs extra refresh parameters the engine does not send, so refresh is disabled; the person reconnects when the token expires.",
-          }),
-        );
-      }
+      const refreshParams = tokenParameters(raw, key, "refresh_token", issues);
+      const issuer = mapIssuer(raw, key, issues, options);
       if (raw["disable_pkce"] === true)
         issues.push(
           catalogIssue({
@@ -667,8 +755,10 @@ function mapProvider(
         scopeSeparator,
         authorizationParams: mapped.params,
         tokenParams,
+        ...(Object.keys(refreshParams).length ? { refreshParams } : {}),
         tokenRequestAuth: clientAuth(raw, key, "client_secret_post"),
-        refresh,
+        refresh: true,
+        ...(issuer !== undefined ? { issuer } : {}),
       };
       break;
     }
@@ -772,6 +862,7 @@ function mapProvider(
       (auth["authorizationParams"] as Record<string, string>) ?? {},
     ),
     ...Object.values((auth["tokenParams"] as Record<string, string>) ?? {}),
+    ...Object.values((auth["refreshParams"] as Record<string, string>) ?? {}),
     ...Object.values(proxyHeaders),
   ].filter((value): value is string => typeof value === "string");
   const used = new Set<string>();

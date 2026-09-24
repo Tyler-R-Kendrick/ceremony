@@ -9,6 +9,20 @@ export const identifierSchema = z
 export const semanticVersionSchema = z
   .string()
   .regex(/^\d{1,4}\.\d{1,4}\.\d{1,4}$/);
+/**
+ * The id of an operation a signed operation pack provides:
+ * `pack:<packId>/<operation>`. The slash never occurs in a host operation id,
+ * so a pack can neither shadow a built-in step nor another pack's, and only
+ * `OperationRegistry.registerPack` accepts this shape.
+ */
+export const packOperationIdSchema = z
+  .string()
+  .regex(/^pack:[a-z][a-z0-9-]{0,39}\/[a-z][a-z0-9-]{0,47}$/);
+/** A registered operation's id: a host identifier or a pack operation id. */
+export const operationIdSchema = z.union([
+  identifierSchema,
+  packOperationIdSchema,
+]);
 export const fieldClassificationSchema = z.enum([
   "public",
   "personal",
@@ -32,14 +46,14 @@ export const publicValueSchema = z.union([
 ]);
 export const operationContractSchema = z
   .object({
-    id: identifierSchema,
+    id: operationIdSchema,
     version: semanticVersionSchema,
     provider: identifierSchema,
     profile: identifierSchema,
     inputs: z.record(identifierSchema, registeredInputContractSchema),
     outputs: z.record(identifierSchema, registeredInputContractSchema),
-    effects: z.array(identifierSchema).max(16),
-    verifier: identifierSchema,
+    effects: z.array(operationIdSchema).max(16),
+    verifier: operationIdSchema,
     humanFallback: identifierSchema,
   })
   .strict();

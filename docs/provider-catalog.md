@@ -85,23 +85,25 @@ They are host configuration read by name: `<ID>_CLIENT_ID` and
 `catalog-http` adapter's `import` accepts it through the ordinary import
 route. Every provider key yields exactly one entry.
 
-| Nango                                                     | Catalog entry                                                                                                                  |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `auth_mode: OAUTH2`                                       | `oauth2-authorization-code`                                                                                                    |
-| `auth_mode: OAUTH2_CC`                                    | `oauth2-client-credentials`                                                                                                    |
-| `auth_mode: API_KEY` with `proxy.headers` / `proxy.query` | `api-key` header or query placement; `authorization: Bearer ${apiKey}` becomes `bearer`                                        |
-| `auth_mode: BASIC`, `NONE`                                | `basic`, `none`                                                                                                                |
-| `OAUTH1`, `APP`, `CUSTOM`, `TBA`, `JWT`, `SIGNATURE`, ... | `unsupported`, with the reason and a blocking issue                                                                            |
-| `authorization_url`, `token_url`, `refresh_url`           | the same URLs; a query string on the authorization URL becomes explicit parameters                                             |
-| `authorization_params`                                    | `authorizationParams`; a redundant `response_type: code` is dropped with an issue; a reserved override is `unsupported`        |
-| `token_params`                                            | `tokenParams`, sent on the client-credentials request or the authorization-code exchange; a reserved override is `unsupported` |
-| `default_scopes`, `scope_separator`                       | `scopes`, `scopeSeparator` (space or comma)                                                                                    |
-| `token_request_auth_method: basic`                        | `client_secret_basic` (otherwise `client_secret_post`)                                                                         |
-| `proxy.base_url`, `proxy.headers`, `proxy.verification`   | `proxy.baseUrl`, non-credential `proxy.headers`, `proxy.verification`                                                          |
-| `connection_config`, `${connectionConfig.x}`              | `connectionConfig` fields; a field used in a host is a `dns-label`; the provider's own pattern is replaced, with an issue      |
-| `alias`                                                   | resolved against the named provider, with an issue                                                                             |
-| `docs`, `categories`, `display_name`                      | `docsUrl`, `categories`, `displayName`                                                                                         |
-| scripts, `proxy.retry`, `proxy.paginate`, other keys      | not imported; each reported as an info issue                                                                                   |
+| Nango                                                     | Catalog entry                                                                                                                                                                                                 |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `auth_mode: OAUTH2`                                       | `oauth2-authorization-code`                                                                                                                                                                                   |
+| `auth_mode: OAUTH2_CC`                                    | `oauth2-client-credentials`                                                                                                                                                                                   |
+| `auth_mode: API_KEY` with `proxy.headers` / `proxy.query` | `api-key` header or query placement; `authorization: Bearer ${apiKey}` becomes `bearer`                                                                                                                       |
+| `auth_mode: BASIC`, `NONE`                                | `basic`, `none`                                                                                                                                                                                               |
+| `OAUTH1`, `APP`, `CUSTOM`, `TBA`, `JWT`, `SIGNATURE`, ... | `unsupported`, with the reason and a blocking issue                                                                                                                                                           |
+| `authorization_url`, `token_url`, `refresh_url`           | the same URLs; a query string on the authorization URL becomes explicit parameters                                                                                                                            |
+| `authorization_params`                                    | `authorizationParams`; a redundant `response_type: code` is dropped with an issue; a reserved override is `unsupported`                                                                                       |
+| `token_params`                                            | `tokenParams`, sent on the client-credentials request or the authorization-code exchange; a reserved override is `unsupported`                                                                                |
+| `issuer`, `well_known_url`                                | `issuer`: kept exactly as written, or read out of an OpenID Connect or RFC 8414 discovery URL; a templated, non-HTTPS or query-carrying one is left out with a warning, and the entry keeps refusing `openid` |
+| `refresh_params`                                          | `refreshParams`, sent on refresh requests only; a redundant `grant_type: refresh_token` is dropped; a reserved override is `unsupported`                                                                      |
+| `default_scopes`, `scope_separator`                       | `scopes`, `scopeSeparator` (space or comma)                                                                                                                                                                   |
+| `token_request_auth_method: basic`                        | `client_secret_basic` (otherwise `client_secret_post`)                                                                                                                                                        |
+| `proxy.base_url`, `proxy.headers`, `proxy.verification`   | `proxy.baseUrl`, non-credential `proxy.headers`, `proxy.verification`                                                                                                                                         |
+| `connection_config`, `${connectionConfig.x}`              | `connectionConfig` fields; a field used in a host is a `dns-label`; the provider's own pattern is replaced, with an issue                                                                                     |
+| `alias`                                                   | resolved against the named provider, with an issue                                                                                                                                                            |
+| `docs`, `categories`, `display_name`                      | `docsUrl`, `categories`, `displayName`                                                                                                                                                                        |
+| scripts, `proxy.retry`, `proxy.paginate`, other keys      | not imported; each reported as an info issue                                                                                                                                                                  |
 
 A provider whose description cannot be represented exactly is never guessed
 at and never dropped: it is imported as `unsupported`, carrying its reason. The
@@ -166,22 +168,27 @@ from Nango.
   parameters; parameters the grant owns (grant type, client authentication,
   scope, resource) cannot be set that way.
 - An authorization-code entry's `tokenParams` (Nango's `token_params`, such as
-  an `audience`) are sent on the code exchange only, not on refresh (Nango
-  keeps refresh extras in `refresh_params`, which still disables refresh).
-  They are static values from the reviewed entry, filled only with the
+  an `audience`) are sent on the code exchange only, and its `refreshParams`
+  (Nango's `refresh_params`) on refresh requests only; refresh stays on.
+  Both are static values from the reviewed entry, filled only with the
   connection's configured fields; nothing from the callback, the caller or a
   model can add or change one. A name the grant owns (`grant_type`, `code`,
   `redirect_uri`, `code_verifier`, `client_id`, `client_secret`,
   `client_assertion`, `client_assertion_type`, `scope`, `resource`,
-  `refresh_token`) is refused when the entry is read, and the engine refuses
-  it again (`oauth.token-parameter.reserved`) before the code is spent.
+  `refresh_token`) is refused in either when the entry is read, and the engine
+  refuses it again (`oauth.token-parameter.reserved`) before the code or the
+  refresh token is spent. `refreshParams` is omitted rather than empty when
+  there are none, so entries digested before it existed still match their
+  bindings.
 - Not described by the format: OAuth 1.0a, request signing, app installations,
-  custom multi-step flows, webhooks, pagination and retries, extra refresh
-  parameters, and upstream revocation.
+  custom multi-step flows, webhooks, pagination and retries, and upstream
+  revocation.
 - The `openid` scope is accepted only for an authorization-code entry that
   names its `issuer`, declares `openid` among its scopes (a caller cannot add
   it, see below) and uses the space scope separator; otherwise it is
-  refused (`catalog.scope.openid`, `catalog.scope.openid-separator`). An ID
+  refused (`catalog.scope.openid`, `catalog.scope.openid-separator`). A Nango
+  entry has an issuer only when its description names one, as an `issuer` or
+  a `well_known_url`; nothing is guessed from the token endpoint. An ID
   token names the account, so an `openid` authorization reads the issuer's
   metadata (RFC 8414 or OpenID Connect discovery, through the same approved
   fetch and its egress, size and time limits). The document's `issuer` must
@@ -190,8 +197,10 @@ from Nango.
   or equal the entry's optional `jwksUrl`; an issuer that publishes no keys is
   refused before the person is sent anywhere (`catalog.oidc.jwks-missing`).
   The engine then sends a nonce and verifies the ID token's signature against
-  the published keys (ES256, RS256 and the other asymmetric algorithms
-  oauth4webapi supports; never HMAC), its issuer, audience, `exp` (30 second
+  the published keys, in one of the engine's pinned algorithms (`RS256`,
+  `PS256`, `ES256`, `EdDSA`, narrowed further by what the issuer advertises
+  and never widened by it or by a client setting; `HS256`, `none` and any
+  other algorithm are refused), its issuer, audience, `exp` (30 second
   tolerance), `iat` (no more than a minute ahead) and nonce. Only the verified
   subject leaves the engine, as the connection's account identity; the ID
   token and its other claims are neither stored nor projected. Without

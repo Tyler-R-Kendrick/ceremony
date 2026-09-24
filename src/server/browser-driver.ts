@@ -1,7 +1,10 @@
 import type { HumanHandoffContract } from "../core/connector-contracts.js";
 import {
+  checkboxConsent,
+  consentCovers,
   deviceVerificationField,
   driverActionSchema,
+  needsConsent,
   secretIssuedValueKinds,
   secretRoles,
   type BlockedReason,
@@ -10,6 +13,7 @@ import {
   type CeremonyRole,
   type CeremonyStep,
   type CeremonyStepAction,
+  type ConsentKind,
   type DriverAction,
   type HumanStepReason,
   type IssuedValueKind,
@@ -29,6 +33,7 @@ import {
   type RecordedTraceEntry,
 } from "../core/recorded-ceremony.js";
 import { DispatchUncertain, StaleTargetError } from "./browser-targets.js";
+import { nextTotpCode, parseTotpSeed, totpSeedSpellings } from "./totp.js";
 export {
   humanStepReasons,
   type HumanStepReason,
@@ -242,6 +247,13 @@ export interface CeremonyRunOptions {
    * interpreter is given; the transcript records a `kept` step naming the
    * kinds. While any declared value is still unread, neither a claim of
    * completion nor an arrival at the callback completes the attempt.
+   *
+   * A kept `totp-seed` also answers the page that showed it. Enrolment asks
+   * for a code from the authenticator just set up before it turns the factor
+   * on, so from the moment the seed is read the attempt offers `totp-code`,
+   * computed here from that seed at the moment of filling. The interpreter
+   * sees the role and never the seed or the code, and the code is guarded
+   * like any other typed secret.
    */
   issued?: {
     fields: Readonly<Partial<Record<IssuedValueKind, string>>>;
@@ -256,6 +268,18 @@ export interface CeremonyRunOptions {
    * person's to make.
    */
   choices?: Readonly<Record<string, string>>;
+  /**
+   * The person's advance consent: which kinds of legal box - terms, privacy
+   * policy, age - this attempt may tick on their behalf. From the plan, never
+   * from an interpreter.
+   *
+   * Every `check` an interpreter proposes is read against it here, whoever
+   * proposed it: a box that accepts terms, a privacy policy or an age
+   * attestation the person did not consent to is handed to a person to tick
+   * (`consent`), or ends the attempt as `consent-required` with nobody to
+   * ask. A marketing or newsletter opt-in is never ticked, consent or not.
+   */
+  consents?: readonly ConsentKind[];
   onStep?: (step: CeremonyStep) => void;
   /**
    * Called once an action has actually taken effect, with the observation it
@@ -280,6 +304,7 @@ const fallbackFor: Readonly<Record<HumanStepReason, BlockedReason>> = {
   "native-dialog": "native-dialog",
   "device-code": "device-code-required",
   choice: "choice-required",
+  consent: "consent-required",
 };
 
 /**
@@ -403,6 +428,26 @@ export async function runCeremony(
     string,
   ][];
   let kept = declared.length === 0;
+  /**
+   * A seed this attempt read off an enrolment page. It never leaves this
+   * function except into the plan's sink, and inside it only `nextTotpCode`
+   * reads it.
+   */
+  let enrolled: string | undefined;
+  /**
+   * The roles on offer right now: the caller's, plus the authenticator code
+   * a kept seed can answer. A seed read on this attempt is the one the page
+   * is waiting to see a code from, so it answers `totp-code` even where the
+   * caller also held one; a plan that says both is refused before it runs.
+   */
+  const offered = (): readonly CeremonyRole[] =>
+    enrolled !== undefined && !secrets.roles.includes("totp-code")
+      ? [...secrets.roles, "totp-code"]
+      : secrets.roles;
+  const resolveRole = async (role: CeremonyRole) =>
+    role === "totp-code" && enrolled !== undefined
+      ? nextTotpCode(enrolled)
+      : secrets.resolve(role);
 
   const record = (
     snapshot: PageSnapshot,
@@ -411,6 +456,7 @@ export async function runCeremony(
       role?: CeremonyRole;
       reason?: BlockedReason;
       note?: string;
+      consent?: readonly ConsentKind[];
       /**
        * Whether the interpreter should see this step. Everything it *did* to
        * the page belongs in its history; a re-read is not something it did,
@@ -425,6 +471,7 @@ export async function runCeremony(
     if (extra.role) step.role = extra.role;
     if (extra.reason) step.reason = extra.reason;
     if (extra.note) step.note = redact(extra.note, guarded);
+    if (extra.consent) step.consent = [...extra.consent];
     transcript.push(step);
     // The document goes into the history too. An interpreter asking "have I
     // tried this already?" has to be able to tell one page's button from
@@ -588,11 +635,27 @@ export async function runCeremony(
       // plan's next step, which may send it to another origin. This holds for
       // an ID as much as a secret, since an ID is carried unguarded.
       if (guarded.includes(value) || contains(value, guarded)) return;
+      // A setup key that is not a usable seed would be kept, typed as codes
+      // that never match, and counted against the account's lockout; it is
+      // not taken at all instead.
+      if (kind === "totp-seed")
+        try {
+          parseTotpSeed(value);
+        } catch {
+          return;
+        }
       issued.set(kind, value);
-      if (secret && !guarded.includes(value)) guarded.push(value);
+      // A seed is guarded in every spelling a page prints one in: the setup
+      // key is grouped on one line and may be repeated plain on the next.
+      const spellings =
+        kind === "totp-seed" ? totpSeedSpellings(value) : [value];
+      if (secret)
+        for (const spelling of spellings)
+          if (!guarded.includes(spelling)) guarded.push(spelling);
     }
     await options.issued.keep(Object.fromEntries(issued) as IssuedValues);
     kept = true;
+    enrolled = issued.get("totp-seed");
     record(snapshot, "kept", {
       note: declared.map(([kind]) => kind).join(", "),
       remembered: false,
@@ -667,6 +730,16 @@ export async function runCeremony(
         ? undefined
         : snapshot.elements[action.element];
     if (!element) return unusable();
+    // A block the page shows a value in - a `<code>` with a new token in it -
+    // is something to read, never something to act on.
+    if (element.type === "code") return unusable();
+    // A click on a checkbox ticks it as surely as `check` does, so it is a
+    // `check`: held to the same consent gate, recorded as one, and applied
+    // the same way. Left as a click it would reach the page untested, and
+    // "I agree to the Terms" would be accepted by whoever chose to press it
+    // rather than tick it.
+    if (action.action === "click" && element.kind === "checkbox")
+      action = { ...action, action: "check" };
 
     if (action.action === "fill") {
       const role = action.role;
@@ -677,7 +750,7 @@ export async function runCeremony(
       // password in the form under a label nobody reviewed.
       if (
         !role ||
-        !secrets.roles.includes(role) ||
+        !offered().includes(role) ||
         (element.kind === "select" && secretRoles.includes(role))
       )
         return unusable();
@@ -695,7 +768,7 @@ export async function runCeremony(
             !allowed.has(originOf(element.submitsTo))))
       )
         return finish({ status: "blocked", reason: "untrusted-origin", steps });
-      const value = await secrets.resolve(role);
+      const value = await resolveRole(role);
       if (value === undefined) {
         // A mailbox that never delivered is a reportable wall, not a retry loop.
         record(snapshot, "blocked", { reason: "provider-error" });
@@ -722,16 +795,45 @@ export async function runCeremony(
         role,
       });
     } else if (action.action === "check") {
+      // Ticking a box that accepts terms, a privacy policy or an age
+      // attestation is a legal act, and the plan's advance consent is the
+      // only thing that lets anyone but the person perform it. Read here, on
+      // the box itself, rather than trusted to the interpreter's reading of
+      // it: a model that takes "I agree to the Terms" for an ordinary box
+      // still cannot tick it. Without consent a person ticks it - or leaves
+      // it - and the attempt reads the page again either way.
+      const consent = checkboxConsent(element);
+      // An optional opt-in is simply left alone: nobody needs asking about a
+      // newsletter the form does not require.
+      if (consent.marketing && element.required !== true) return unusable();
+      if (
+        needsConsent(consent) &&
+        !consentCovers(consent, options.consents ?? [])
+      ) {
+        const declined = await handOff(snapshot, "consent");
+        if (declined) {
+          record(snapshot, "blocked", { reason: declined });
+          return finish({ status: "blocked", reason: declined, steps });
+        }
+        refusals = 0;
+        await page.settle();
+        steps++;
+        return;
+      }
       try {
         await page.check(element);
       } catch (error) {
         return refused(error);
       }
-      record(snapshot, "check", action.note ? { note: action.note } : {});
+      record(snapshot, "check", {
+        ...(action.note ? { note: action.note } : {}),
+        ...(consent.kinds.length ? { consent: consent.kinds } : {}),
+      });
       options.onApplied?.({
         snapshot,
         action: "check",
         element: element.index,
+        ...(consent.kinds.length ? { consent: consent.kinds } : {}),
       });
     } else if (action.action === "select") {
       // An option is chosen by the label the page shows, and on a live drive
@@ -849,6 +951,16 @@ export async function runCeremony(
       )
     )
       return "choice";
+    if (
+      reason === "consent-required" &&
+      snapshot.elements.some(
+        (element) =>
+          element.kind === "checkbox" &&
+          element.filled !== true &&
+          needsConsent(checkboxConsent(element)),
+      )
+    )
+      return "consent";
     return undefined;
   };
 
@@ -863,7 +975,7 @@ export async function runCeremony(
     const input: InterpreterInput = {
       goal,
       snapshot,
-      available: secrets.roles,
+      available: offered(),
       history: history.slice(-8),
       // Labels only, which the page shows anyway. What was read, and whether
       // anything has been, stays here.
@@ -871,6 +983,7 @@ export async function runCeremony(
         ? { issuedLabels: declared.map(([, label]) => label) }
         : {}),
       ...(options.choices ? { choices: options.choices } : {}),
+      ...(options.consents?.length ? { consents: options.consents } : {}),
     };
     const proposed = await interpreter(input);
     const parsed = proposed
@@ -1057,6 +1170,12 @@ export type RecordingDrift = {
     | "unexpected-page"
     | "element-missing"
     | "element-ambiguous"
+    /**
+     * The box the recording ticks now accepts something other than what was
+     * reviewed - more terms, a privacy policy, a bundled newsletter. Found,
+     * but not the box whose consent was approved.
+     */
+    | "consent-changed"
     | "undeclared-origin"
     | "missing-role";
   /** The step the replay expected next, when there was one. */
@@ -1119,6 +1238,8 @@ export function describeDrift(drift: RecordingDrift): string {
         return `${at}no ${drift.target} on ${drift.observed}`;
       case "element-ambiguous":
         return `${at}more than one ${drift.target} on ${drift.observed}`;
+      case "consent-changed":
+        return `${at}${drift.target} on ${drift.observed} accepts something the recording did not`;
       case "unexpected-page":
         return `${at}expected ${drift.expected}, found ${drift.observed}`;
       case "undeclared-origin":
@@ -1179,8 +1300,13 @@ export async function runRecordedCeremony(
   const undeclared = recording.origins.find((origin) => !allowed.has(origin));
   if (undeclared !== undefined)
     return refuse({ kind: "undeclared-origin", observed: undeclared });
+  // An authenticator code on a recording that keeps the seed it enrols comes
+  // from that seed, read on the way; nobody has to supply it.
+  const enrols = options.issued?.fields["totp-seed"] !== undefined;
   const unsupplied = recording.roles.find(
-    (role) => !options.secrets.roles.includes(role),
+    (role) =>
+      !options.secrets.roles.includes(role) &&
+      !(enrols && role === "totp-code"),
   );
   if (unsupplied !== undefined)
     return refuse({ kind: "missing-role", role: unsupplied });
@@ -1237,6 +1363,29 @@ export async function runRecordedCeremony(
             observed: snapshot.path,
           },
         };
+      }
+      // A recorded tick is a recorded legal act, and it is not generalised:
+      // the box found has to accept exactly what the reviewed step says it
+      // accepts. A box that now also bundles a newsletter, or adds a privacy
+      // policy, is a different agreement under a familiar label.
+      if (step.action.kind === "check") {
+        const live = checkboxConsent(located.found);
+        const recorded = step.action.consent ?? [];
+        if (
+          live.marketing ||
+          live.unlabelled ||
+          live.kinds.length !== recorded.length ||
+          live.kinds.some((kind) => !recorded.includes(kind))
+        )
+          return {
+            drift: {
+              kind: "consent-changed",
+              step: step.id,
+              expected: describePage(step.page),
+              target: describeTarget(step.action.target),
+              observed: snapshot.path,
+            },
+          };
       }
       const element = located.found.index;
       const action: DriverAction =

@@ -162,6 +162,17 @@ channel — if such a channel exists, the deployment was never constrained.
 Expiry reclaims managed processes on its own, so a caller who never returns does
 not leave a browser running and a grant alive indefinitely.
 
+### Acting in a window the page opens
+
+A plan that requires `popupBinding` admits a window the page opens at one of
+its navigation origins. The rule lives in `src/server/browser-windows.ts` and
+is shared with the authorization executor behind authored connectors: act in
+the page until a window at an admitted origin exists, then in that window, and
+in the page again once it has closed. Only a window the page (or a window it
+opened) opened is a candidate; one at an origin not admitted ends the attempt
+`popup-undeclared`, two at admitted origins `popup-ambiguous`, and one still at
+`about:blank` is waited for rather than read.
+
 ### Reusing a verified session
 
 A host may pass `reuseVerifiedSessions: true` (see _Enabling it in a host_).
@@ -264,10 +275,28 @@ secret". A draft declares that in `issued`:
 ```
 
 Each field is named by the **exact label** of the read-only input that shows
-it, and each kind (`client-id`, `client-secret`) appears once, under one label;
-an unknown kind, a repeated label or kind, more fields than kinds, a label
-shaped like a value, or an `oauth-client` sink without a `client-id` is refused
-by the schema. The declaration is compiled into the plan and its digest.
+it, and each kind (`client-id`, `client-secret`, `access-token`) appears once,
+under one label; an unknown kind, a repeated label or kind, more fields than
+kinds, a label shaped like a value, an `oauth-client` sink without a
+`client-id`, or an `access-token` kept by anything but `credential-custody` is
+refused by the schema. The declaration is compiled into the plan and its
+digest.
+
+A newly generated personal access token is often not in a field at all but in
+a `<code>` or `<pre>` block beside a copy button. Such a block is described in
+the snapshot like a read-only field (`kind: "input"`, `type: "code"`,
+`readOnly`, `filled`) when it is labelled by `aria-label`, `aria-labelledby`, a
+`<label for>`, or a heading or label right before it, and never by its text.
+An element that wraps the block (a wrapping `<label>`, or a `<label for>` or
+`aria-labelledby` target around it) labels nothing, and neither does any label
+sharing eight characters in a row with what the block shows: either would
+carry the value, or a slice of it once the label is cut to 200 characters,
+into the snapshot. `issued` names it by that
+label (`{ "sink": "credential-custody", "fields": [{ "kind": "access-token",
+"label": "Personal access token" }] }`) and the same rules apply: every field
+from one page or none, the value guarded like a typed password once read, and
+the driver never fills, clicks or ticks the block. A value that contains
+anything the attempt typed is not kept under any label.
 
 `sink` is a **kind the host registered**, never a callback: `oauth-client`
 (the host mints a run-bound `common.oauth-client` handle with
@@ -289,6 +318,30 @@ reviewer sees what a replay keeps. `ISSUED-SERVICE` in
 `tests/browser-login-service.test.ts` runs this through the host against the
 auth double's developer settings and sweeps every surface for both values.
 
+**Enrolling an authenticator.** A provider that requires a second factor may
+show "Set up two-factor authentication" with a setup key, then ask for a code
+from the app before it turns the factor on. A draft keeps that key as
+`{ "kind": "totp-seed", "label": "Setup key" }`, and only into
+`credential-custody` (the schema refuses any other sink). The driver checks
+that the value parses as a seed before keeping it and guards it in every
+spelling from the moment it is read. From then on the attempt offers
+`totp-code`, computed from that seed at fill time inside the driver, so the
+enrolment page is confirmed without the interpreter seeing either value. A
+plan that keeps a seed may not also reference a held `totp-seed` or a
+`totp-code` (`plan-rejected` / `unknown-credential-reference`). A later plan
+references the custody copy as a held `totp-seed`, as above. `SEED-CUSTODY` in
+`tests/browser-login-service.test.ts` enrols through the host against the auth
+double (`enrollTotp`), signs in again from the custody copy, and sweeps every
+surface for each spelling of the seed and the codes it made.
+
+A code is issued once. Providers accept each code once (RFC 6238 section
+5.2), so the driver and the service take codes from `nextTotpCode`, which
+remembers the last time step it issued a code for, per seed digest, in this
+process. A second code in the same period (a sign-in right after the
+enrolment that kept the seed, or two sign-ins in a row) waits for the next
+period instead of sending the spent code. Another process holding the same
+seed does not share that record.
+
 ### Choices
 
 A draft may name options for required `<select>` controls in `choices`, by the
@@ -305,6 +358,44 @@ observation listed, and a fallback interpreter repairing that replay may not.
 The adapter revalidates the control exactly as it does for `fill`. A secret
 role is never filled into a select. A required choice the plan did not make is
 not guessed: it is handed to a person (`choice`), or ends `choice-required`.
+
+### Consent
+
+Ticking a box that accepts a provider's terms of service or privacy policy, or
+attests to the person's age, is a legal act on their behalf. The driver (not
+the interpreter) reads every proposed `check` - and a `click` on a checkbox,
+which it applies as a `check` - against the box's own words
+(`checkboxConsent` in `src/core/browser-contracts.ts`) and ticks such a box only
+when the plan carries the person's advance consent to **every** kind it names:
+`consents: ["terms", "privacy", "age"]`, any subset. The kinds are canonical and
+part of the digest. Without them the box is handed to a person (`consent`), who
+ticks it themselves, or the login ends `consent-required` (`requires-human` /
+`consent` through the service). A marketing or newsletter opt-in is never
+ticked, whatever the plan says: an optional one is left alone and a required
+one is the person's. That includes one bundled into the terms sentence ("I
+agree to the Terms and to receive emails from us", "... to be contacted by
+sales", "keep me informed", "hear about new features"): the box is read for
+receiving mail, messages or news, being contacted, product updates, tips,
+features and data sharing, and any of them makes it an opt-in, not terms.
+
+A box is read by everything that describes it: its label, the element its
+`aria-describedby` names, and - when it has no label - the text right beside
+it (or beside its wrapper), which the snapshot carries as its label; and its
+`name`, so `accept_tos` reads as terms. Terms wording includes "ToS", "terms
+of use", "accept our", a bare "agree" and "I have read". A **required box that
+says nothing a person could read** (no label, caption or placeholder, at most a
+`name`) cannot be told from a terms box, so it is never ticked as a form
+detail: it is the person's (`consent`), whatever consent the plan carries. A
+required box whose words name none of these, such as "I understand this token
+grants access", is still an ordinary form detail and is ticked.
+
+`consents` is the person's to set and nobody else's. The compiler refuses it
+with `consent-not-delegable` unless the host identified the caller as the
+person (`actorKind: "human"`), and the MCP `browser_login` and
+`browser_record_login` tools do not offer the field at all, so a model is never
+shown a knob that agrees to anything. A recording keeps the kinds a tick
+accepted and never widens them; see
+[recorded ceremonies](recorded-ceremonies.md#drift).
 
 ## Handoffs
 
@@ -324,6 +415,56 @@ plan's `interactionRounds` pauses the same attempt in the same browser and
 resumes it after the person answers. Without one, the login ends
 `requires-human`.
 
+### Durable hand-offs
+
+A `HumanParticipation` is a promise in the process holding the browser, so a
+host that implements one in memory can only be answered through that process,
+and loses the hand-off with nobody told why if it restarts.
+`createBrowserHandoffs({ store })` (`src/server/browser-handoffs.ts`) keeps each
+hand-off in the store instead: a record under the actor's tenant, bound to its
+subject, encrypted at rest like every record, expiring after ten minutes by
+default. The holding process polls it and heartbeats it; any process resolves
+it.
+
+- `participation(actor, { contract, liveView?, onRequested? })` is the
+  `HumanParticipation` a host returns from `human(actor, plan)`. `onRequested`
+  is how the host tells the person (it gets a value-free summary, never a
+  control URL).
+- `browserHandoffRoute(handoffs, actor, request)` is the human route: the host
+  mounts it behind its own authentication. It shows what is waiting, redirects
+  `?live-view=1` to the provider's live view (`no-store`) when the host's
+  browser offered one, and accepts a same-origin `completed` or `declined`.
+- `createHostBrowserLogin({ handoffs: { contract } })` wires both; the
+  assembled tools expose `handoffs` for the route. A host that passes its own
+  `human` keeps it.
+
+An answer is recorded only for a hand-off that is pending and unexpired,
+decided again inside the write. It is **delivered** only when the process
+holding the browser picks it up and acknowledges it under the generation that
+created the record; `resolve` waits for that acknowledgement (bounded by
+`acknowledgeWithinMs`, the staleness window by default), and the route says
+the sign-in is continuing only after it. The attempt then resumes in the same
+browser and still needs provider evidence. Otherwise the answer is refused by
+name and the record settled: `expired` once the deadline passes (the waiter
+also stops then and reports the person unavailable; an answer recorded just
+before its expiry write is still honoured), `generation-mismatch` when the
+holder never acknowledges - however recently it stopped - or its heartbeat
+has gone quiet (the record becomes `lost`, and a holder that comes back to it
+finds it lost and ends the attempt), `not-authorized` for another subject or
+tenant, `cancelled` for an answer given twice.
+
+**What survives a restart and what does not.** The browser does not: its page,
+cookies and CDP connection belong to the process that launched it, and so does
+the attempt waiting in it. What survives is the hand-off record - which says
+the hand-off was lost and why, so a person who answers late is told
+`generation-mismatch` instead of resuming nothing - and the login's
+effect-ledger entry, which says whether anything was submitted: a replay of the
+same `idempotencyKey` answers `indeterminate` rather than logging in twice, or
+`expired` if nothing was dispatched. A live-view URL is kept only in the
+encrypted record, dropped when the hand-off settles, and returned only by
+`controlUrl`. The managed backends here are local and headless, so they offer
+no live view; the link appears when a host supplies one.
+
 Two more reasons come from what the plan was _not_ given. On an RFC 8628
 **device verification page** (recognised by `deviceVerificationField`: the
 page's own wording, such as "Connect a device" or "Enter the code displayed on
@@ -333,10 +474,11 @@ allowed origin into a form posting to one; the device code never reaches a
 page. Without it the request's reason is `device-code` and its `path` is the
 verification URI - origin and pathname, so the code a
 `verification_uri_complete` query carries is not in it - and a person holding
-the device enters the code there. An unmade required choice is `choice`. The
+the device enters the code there. An unmade required choice is `choice`, and a terms, privacy or age box the
+person did not consent to in advance is `consent`. The
 interpreter only reports these walls; the driver checks the page really is one
 before asking anybody. With nobody to ask they end as `requires-human` with
-`device-code` or `choice`. The reference host configures none: its managed browsers are
+`device-code`, `choice` or `consent`. The reference host configures none: its managed browsers are
 headless on the server, with no surface a person could act in.
 
 ## Enabling it in a host
@@ -348,7 +490,8 @@ both `/api/v1/teaching/tools/browser-*` and the `browser_*` MCP tools appear.
 Without `browserLogin` neither transport offers them. The host supplies what
 only it can decide: `credentials` (how a collector reference resolves),
 `knownConnectors`, reviewed `verifiers`, and optionally `credentialRefs`,
-`human`, `allowUnverified`, `modelInterpreter` and `reuseVerifiedSessions`.
+`human` (or `handoffs`, for [durable hand-offs](#durable-hand-offs)),
+`allowUnverified`, `modelInterpreter` and `reuseVerifiedSessions`.
 Nothing heavy loads until the first call.
 
 The example server turns this on with `CEREMONY_BROWSER_LOGIN=true` (off by
@@ -368,6 +511,7 @@ npx tsx --test tests/browser-targets.e2e.test.ts         # stale-target oracles,
 npx tsx --test tests/browser-session-lifetime.test.ts    # retention, leases, release
 npx tsx --test tests/login-plan.test.ts                  # effective configuration
 npx tsx --test tests/browser-login-handoff.test.ts       # attempt-bound handoffs
+npx tsx --test tests/browser-handoffs.test.ts            # durable, cross-process hand-offs
 npx tsx --test tests/totp.test.ts tests/browser-login-totp.test.ts  # held TOTP seeds
 npx tsx --test tests/browser-login-host.test.ts          # host wiring, session reuse
 ```
