@@ -72,8 +72,9 @@ export interface PlaywrightPageLike extends BoundPageLike {
 
 /**
  * Bind a live Playwright page to the driver. The adapter exposes navigation,
- * form entry and clicks only: no scripting, downloads, network interception or
- * markup extraction is reachable through it.
+ * form entry and clicks, and reading the one kind of value a plan may declare
+ * it keeps — what an observed read-only field displays. No scripting,
+ * downloads, network interception or markup extraction is reachable through it.
  *
  * Every action is revalidated against the observation that authorized it. A
  * navigation, a re-render, a moved control, a disabled control or a changed
@@ -299,6 +300,7 @@ export function createPlaywrightCeremonyPage(
       await settle();
     },
     snapshot: async (): Promise<PageSnapshot> => targets.observe(),
+    readIssued: (element) => targets.readIssued(element),
     fill: async (element, value) => {
       windowMayOpen = false;
       await targets.act(element, async (handle) => {

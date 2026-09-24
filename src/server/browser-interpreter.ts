@@ -46,7 +46,7 @@ const goalDescriptions: Record<CeremonyGoal, string> = {
     "create an account at this provider and finish any confirmation step",
   authorize: "approve the requested access at this provider",
   "obtain-credential":
-    "cause this provider to issue an access credential. You will never be shown its value; a person collects it privately",
+    "cause this provider to issue an access credential. You will never be shown its value; it is collected privately, by a person or by the plan",
 };
 
 /**
@@ -244,12 +244,22 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
   const forward =
     /continue|submit|sign in|log in|sign up|join|register|create|next|confirm|verify|approve|authorize|allow|grant|accept|agree|get started|finish|done/;
   /**
+   * "Generate" moves forward only when the goal is the thing generated. On any
+   * other page it is "Generate new recovery codes", which invalidates the
+   * ones a person already has.
+   */
+  const forwardFor = (goal: CeremonyGoal, text: string) =>
+    forward.test(text) ||
+    (goal === "obtain-credential" && /\bgenerate\b/.test(text));
+  /**
    * Controls that never move a ceremony forward, whatever else they say:
    * pressing "Resend confirmation" or "Deny" is a wrong answer, not a slower
-   * right one. Checked before `forward`, so "Send a new link" is not a submit.
+   * right one, and "Regenerate", "Revoke", "Reset" or "Delete" destroys
+   * something that already exists. Checked before `forward`, so "Send a new
+   * link" is not a submit.
    */
   const backward =
-    /resend|send (a )?new|email me again|cancel|deny|decline|not now|\bback\b|sign out|log out|skip|passkey|security key/;
+    /resend|send (a )?new|email me again|cancel|deny|decline|not now|\bback\b|sign out|log out|skip|passkey|security key|regenerate|revoke|reset|delete/;
   /** A provider's own way back after it failed: not a way back from the goal. */
   const retry = /try again|retry|back to sign in/i;
   /** Sign-up or sign-in through someone else, or without a password. */
@@ -482,7 +492,7 @@ export function createHeuristicInterpreter(): CeremonyInterpreter {
     // to call it ("Join", "Go", "Let's go"): pressing it is what a person
     // would do, and the driver still verifies the outcome.
     const submit =
-      buttons.find((element) => forward.test(words(element))) ??
+      buttons.find((element) => forwardFor(goal, words(element))) ??
       (unsubmitted && buttons.length === 1 ? buttons[0] : undefined);
     if (submit)
       return { action: "click", element: submit.index, note: submit.text };

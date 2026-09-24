@@ -44,19 +44,35 @@ A side panel and the caption row show the chain position (`Step 4/7 · verify em
 
 This uses the same authorization request, but the person already has an account, so the decision is "account exists → sign in". The agent enters the email, then the password on its own page. On "Two-factor authentication" it enters the current RFC 6238 code, which `totpCode` derives from the held seed at the moment of filling; the seed is never typed or shown. Consent, callback and redemption then follow as in the stitched run.
 
-### 4. Registration recovers from a taken address
+### 4. Chain two providers in one run
+
+![An OAuth app registered at Northwind Cloud signs the person in to Globex Workspace, each step in its own connector context](demos/chain-two-providers.gif)
+
+[MP4](demos/chain-two-providers.mp4) · Northwind Cloud (A, classic-card, strict client registry) and Globex Workspace (B, split-panel)
+
+This is one run of the teaching runtime. A composed recipe places step 1 under connector `alpha` and steps 2 and 3 under connector `beta`. Each step is admitted and authorized in its own connector's context, and the chain position advances when the command service advances a node.
+
+1. **alpha, in the browser at A.** The agent signs in to Northwind's developer settings, registers Globex's app and generates a client secret. The driver reads the client ID and secret from the fields the plan names and hands them to `mintOAuthClient`. The step's only output is a run-bound `common.oauth-client` handle, and neither value reaches a snapshot, the interpreter or a caption.
+2. **beta, server side.** The handle is resolved for this run only and saved through Globex's admin API. Globex checks the client with Northwind before accepting it.
+3. **beta, in the browser at B.** The agent chooses "Continue with Northwind Cloud", signs in at A (each browser step starts from an empty browser), allows Globex's registered app on A's consent screen, and arrives back at Globex signed in.
+
+The end card lists the connector each operation ran under. It also runs the canary from `tests/two-provider-chain.test.ts`: the secret, client ID, handle and password appear in no interpreter snapshot, transcript, command result or run record.
+
+Northwind's page shows the new secret in a read-only field, as real developer consoles do. The video covers that field with a solid box. The box is drawn into the composited video from the element's on-screen position and back-dated a few frames, so no frame shows the value. The page itself is never altered.
+
+### 5. Registration recovers from a taken address
 
 Globex Workspace, split-panel layout · scenario `registration-recovers-with-fresh-address` · `npm run demos:record -- registration-recovers`
 
 The person's usual address is already registered. The provider answers with "An account with this email already exists". The agent inbox issues a fresh address, and the agent fills the form again with it and finishes registration. The original account is left untouched, and exactly one new account exists.
 
-### 5. Record once, replay with no model
+### 6. Record once, replay with no model
 
 Northwind Cloud · `npm run demos:record -- record-once-replay`
 
 The first registration is interpreted and recorded through the driver's `onApplied` seam. `compileRecording` turns it into value-free steps with every resolved value excluded. A second registration, for a new inbox address, is replayed from that recording by `runRecordedCeremony` with no fallback, and the end card compares interpreter calls: 9 against 0.
 
-Demos 4 and 5 are not committed as media; the commands above regenerate them.
+Demos 5 and 6 are not committed as media; the commands above regenerate them.
 
 ## What is real and what is a double
 
@@ -78,6 +94,7 @@ A recording is made to be shared, so it is held to a stricter rule than a transc
 - A scenario marks each value it handles with `protect`: generated passwords, every code and link the inbox serves, TOTP codes and every spelling of the seed, the PKCE verifier and the access token. The recorder refuses to keep a video if one of them reached a caption, a card or the driver's transcript.
 - After every driver run, `assertFillsMatchLabels` (`tests/doubles/fill-labels.ts`, the same gate the contract suites use) checks each fill the driver applied against the field's label, type, autocomplete and name. It also checks that no forward button was pressed while a required field was still empty. A mismatch fails the recording.
 - A video must cover its run. A take whose frames cover less than 80% of the run's wall time is refused and recorded again. A screenshot can stall, and a busy machine makes webreel fold captures, so the video would otherwise freeze or run fast.
+- A value the provider page itself displays, such as an issued client secret, is covered in the video by a box drawn from the element's position. The page is not touched.
 - The page masks password fields. A verification or authenticator code is visible in the provider's own input while the driver fills it; it is a synthetic, single-use value, and no caption or panel prints it. Synthetic addresses (`*.invalid`, `*.test`) appear in forms and on the provider's pages.
 
 ## How it is built
@@ -111,5 +128,4 @@ webreel needs an ffmpeg with `libx264`. It looks, in order, at `FFMPEG_PATH`, a 
 - A model. The interpreter on screen is the production model-free one; model quality is not demonstrated here.
 - Real mail delivery. The inbox adapter and code extraction are real; SMTP is not.
 - A person accepting terms. The model-free interpreter ticks a required terms checkbox itself, and the caption says so.
-- One run across two providers. Per-node run context is proven at the recipe level (`tests/cross-provider-runs.test.ts`), but no browser demo exists yet. It needs a provider double that accepts an OAuth client created at another provider, and a way for a step to use a `common.oauth-client` handle there.
 - The Ceremony app UI. These videos show the isolated browser the agent drives, not the product surface that starts a run.

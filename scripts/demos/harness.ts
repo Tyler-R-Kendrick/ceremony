@@ -37,6 +37,11 @@ import type {
 } from "../../src/server/browser-driver.js";
 import type { CeremonyInterpreter } from "../../src/server/browser-interpreter.js";
 import {
+  redactionTracker,
+  removeUnlessFinished,
+  type Redaction,
+} from "./redaction.js";
+import {
   createPlaywrightCeremonyPage,
   type PlaywrightPageLike,
 } from "../../src/server/browser-page.js";
@@ -123,6 +128,17 @@ export type DemoSession = {
    * only: nothing is pressed, and the driver re-reads the page anyway.
    */
   reveal(): Promise<void>;
+  /**
+   * Cover the element `selector` names with a solid box in the video for as
+   * long as it is on screen, or stop watching with `undefined`. For a value
+   * a provider page itself displays (an issued client secret): the page is
+   * left alone and the box is drawn into the composited video, starting a
+   * little before the element was first seen so no captured frame shows it.
+   * `revealedBy` is the text of the button that puts the value on the page:
+   * the box then starts no later than that click, and a take in which the
+   * value was revealed but never located is refused.
+   */
+  redact(selector: string | undefined, revealedBy?: string): void;
   /** Use the current frame as the poster image. */
   poster(): void;
   /** A full-frame card: title, facts. Text is fixed or built from captions. */
@@ -421,6 +437,45 @@ export async function recordDemo(
     raw = recorder.getTempVideoPath();
 
     let posterFrame: number | undefined;
+    const redactions: Redaction[] = [];
+    /** A redacted value revealed by an action but never found on screen. */
+    let unlocatedRedaction = false;
+    let redacting:
+      | {
+          selector: string;
+          revealedBy?: string;
+          tracker: ReturnType<typeof redactionTracker>;
+          timer: NodeJS.Timeout;
+          busy: boolean;
+        }
+      | undefined;
+    const stopRedacting = () => {
+      if (!redacting) return;
+      clearInterval(redacting.timer);
+      redacting.tracker.stop();
+      redactions.push(...redacting.tracker.boxes);
+      if (redacting.tracker.unlocated) unlocatedRedaction = true;
+      redacting = undefined;
+    };
+    const pollRedaction = async () => {
+      const watching = redacting;
+      // One poll at a time, so each result is read against the one before.
+      if (!watching || watching.busy) return;
+      watching.busy = true;
+      const asked = timeline.getFrameCount();
+      const found = await page
+        .evaluate((query: string) => {
+          const element = document.querySelector(query);
+          if (!element) return null;
+          const rect = element.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0
+            ? { x: rect.x, y: rect.y, w: rect.width, h: rect.height }
+            : null;
+        }, watching.selector)
+        .catch(() => null);
+      watching.busy = false;
+      if (redacting === watching) watching.tracker.seen(found, asked);
+    };
     let current: Extract<CaptionEvent, { kind: "step" }> | undefined;
     let line: CaptionEvent | undefined;
     const render = () => {
@@ -438,6 +493,16 @@ export async function recordDemo(
       kind: "fill" | "click" | "check",
       handle: ElementHandle,
     ) => {
+      // The click that puts a redacted value on the page anchors its box, so
+      // the box covers it from here even if every poll after it stalls.
+      const revealedBy = redacting?.revealedBy;
+      if (kind === "click" && revealedBy !== undefined) {
+        const text = await handle
+          .evaluate((element: Element) => element.textContent ?? "")
+          .catch(() => "");
+        if (text.replace(/\s+/g, " ").trim() === revealedBy)
+          redacting?.tracker.revealing();
+      }
       // Scroll only when the control is near an edge or under the caption
       // row, and then to the middle, the way a person scrolls a tall form
       // while filling it in; a control already in view leaves the page still.
@@ -518,6 +583,19 @@ export async function recordDemo(
         openPanel = { key, png: image.png, start: timeline.getFrameCount() };
       },
       hold: (ms) => pause(ms),
+      redact(selector, revealedBy) {
+        stopRedacting();
+        if (!selector) return;
+        const timer = setInterval(() => void pollRedaction(), 60);
+        timer.unref();
+        redacting = {
+          selector,
+          ...(revealedBy !== undefined ? { revealedBy } : {}),
+          tracker: redactionTracker(() => timeline.getFrameCount()),
+          timer,
+          busy: false,
+        };
+      },
       reveal: async () => {
         await page
           .evaluate(() => {
@@ -557,6 +635,9 @@ export async function recordDemo(
         await pause(160);
         shown.push(input.title, ...input.lines);
         await page.setContent(cardHtml(input));
+        // A redacted element is gone once the card replaces its page; the
+        // box stops here, not when the scenario stopped asking for it.
+        session.redact(undefined);
         await pause(ms);
       },
       applied(entry) {
@@ -633,6 +714,7 @@ export async function recordDemo(
     const outcome = await body(session);
     await pause(400);
     closePanel();
+    session.redact(undefined);
     await recorder.stop();
     recorder = undefined;
     // The video must cover the run. Under load webreel folds slow captures
@@ -659,14 +741,26 @@ export async function recordDemo(
           `${entry.id}: a protected value reached the transcript`,
         );
     }
+    if (unlocatedRedaction)
+      throw new RetryableTake(
+        `${entry.id}: a value to redact was revealed and never located`,
+      );
     if (fillChecks === 0)
       throw new Error(`${entry.id}: no driver run was checked for its fills`);
     if (!outcome.ok)
       throw new Error(`${entry.id}: the run did not show what it set out to`);
 
-    await compose(raw, timeline.toJSON(), video);
     const ffmpeg = await ensureFfmpeg();
-    overlayPanels(ffmpeg, video, panelSpans, entry.panelSide ?? "right");
+    await removeUnlessFinished(video, async () => {
+      await compose(raw!, timeline.toJSON(), video);
+      overlayPanels(
+        ffmpeg,
+        video,
+        panelSpans,
+        entry.panelSide ?? "right",
+        redactions,
+      );
+    });
     const seconds = timeline.getFrameCount() / fps;
     extractThumbnail(
       ffmpeg,
@@ -733,9 +827,17 @@ function overlayPanels(
   video: string,
   spans: readonly { png: Buffer; start: number; end: number }[],
   side: "left" | "right",
+  redactions: readonly {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    start: number;
+    end: number;
+  }[] = [],
 ): void {
   const visible = spans.filter((span) => span.end > span.start);
-  if (visible.length === 0) return;
+  if (visible.length === 0 && redactions.length === 0) return;
   const directory = mkdtempSync(join(tmpdir(), "ceremony-demo-panels-"));
   try {
     const inputs: string[] = [];
@@ -748,6 +850,17 @@ function overlayPanels(
       const next = `v${index}`;
       filters.push(
         `[${previous}][${index + 1}:v]overlay=x=${side === "left" ? panelPosition.margin : `W-w-${panelPosition.margin}`}:y=${panelPosition.top}:enable='between(n,${span.start},${span.end - 1})'[${next}]`,
+      );
+      previous = next;
+    });
+    // Redaction boxes go on last, over everything, a few pixels larger than
+    // the field and a few frames longer than it was seen.
+    redactions.forEach((box, index) => {
+      const next = `r${index}`;
+      const x = Math.max(0, Math.floor(box.x) - 4);
+      const y = Math.max(0, Math.floor(box.y) - 4);
+      filters.push(
+        `[${previous}]drawbox=x=${x}:y=${y}:w=${Math.ceil(box.w) + 8}:h=${Math.ceil(box.h) + 8}:color=0x334155@1:t=fill:enable='between(n,${box.start},${box.end + 3})'[${next}]`,
       );
       previous = next;
     });

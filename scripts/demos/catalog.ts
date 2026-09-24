@@ -105,6 +105,18 @@ export const demoCatalog: readonly DemoEntry[] = [
     load: () => import("./connect-with-account.js"),
   },
   {
+    id: "chain-two-providers",
+    layout: "classic-card",
+    title: "Chain two providers in one run",
+    summary:
+      "An OAuth app the agent registers at Northwind Cloud is what signs the person in to Globex Workspace: one run, each step authorized under its own connector, with only a run-bound client handle crossing between them.",
+    scenario: "two-provider-chain",
+    interpreter: "heuristic",
+    chain: ["a-register-app", "b-configure", "b-sign-in"],
+    docsPreview: true,
+    load: () => import("./chain-two-providers.js"),
+  },
+  {
     id: "record-once-replay",
     layout: "classic-card",
     title: "Record once, replay with no model",

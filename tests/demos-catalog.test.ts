@@ -36,8 +36,13 @@ test("DEMO-ORDER: every demo is uniquely named, has a module, and a stitched one
     (entry) => (entry.chain?.length ?? 0) > 1,
   );
   assert.ok(stitched.length >= 1);
+  // A chain ends where access is proven: at "verified access", or, for the
+  // two-provider run, at the step where B signs the person in through A.
   for (const entry of stitched)
-    assert.ok(entry.chain!.includes("verified"), entry.id);
+    assert.ok(
+      ["verified", "b-sign-in"].includes(entry.chain!.at(-1)!),
+      entry.id,
+    );
   // The stitched run the docs feature chains registration into access.
   assert.ok(
     stitched.some(

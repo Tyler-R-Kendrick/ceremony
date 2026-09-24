@@ -309,24 +309,7 @@ export function createBoundTargets(page: BoundPageLike) {
    * thing that actually moved rather than a symptom of it.
    */
   async function resolve(element: SnapshotElement): Promise<ElementHandleLike> {
-    const observation = current;
-    // Nothing held. The document-comparison guards below are what detect a page
-    // that moved on; reaching here means no approval was ever taken, or one was
-    // released and not replaced, which is a different fault with a different
-    // fix and so a different name.
-    if (!observation) throw new StaleTargetError("no-observation");
-
-    // The page navigating is the common case and the cheapest to detect: the
-    // adapter's own view of the address is authoritative, unlike anything the
-    // document could report about itself.
-    if (originOf(page.url()) !== observation.origin)
-      throw new StaleTargetError("stale-document");
-
-    // An origin comparison misses a navigation that stayed on the same origin,
-    // and a provider's own login flow is full of those. Comparing the held
-    // document node against the live one catches every document replacement,
-    // whatever address it arrived at, and a page cannot answer this falsely
-    // because it never sees which node is being compared.
+    const observation = await heldDocument();
     const ask = async <Result>(
       fn: (arg: { root: never; index: number }) => Result,
       index: number,
@@ -340,23 +323,6 @@ export function createBoundTargets(page: BoundPageLike) {
         throw classify(error, "stale-element");
       }
     };
-
-    // This particular question can only fail for one reason: the observation's
-    // references no longer belong to the page in front of us. Classifying it
-    // from the error text would make the reported reason depend on how a
-    // browser happens to word "that context is gone", so any failure here is
-    // simply what it is — a document that moved on.
-    let sameDocument: unknown;
-    try {
-      sameDocument = await page.evaluate(
-        ({ root }) =>
-          (root as unknown as { sameDocument(): boolean }).sameDocument(),
-        { root: observation.root as never },
-      );
-    } catch {
-      throw new StaleTargetError("stale-document");
-    }
-    if (sameDocument !== true) throw new StaleTargetError("stale-document");
 
     const approved = observation.snapshot.elements[element.index];
     const destination = observation.destinations[element.index];
@@ -418,6 +384,50 @@ export function createBoundTargets(page: BoundPageLike) {
   }
 
   /**
+   * The held observation, provided the page still shows the document it
+   * describes. Shared by acting and by reading an issued value, so both are
+   * refused by exactly the same document guards.
+   */
+  async function heldDocument(): Promise<Observation> {
+    const observation = current;
+    // Nothing held. The document-comparison guards below are what detect a page
+    // that moved on; reaching here means no approval was ever taken, or one was
+    // released and not replaced, which is a different fault with a different
+    // fix and so a different name.
+    if (!observation) throw new StaleTargetError("no-observation");
+
+    // The page navigating is the common case and the cheapest to detect: the
+    // adapter's own view of the address is authoritative, unlike anything the
+    // document could report about itself.
+    if (originOf(page.url()) !== observation.origin)
+      throw new StaleTargetError("stale-document");
+
+    // An origin comparison misses a navigation that stayed on the same origin,
+    // and a provider's own login flow is full of those. Comparing the held
+    // document node against the live one catches every document replacement,
+    // whatever address it arrived at, and a page cannot answer this falsely
+    // because it never sees which node is being compared.
+    //
+    // This particular question can only fail for one reason: the observation's
+    // references no longer belong to the page in front of us. Classifying it
+    // from the error text would make the reported reason depend on how a
+    // browser happens to word "that context is gone", so any failure here is
+    // simply what it is — a document that moved on.
+    let sameDocument: unknown;
+    try {
+      sameDocument = await page.evaluate(
+        ({ root }) =>
+          (root as unknown as { sameDocument(): boolean }).sameDocument(),
+        { root: observation.root as never },
+      );
+    } catch {
+      throw new StaleTargetError("stale-document");
+    }
+    if (sameDocument !== true) throw new StaleTargetError("stale-document");
+    return observation;
+  }
+
+  /**
    * Perform one action on a revalidated element.
    *
    * Playwright's own actionability wait can run for seconds, during which the
@@ -470,9 +480,52 @@ export function createBoundTargets(page: BoundPageLike) {
     if (!sameDestination(approved, after)) throw new DispatchUncertain();
   }
 
+  /**
+   * The value an observed read-only field displays, for a plan that declared
+   * it keeps what that field shows (an issued client secret, say).
+   *
+   * Held to the same rules as an action: the observation must still describe
+   * the live document, and the field must be the one that was observed, not
+   * whatever now sits at its index. The value itself is read from the held
+   * reference and returned to the driver only — it is never part of a
+   * snapshot, so no interpreter sees it.
+   */
+  async function readIssued(
+    element: SnapshotElement,
+  ): Promise<string | undefined> {
+    const observation = await heldDocument();
+    const approved = observation.snapshot.elements[element.index];
+    if (
+      !approved ||
+      approved.kind !== "input" ||
+      approved.kind !== element.kind ||
+      approved.name !== element.name ||
+      approved.type !== element.type ||
+      approved.label !== element.label
+    )
+      throw new StaleTargetError("stale-element");
+    let value: unknown;
+    try {
+      value = await page.evaluate(
+        ({ root, index }) => {
+          const bound = root as unknown as {
+            elements: unknown[];
+            readOnlyValue(element: unknown): string | null;
+          };
+          return bound.readOnlyValue(bound.elements[index]);
+        },
+        { root: observation.root as never, index: element.index },
+      );
+    } catch (error) {
+      throw classify(error, "stale-element");
+    }
+    return typeof value === "string" ? value : undefined;
+  }
+
   return {
     observe,
     act,
+    readIssued,
     /**
      * The destination approved for one observed control, or `undefined` when
      * nothing has been observed or the index was never part of it. Read from

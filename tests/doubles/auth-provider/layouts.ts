@@ -157,6 +157,20 @@ input.code{font-size:22px;letter-spacing:.4em;text-align:center;font-variant-num
 .fine{font-size:13px;color:var(--muted);margin-top:16px}
 .consent .actions{flex-direction:row-reverse}
 .consent .actions .btn{flex:1}
+h2{font-size:16px;font-weight:650;margin:24px 0 8px}
+h3{font-size:14px;font-weight:650;margin:0 0 2px}
+.crumbs{font-size:13px;color:var(--muted);margin-bottom:16px}
+.crumbs a{font-weight:500}
+input[type=url],textarea{display:block;width:100%;padding:10px 12px;font:inherit;color:var(--text);background:#fff;border:1px solid var(--border);border-radius:8px}
+input[type=url]{height:42px;padding:0 12px}
+textarea{resize:vertical}
+.copy-row{display:flex;gap:8px}
+.copy-row input{flex:1;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;background:#f9fafb}
+.banner-success{background:#ecfdf3;border:1px solid #abefc6;color:#067647}
+.app-list{list-style:none;padding:0;margin:0 0 20px;border:1px solid #e4e7ec;border-radius:10px}
+.app-list li{padding:12px 14px}
+.app-list li+li{border-top:1px solid #e4e7ec}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;word-break:break-all}
 `;
 
 const layoutCss: Record<RealisticLayout, string> = {
@@ -435,8 +449,17 @@ function createRealisticPages(layout: RealisticLayout, brand: Brand) {
       account: string;
       /** The agent a delegated grant names, or "". */
       actor: string;
+      /**
+       * The name the app was registered under, when the provider keeps a
+       * registry. What a person is shown, rather than an identifier.
+       */
+      application?: string;
     }) {
-      const app = escape(displayName(options.clientId) || options.clientId);
+      const app = escape(
+        options.application ||
+          displayName(options.clientId) ||
+          options.clientId,
+      );
       const scopes = options.scope.split(/\s+/).filter(Boolean);
       const items = (scopes.length ? scopes : ["openid"])
         .map(

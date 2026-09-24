@@ -28,6 +28,9 @@ export const phases = [
   "callback",
   "token-exchange",
   "verified",
+  "a-register-app",
+  "b-configure",
+  "b-sign-in",
 ] as const;
 export type Phase = (typeof phases)[number];
 
@@ -43,6 +46,9 @@ const phaseNames: Record<Phase, string> = {
   callback: "callback with code",
   "token-exchange": "token exchange",
   verified: "verified access",
+  "a-register-app": "alpha: register an OAuth app at A",
+  "b-configure": "beta: B checks the client with A",
+  "b-sign-in": "beta: sign in to B with A",
 };
 
 /** Roles a driver can fill, described by where the value comes from. */
@@ -134,7 +140,10 @@ export type CaptionEvent =
         | "exchange"
         | "subject-matches"
         | "subject-is-person"
-        | "replay-refused";
+        | "replay-refused"
+        | "secret-kept"
+        | "b-checked-client"
+        | "b-signed-in";
     }
   | { kind: "step"; index: number; total: number; phase: Phase }
   | {
@@ -154,6 +163,9 @@ const connectorLines: Record<string, string> = {
   exchange: "Connector: code + PKCE verifier → access token",
   "subject-matches": "Verified: token is for the account just made ✓",
   "subject-is-person": "Verified: token is for the person's own account ✓",
+  "secret-kept": "Driver: client ID + secret kept, never shown to agent",
+  "b-checked-client": "Connector: B saved the client after A accepted it ✓",
+  "b-signed-in": "Verified: B signed the person in through A ✓",
   "replay-refused": "Verified: same code refused on replay ✓",
 };
 
