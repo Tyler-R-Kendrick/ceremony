@@ -63,7 +63,11 @@ export async function postgresFixture() {
   const directory = await mkdtemp(join(tmpdir(), "ceremony-postgres-"));
   await grantDataDirectory(directory);
   const password = randomBytes(24).toString("hex");
+  // Only a start's own output is kept, to be read if that start fails. Once
+  // the server is up it logs for as long as the tests run, and none of that is
+  // wanted here.
   let log = "";
+  let starting = false;
   const serverOn = (port: number) =>
     new EmbeddedPostgres({
       databaseDir: join(directory, "db"),
@@ -74,7 +78,7 @@ export async function postgresFixture() {
       authMethod: "scram-sha-256",
       postgresFlags: ["-h", "127.0.0.1", "-k", directory],
       onLog: (message) => {
-        log += String(message);
+        if (starting) log += String(message);
       },
       onError: () => {},
     });
@@ -97,15 +101,19 @@ export async function postgresFixture() {
     await server.initialise();
     for (let attempt = 1; ; attempt++) {
       log = "";
+      starting = true;
       try {
         await server.start();
         break;
       } catch (error) {
         if (attempt === startAttempts || !portTaken.test(log)) throw error;
+      } finally {
+        starting = false;
       }
       port = await unusedPort();
       server = serverOn(port);
     }
+    log = "";
   } catch {
     await rm(directory, { recursive: true, force: true });
     throw new Error(

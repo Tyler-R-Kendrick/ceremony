@@ -170,8 +170,16 @@ const disconnectScopeCopy: Record<
   },
 };
 
-/** One name, so a second attempt reuses the window instead of stacking them. */
+/**
+ * Each hand-off gets a window of its own name. Reusing one name looked like
+ * a way not to stack windows, but a window by that name can still be showing
+ * the last hand-off's return page, about to relay and close itself: a new
+ * hand-off opened by name lands in that window and closes with it. Stacking is
+ * prevented instead by closing the previous hand-off's window once the new
+ * one is presented; a refused attempt leaves it alone.
+ */
 const HANDOFF_WINDOW = "ceremony-connector-handoff";
+let handoffWindows = 0;
 
 const outcomeCopy: Record<string, string> = {
   applied: "Done",
@@ -792,10 +800,11 @@ export function ConnectorConnection({
    * network. An opened window with nowhere to go is closed again.
    */
   const openPlaceholder = useCallback((): Window | null => {
+    const name = `${HANDOFF_WINDOW}-${++handoffWindows}`;
     try {
-      if (openWindow) return openWindow("about:blank", HANDOFF_WINDOW);
+      if (openWindow) return openWindow("about:blank", name);
       if (typeof window === "undefined") return null;
-      return window.open("about:blank", HANDOFF_WINDOW, "noopener=no");
+      return window.open("about:blank", name, "noopener=no");
     } catch {
       return null;
     }
@@ -827,7 +836,11 @@ export function ConnectorConnection({
       setPopupClosed(false);
       if (placeholder) {
         setPopupBlocked(false);
+        // The new hand-off supersedes one whose window is still open; the
+        // poll, not that window, decides what the earlier one achieved.
+        const previous = popup.current;
         popup.current = placeholder;
+        if (previous && previous !== placeholder) dismiss(previous);
         try {
           placeholder.location.replace(url);
         } catch {
