@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   operationContractSchema,
+  packOperationIdSchema,
   type ActorContext,
   type FieldClassification,
   type OperationContract,
@@ -84,10 +85,35 @@ export type VocabularyEntry = {
  */
 export const NEUTRAL_PROVIDER = "common";
 
+/**
+ * Where a registered operation came from. Host code registers most; a signed
+ * operation pack the host loaded at startup registers the rest, and every
+ * catalog that lists operations says which is which.
+ */
+export type PackProvenance = {
+  kind: "pack";
+  pack: string;
+  packVersion: string;
+  /** The trusted publisher key the pack's signature verified under. */
+  publisher: string;
+  effect: "read" | "write";
+  /** Every origin the pack's handler may contact for this operation. */
+  destinations: readonly string[];
+  /** Where the handler runs: a worker thread, or a child process under the permission model. */
+  isolation: "worker" | "process";
+};
+export type OperationProvenance = { kind: "host" } | PackProvenance;
+export type OperationDescription = OperationContract & {
+  neutral: boolean;
+  replay?: RegisteredOperation["replay"];
+  source: OperationProvenance;
+};
+
 /** Registry construction is a trusted host operation, never an authoring API. */
 export class OperationRegistry {
   private readonly operations = new Map<string, RegisteredOperation>();
   private readonly neutral = new Set<string>();
+  private readonly packs = new Map<string, PackProvenance>();
   readonly vocabulary: ReadonlyMap<string, VocabularyEntry>;
   constructor(vocabulary: ReadonlyMap<string, VocabularyEntry> = new Map()) {
     this.vocabulary = new Map(vocabulary);
@@ -107,9 +133,34 @@ export class OperationRegistry {
   registerNeutral(operation: RegisteredOperation): void {
     this.add(operation, true);
   }
-  private add(operation: RegisteredOperation, neutral: boolean): void {
+  /**
+   * Register an operation a verified operation pack provides. Its id must be
+   * `pack:<pack>/<name>` for the pack its provenance names, and nothing else
+   * may use that shape, so a pack never shadows a host step or another
+   * pack's. Every other rule is the one host operations meet: a neutral pack
+   * step uses only neutral vocabulary, and admission, authorization and
+   * cross-provider checks read the registered contract exactly as they do
+   * for a built-in.
+   */
+  registerPack(operation: RegisteredOperation, provenance: PackProvenance) {
+    const contract = operationContractSchema.parse(operation.contract);
+    if (!contract.id.startsWith(`pack:${provenance.pack}/`))
+      throw new Error("Pack operations use their pack's namespace");
+    this.add(operation, contract.provider === NEUTRAL_PROVIDER, true);
+    this.packs.set(`${contract.id}@${contract.version}`, {
+      ...provenance,
+      destinations: [...provenance.destinations],
+    });
+  }
+  private add(
+    operation: RegisteredOperation,
+    neutral: boolean,
+    pack = false,
+  ): void {
     const contract = operationContractSchema.parse(operation.contract);
     const key = `${contract.id}@${contract.version}`;
+    if (packOperationIdSchema.safeParse(contract.id).success !== pack)
+      throw new Error("Pack operation ids are registered only from packs");
     if (this.operations.has(key))
       throw new Error("Operation version already registered");
     // Either both fields name the neutral provider, through registerNeutral, or neither does.
@@ -150,5 +201,26 @@ export class OperationRegistry {
     return Array.from(this.operations.values(), ({ contract }) =>
       operationContractSchema.parse(contract),
     );
+  }
+  /** Where an operation came from; undefined when it is not registered. */
+  provenance(id: string, version: string): OperationProvenance | undefined {
+    const key = `${id}@${version}`;
+    if (!this.operations.has(key)) return undefined;
+    const pack = this.packs.get(key);
+    return pack
+      ? { ...pack, destinations: [...pack.destinations] }
+      : { kind: "host" };
+  }
+  /** The catalog with each operation's provenance, for listing to authors. */
+  describe(): OperationDescription[] {
+    return Array.from(this.operations.values(), (operation) => {
+      const contract = operationContractSchema.parse(operation.contract);
+      return {
+        ...contract,
+        neutral: this.isNeutral(contract.id, contract.version),
+        ...(operation.replay ? { replay: operation.replay } : {}),
+        source: this.provenance(contract.id, contract.version)!,
+      };
+    });
   }
 }

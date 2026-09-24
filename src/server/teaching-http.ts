@@ -32,6 +32,7 @@ import {
   executePublishedRecipe,
   importArazzoDraft,
   importRecipeDraft,
+  listOperations,
   listPublishedRecipes,
   teachingInputs,
 } from "./teaching-operations.js";
@@ -736,6 +737,8 @@ async function recipeHttp(
 ): Promise<Response> {
   if (path === "/recipes" && !post)
     return reply({ recipes: await listPublishedRecipes(runtime, actor) });
+  if (path === "/recipes/operations" && !post)
+    return reply({ operations: listOperations(runtime, actor) });
   const publishedRoute = /^\/recipes\/([^/]+)\/(export|retire)$/.exec(path);
   if (publishedRoute) {
     const recipeId = id.parse(decodeURIComponent(publishedRoute[1]!));

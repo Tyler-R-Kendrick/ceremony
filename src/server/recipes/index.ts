@@ -34,6 +34,9 @@ export type {
   OperationContext,
   OperationResult,
   VocabularyEntry,
+  OperationProvenance,
+  PackProvenance,
+  OperationDescription,
 } from "./registry.js";
 export type {
   ConnectorBinding,
