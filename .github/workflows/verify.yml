@@ -277,7 +277,12 @@ jobs:
     runs-on: ubuntu-24.04
     # ponytail: one worker for fixed fixture ports; parallelize after listener isolation.
     # Halving workers doubles only the whole-job budget, not test deadlines or thresholds.
-    timeout-minutes: ${{ matrix.target == 'connector-authoring' && 360 || matrix.target == 'schema' && 120 || 60 }}
+    # `schema` reruns every test that reaches src/core/schema.ts once per
+    # mutant, so its time grows with the suite: about 80 minutes, then 101,
+    # then 104 to 108 across the connector stack, and past 120 once the
+    # device-authorization and authenticator suites landed. 180 leaves that
+    # growth room instead of cancelling a run that was going to pass.
+    timeout-minutes: ${{ matrix.target == 'connector-authoring' && 360 || matrix.target == 'schema' && 180 || 60 }}
     strategy:
       fail-fast: false
       matrix:
