@@ -102,6 +102,29 @@
       "notes": "composioLifecycle maps INITIALIZING/INITIATED/ACTIVE/INACTIVE/EXPIRED/FAILED/REVOKED/DELETED into connectionLifecycle and every target is reachable from `verifying` under lifecycleTransitions. A pinned tool version the toolkit no longer serves fails closed with unsupported/composio.tool.version-unavailable; a changed input-schema digest fails closed with conflict/composio.tool.schema-drift. A session Composio no longer holds is recreated once, under the same allowlist checks. negativeCapabilities() reports absent, deprecated, auth-config-restricted and scope-missing tools plus a non-hosted auth scheme and a non-ACTIVE account, as a discovery result with no items and only issues."
     }
   ],
+  "supportEvidence": [
+    {
+      "adapterId": "composio",
+      "check": "tests/connectors/composio/authorize.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Authorize, complete, verify and reconnect, through the adapter with the platform fetch against the loopback Composio double (tests/connectors/doubles/composio.ts), which checks each request independently."
+    },
+    {
+      "adapterId": "composio",
+      "check": "tests/connectors/composio/execute.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Tool execution on invoke, through the adapter with the platform fetch against the loopback Composio double, which checks each request independently."
+    },
+    {
+      "adapterId": "composio",
+      "check": "tests/connectors/composio/lifecycle.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Verify, disconnect and revoke, through the adapter with the platform fetch against the loopback Composio double, which checks each request independently."
+    }
+  ],
   "contractChanges": [],
   "integrationPatches": [
     {

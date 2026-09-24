@@ -258,7 +258,8 @@ export interface ConnectorAdapter {
   readonly support: SupportLevel;
   /**
    * `"definition"` when the adapter runs whatever description a person
-   * imported (the generic OpenAPI and provider-catalog adapters): its own
+   * imported (the generic OpenAPI, provider-catalog, remote MCP and
+   * Microsoft custom-connector adapters): its own
    * suites prove the code path, not any provider behind an imported
    * definition, so support evidence speaks for one definition at a time.
    * Absent means `"adapter"`: one provider, and adapter-wide evidence speaks

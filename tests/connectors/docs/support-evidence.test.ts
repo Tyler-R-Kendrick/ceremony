@@ -12,6 +12,12 @@ import {
   type Ledger,
 } from "../../../scripts/connector-support-matrix.js";
 import { recordedSupportEvidence } from "../../../src/server/connectors/recorded-evidence.js";
+import { generateKeyPairSync } from "node:crypto";
+import {
+  certifierKeyId,
+  digestOf,
+  signCertification,
+} from "../../../src/server/connectors/certification.js";
 
 /*
  * The ledger side of evidence-derived support labels: what a ledger may say,
@@ -231,6 +237,47 @@ test("undated work items become dated entries by their ledger's day, never above
   assert.equal(labelFor(vendor, collection).label, "unverified");
 });
 
+test("a ledger cannot type a live run, and cites a file rather than a named check", () => {
+  // Regression: a hand-typed recorded-live entry was admitted, and a check
+  // containing ":" skipped the file-exists test, so this one earned `live`.
+  const typed = {
+    adapterId: "vendor-http",
+    check: "typed:anything",
+    target: "recorded-live",
+    recordedAt: "2026-09-20",
+  };
+  const collection = collectSupportEvidence(
+    [
+      ledger({
+        supportEvidence: [
+          typed,
+          { ...typed, check: "tests/connectors/openapi/authorize.test.ts" },
+          { ...typed, target: "local-double" },
+          { ...typed, check: "ledger:HTTP/HTTP-04", target: "local-double" },
+        ],
+      }),
+    ],
+    [vendor],
+    { today: TODAY, exists: () => true },
+  );
+  assert.deepEqual(collection.entries, []);
+  assert.equal(labelFor(vendor, collection).label, "unverified");
+  for (const [index, pattern] of [
+    [0, /not a named check \(typed:anything\)/],
+    [1, /a live run is a deployment's own evidence/],
+    [2, /not a named check/],
+    [3, /not a named check \(ledger:HTTP\/HTTP-04\)/],
+  ] as const)
+    assert.ok(
+      collection.refused.some(
+        (line) =>
+          line.startsWith(`ledger TEST: evidence[${index}]: `) &&
+          pattern.test(line),
+      ),
+      `evidence[${index}]`,
+    );
+});
+
 test("a legacy live evidence level is refused, not counted", () => {
   const collection = collectSupportEvidence(
     [
@@ -277,18 +324,45 @@ test("a ledger dated in the future is refused rather than earning a label", () =
 });
 
 test("published labels are evaluated as of the newest recorded day, and live evidence needs configuration", () => {
-  const live = {
-    adapterId: "vendor-http",
-    check: "attended:2026-09-20-vendor",
-    target: "attended-live",
-    recordedAt: "2026-09-20",
-    attendedBy: "A. Reviewer",
+  // Live evidence reaches the generator only as a signed certification.
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+  const certifiers = {
+    certifiers: [
+      {
+        keyId: certifierKeyId(publicKey),
+        name: "A. Reviewer",
+        publicKey: publicKey
+          .export({ type: "spki", format: "der" })
+          .toString("base64"),
+      },
+    ],
   };
-  const collection = collectSupportEvidence(
-    [ledger({ supportEvidence: [live] })],
-    [openapi, vendor],
-    { today: TODAY, exists: () => false },
+  const transcript = [
+    { step: "attend", kind: "attestation", outcome: "confirmed" },
+    { step: "outcome", kind: "attestation", outcome: "confirmed" },
+  ];
+  const record = signCertification(
+    {
+      kind: "attended-certification",
+      schemaVersion: 1,
+      id: "2026-09-20-vendor-registration-abc123",
+      adapterId: "vendor-http",
+      provider: { name: "Vendor", origins: ["https://auth.vendor.com"] },
+      flow: "registration",
+      rehearsal: false,
+      attendedBy: "A. Reviewer",
+      recordedAt: "2026-09-20",
+      commit: "0123456789abcdef0123456789abcdef01234567",
+      transcript: { digest: digestOf(transcript), steps: 2, humanSteps: 2 },
+      outcome: "completed",
+    },
+    privateKey,
   );
+  const collection = collectSupportEvidence([], [openapi, vendor], {
+    today: TODAY,
+    certifications: [{ source: "certifications/v.json", record, transcript }],
+    certifiers,
+  });
   assert.deepEqual(collection.refused, []);
   assert.equal(collection.asOf, "2026-09-20");
   // The matrix measures with no configuration present, so an adapter that
@@ -324,9 +398,34 @@ test("the published matrix and the runtime's recorded evidence are exactly what 
   // never live, and marked as describing the code path, not a definition.
   assert.equal(labelOf("openapi-http"), "local (code path)");
   assert.equal(labelOf("catalog-http"), "local (code path)");
-  // The adapters whose ledgers used to be dropped now have a label.
+  // So are the remote MCP and Microsoft custom-connector adapters, which
+  // run whatever server or connector a person imported.
+  assert.equal(labelOf("mcp-remote"), "local (code path)");
+  assert.equal(labelOf("microsoft-custom-connector"), "local (code path)");
+  // The adapters whose ledgers used to be dropped now have a label, earned
+  // by their own suites against loopback stand-ins.
   for (const id of ["camel-kamelet", "dapr", "open-service-broker"])
+    assert.equal(labelOf(id), "local", id);
+  // Two Supabase profiles never reach a stand-in server end to end (a fake
+  // MCP client port, a fake query port), so the backfill leaves them at
+  // `fixture` rather than rounding them up with their siblings.
+  for (const id of ["supabase-mcp", "supabase-wrappers"])
     assert.equal(labelOf(id), "fixture", id);
+  // A `local` label rests on an explicit, dated entry that cites the test
+  // file which ran against the stand-in, never on a legacy work-item level.
+  for (const line of matrix.split("\n")) {
+    const cells = line.split("|").map((cell) => cell.trim());
+    if (!line.startsWith("| `") || cells.length < 6) continue;
+    const basis = matrix
+      .split("\n")
+      .find(
+        (other) =>
+          other.startsWith(`| ${cells[1]} `) &&
+          other.includes("(local-double,"),
+      );
+    if (cells[5]?.startsWith("local"))
+      assert.match(basis ?? "", /`tests\/[^`]+\.test\.ts` \(local-double, /);
+  }
   assert.equal(matrix.includes("not-recorded"), false);
   for (const line of matrix.split("\n"))
     if (line.startsWith("| `") && line.includes("hosted-server"))

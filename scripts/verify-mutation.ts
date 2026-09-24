@@ -28,9 +28,23 @@ export async function mutationProgress(
   emit: (record: Record<string, string | number | null>) => void,
   /** The case names the repository authors, for naming which case failed. */
   cases: readonly string[] = [],
+  /**
+   * How long one file may run in the dry run before the run is stopped.
+   *
+   * Every test in the profile is bounded at five minutes
+   * (`--test-timeout=300000`), but a file that stalls outside a test - while
+   * loading, or in a hook the bound does not reach - is bounded by nothing but
+   * Stryker's 25-minute dry-run limit, which then fails naming no file. That
+   * happened to `tests/fuzz.test.ts` once, a file that otherwise finishes in
+   * three seconds: the job sat for 21 minutes and said only "initial test run
+   * timed out". Twice the per-test bound stops it early and names the file.
+   */
+  stallMs = 10 * 60_000,
 ) {
   const started = performance.now();
   let initial = true;
+  /** The file the dry run started last, and when, to catch one that never ends. */
+  let running: { file: string; since: number } | undefined;
   /** Inside Stryker's list of the files that failed the initial test run. */
   let dryRunFailed = false;
   /** The last file Stryker named in that list, when the inventory knows it. */
@@ -69,7 +83,10 @@ export async function mutationProgress(
         });
       if (initial && /\bDEBUG TapTestRunner Running: `node /.test(line)) {
         const file = inventory.find((name) => line.includes(`"${name}"\` in `));
-        if (file) record({ phase: "initial", file });
+        if (file) {
+          running = { file, since: performance.now() };
+          record({ phase: "initial", file });
+        }
       }
       // A baseline that fails says only "exit 1" otherwise, and the dry run is
       // where the whole suite runs before a single mutant exists — so a real
@@ -136,6 +153,17 @@ export async function mutationProgress(
         dryRunFailed = true;
     }
   };
+  const watchdog = setInterval(
+    () => {
+      if (!initial || !running || interruptionCode !== undefined) return;
+      if (performance.now() - running.since < stallMs) return;
+      record({ phase: "initial-stall", file: running.file });
+      interruptionCode = 1;
+      child.kill("SIGTERM");
+    },
+    Math.min(stallMs / 4, 15_000),
+  );
+  watchdog.unref();
   const closed = new Promise<number | null>((done) => {
     let failed = false;
     child.once("error", () => {
@@ -153,6 +181,7 @@ export async function mutationProgress(
     record({ phase: "exit", code });
     return code ?? 1;
   } finally {
+    clearInterval(watchdog);
     process.off("SIGINT", onInterrupt);
     process.off("SIGTERM", onTerminate);
   }

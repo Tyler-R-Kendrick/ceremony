@@ -220,6 +220,8 @@ async function authoringHttp(
     return reply({
       id: connectorId,
       name: installed.manifest.name,
+      // Earned only by this definition's own verified runs.
+      support: await runtime.authoring.supportLabel(actor, connectorId),
       methods: installed.manifest.methods.map((method) => ({
         id: method.id,
         kind: method.kind,

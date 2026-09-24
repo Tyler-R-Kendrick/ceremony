@@ -43,6 +43,12 @@ import type {
 } from "./browser-executor.js";
 import type { ProgrammableInbox } from "./authored-inbox.js";
 import {
+  authoredDefinitionOf,
+  bindAuthoredDefinition,
+  recordAuthoredEvidence,
+  type AuthoredEvidenceTarget,
+} from "./authored-evidence.js";
+import {
   discoverProviderAuth,
   isProviderOwnedAuth,
   readAuthResponse,
@@ -523,6 +529,8 @@ const sessionSchema = z.object({
   refreshToken: z.string().min(1).max(8000).optional(),
   dpopJwk: dpopJwkSchema.optional(),
   verifiedEmail: z.email().max(254).optional(),
+  /** The connector definition this session's exchange ran against; see `bindAuthoredDefinition`. */
+  definition: z.string().max(80).optional(),
 });
 export const discoveredAuthSchema = z.object({
   origin: z.string().max(200),
@@ -625,6 +633,33 @@ export async function installedConnector(
   return parsed.success && parsed.data.author === actor.subjectId
     ? parsed.data
     : undefined;
+}
+/**
+ * The installed connector as one read: its parsed discovery and the name of
+ * the definition that read describes, so a caller that acts on the discovery
+ * can say exactly which definition it acted on.
+ */
+async function installedSnapshot(
+  store: AsyncCeremonyStore,
+  actor: ActorContext,
+  connectorId: string,
+) {
+  const record = await store.transaction((tx) =>
+    tx.get({
+      tenant: actor.tenantId,
+      kind: "artifact",
+      id: `installed-connector:${connectorId}`,
+    }),
+  );
+  const definition = authoredDefinitionOf(record?.value, actor);
+  if (!definition) return undefined;
+  const discovery = discoveredAuthSchema.safeParse(
+    (record?.value as { discovery?: unknown }).discovery,
+  );
+  return {
+    definition,
+    discovery: discovery.success ? discovery.data : undefined,
+  };
 }
 export async function installedDiscovery(
   store: AsyncCeremonyStore,
@@ -870,7 +905,12 @@ async function persistSession(
   store: AsyncCeremonyStore,
   actor: ActorContext,
   runId: string,
-  stored: z.infer<typeof sessionSchema>,
+  stored: Omit<z.infer<typeof sessionSchema>, "definition">,
+  /** The connector and the discovery the exchange used, to bind the session to its definition. */
+  binding?: {
+    connectorId: string;
+    discovery: z.infer<typeof discoveredAuthSchema>;
+  },
 ) {
   const intent = await readAuthoredAccountIntent(store, actor, runId);
   if (
@@ -893,8 +933,20 @@ async function persistSession(
       run.value.status !== "active"
     )
       throw new AuthorizationError("denied");
+    const definition = binding
+      ? await bindAuthoredDefinition(
+          tx,
+          actor,
+          binding.connectorId,
+          binding.discovery,
+        )
+      : undefined;
     const prior = await tx.get(sessionKey(actor, runId));
-    await tx.put(sessionKey(actor, runId), stored, prior?.revision ?? null);
+    await tx.put(
+      sessionKey(actor, runId),
+      { ...stored, ...(definition ? { definition } : {}) },
+      prior?.revision ?? null,
+    );
   });
   return { handle: stored.handle, did: stored.did ?? stored.handle };
 }
@@ -906,6 +958,8 @@ export async function saveAuthoredDeviceSession(
   input: { deviceCode: string; clientId: string },
   fetcher: typeof fetch,
   clientAuth?: ClientAuthentication,
+  /** The authored connector this session is for; binds it to its definition. */
+  connectorId?: string,
 ) {
   if (!discovery.tokenEndpoint) return { status: "denied" as const };
   const poll = await pollDeviceToken(
@@ -926,6 +980,8 @@ export async function saveAuthoredDeviceSession(
       refresh_token: poll.refreshToken,
     },
     fetcher,
+    undefined,
+    connectorId,
   );
   if (!identity) return { status: "denied" as const };
   return { status: "ready" as const, handle: identity.handle };
@@ -943,6 +999,8 @@ export async function saveAuthoredGrantSession(
   },
   fetcher: typeof fetch,
   dpopJwk?: JsonWebKey,
+  /** The authored connector this session is for; binds it to its definition. */
+  connectorId?: string,
 ) {
   if (discovery.dpopRequired && token.token_type?.toLowerCase() !== "dpop")
     throw new AuthorizationError("denied");
@@ -959,12 +1017,18 @@ export async function saveAuthoredGrantSession(
       )
     : identityFromAccess(token.access_token, token);
   if (!identity) return undefined;
-  return persistSession(store, actor, runId, {
-    ...identity,
-    accessToken: token.access_token,
-    ...(proofKey ? { dpopJwk: proofKey } : {}),
-    ...(token.refresh_token ? { refreshToken: token.refresh_token } : {}),
-  });
+  return persistSession(
+    store,
+    actor,
+    runId,
+    {
+      ...identity,
+      accessToken: token.access_token,
+      ...(proofKey ? { dpopJwk: proofKey } : {}),
+      ...(token.refresh_token ? { refreshToken: token.refresh_token } : {}),
+    },
+    connectorId ? { connectorId, discovery } : undefined,
+  );
 }
 export async function saveAuthoredAuthorizationSession(
   store: AsyncCeremonyStore,
@@ -979,6 +1043,8 @@ export async function saveAuthoredAuthorizationSession(
   },
   fetcher: typeof fetch,
   clientAuth?: ClientAuthentication,
+  /** The authored connector this session is for; binds it to its definition. */
+  connectorId?: string,
 ) {
   if (!discovery.tokenEndpoint) return undefined;
   const body = new URLSearchParams({
@@ -1006,6 +1072,8 @@ export async function saveAuthoredAuthorizationSession(
       refresh_token: token.refreshToken,
     },
     fetcher,
+    undefined,
+    connectorId,
   );
 }
 export async function deleteAuthoredSession(
@@ -1765,6 +1833,8 @@ const credentialRecordSchema = z.strictObject({
     }),
   ]),
   verified: z.boolean().optional(),
+  /** The connector definition installed when the credential was collected. */
+  definition: z.string().max(80).optional(),
 });
 type CredentialRecord = z.infer<typeof credentialRecordSchema>;
 
@@ -1795,12 +1865,18 @@ export async function writeAuthoredCredential(
   context: OperationContext,
   fields: Record<string, string>,
 ) {
+  const definition = await bindAuthoredDefinition(
+    tx,
+    context.actor,
+    context.target,
+  );
   const value = credentialRecordSchema.parse({
     subject: context.actor.subjectId,
     actorSession: context.actor.sessionId,
     runId: context.runId,
     nodeId: context.nodeId,
     fields,
+    ...(definition ? { definition } : {}),
   });
   const key = authoredCredentialKey(
     context.actor,
@@ -2062,6 +2138,13 @@ export function registerAuthoredOperations(
     fetch?: typeof fetch;
     browser?: AuthorizationBrowser;
     inbox?: ProgrammableInbox;
+    /**
+     * What a verified run's transport reaches, which decides the support
+     * evidence it records (see `authored-evidence.ts`). The runtime sets it
+     * from the transport it chose, never from anything an author supplied;
+     * absent, verified runs record nothing.
+     */
+    evidence?: { target: AuthoredEvidenceTarget; now?: () => number };
   },
 ): void {
   const complete = (outputs: Record<string, string>): OperationResult => ({
@@ -2070,6 +2153,33 @@ export function registerAuthoredOperations(
   });
   const handle = (context: OperationContext, kind: HandleKind) =>
     issueAuthoredHandle(options.store, context, kind);
+  /**
+   * A verified run is evidence about the connector's current definition.
+   * Recording it is bookkeeping: if the write fails the connection still
+   * stands and the label simply does not rise, which is the safe direction.
+   */
+  const recordVerified = async (
+    context: OperationContext,
+    proof: "credential-accepted" | "authorization-verified",
+    exercised: { bound?: string | undefined; probed?: string | undefined },
+  ) => {
+    // Evidence only when what the credential or session was created against
+    // is what the verifier just used; see `authored-evidence.ts`.
+    if (
+      !options.evidence ||
+      !exercised.bound ||
+      exercised.bound !== exercised.probed
+    )
+      return;
+    await recordAuthoredEvidence(options.store, context.actor, {
+      connectorId: context.target,
+      runId: context.runId,
+      definition: exercised.bound,
+      target: options.evidence.target,
+      proof,
+      now: (options.evidence.now ?? Date.now)(),
+    }).catch(() => undefined);
+  };
   /** An upstream handle must come from this run: another run's reference names nothing here. */
   const inputBound = (
     context: OperationContext,
@@ -2803,6 +2913,7 @@ export function registerAuthoredOperations(
                 grant,
                 fetcher,
                 started.dpopJwk,
+                context.target,
               );
               if (created)
                 return complete({ session: await handle(context, "session") });
@@ -2879,11 +2990,14 @@ export function registerAuthoredOperations(
             outputs: {},
             diagnosticCode: "denied" as const,
           };
-        const discovery = await installedDiscovery(
+        // One read: the discovery the probe uses and the definition named
+        // as exercised come from the same installed record.
+        const installed = await installedSnapshot(
           options.store,
           context.actor,
           context.target,
         );
+        const discovery = installed?.discovery;
         const credential = await readAuthoredCredential(
           options.store,
           context.actor,
@@ -2936,7 +3050,7 @@ export function registerAuthoredOperations(
                   : ("unavailable" as const),
             };
           }
-          if (!credential.verified)
+          if (!credential.verified) {
             await markAuthoredCredentialVerified(
               options.store,
               context.actor,
@@ -2944,6 +3058,13 @@ export function registerAuthoredOperations(
               credential.nodeId,
               credential.revision,
             );
+            // Only a probe that actually ran is evidence; a credential this
+            // run already verified was recorded when it was.
+            await recordVerified(context, "credential-accepted", {
+              bound: credential.definition,
+              probed: installed?.definition,
+            });
+          }
           await saveAuthoredBlocker(
             options.store,
             context.actor,
@@ -2964,6 +3085,10 @@ export function registerAuthoredOperations(
             outputs: {},
             diagnosticCode: "awaiting-human" as const,
           };
+        await recordVerified(context, "authorization-verified", {
+          bound: session.definition,
+          probed: installed?.definition,
+        });
         return complete({ connection: await handle(context, "connection") });
       },
     },

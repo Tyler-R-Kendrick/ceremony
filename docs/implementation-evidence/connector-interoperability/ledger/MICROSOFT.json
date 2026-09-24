@@ -125,6 +125,29 @@
       "notes": "createMicrosoftCustomConnectorAdapter(options) with id \"microsoft-custom-connector\", runtime hosted-server, custody host-owned, profiles [\"microsoft-custom-connector-2026-06\", \"swagger-2.0\"]. Destination comes from the binding; credentials are opened only inside credentials.use. MicrosoftAuthorizationHook is the declared seam for the OAUTH swarm: ({kind, placement?, parameterName?, material}) => {headers?, query?}. defaultAuthorizationHook covers api key (header or query), http basic and oauth2 bearer, and refuses a credential that would split a header. Binding settings (connectorId, authentication, dynamicFields, verifier, cacheTtlMs, responseBytes, requestTimeoutMs) are host-approved and schema-validated; a caller supplies only an operation ref and the form's current values."
     }
   ],
+  "supportEvidence": [
+    {
+      "adapterId": "microsoft-custom-connector",
+      "check": "tests/connectors/microsoft/dynamic.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Approved dynamic value and schema lookups on invoke, through the adapter with the platform fetch against the loopback connector API double (tests/connectors/doubles/http-fixture.ts), which checks each request independently."
+    },
+    {
+      "adapterId": "microsoft-custom-connector",
+      "check": "tests/connectors/microsoft/verify.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "The declared connection test as credential-accepted evidence only, through the adapter with the platform fetch against the loopback connector API double, which checks each request independently."
+    },
+    {
+      "adapterId": "microsoft-custom-connector",
+      "check": "tests/connectors/microsoft/import.test.ts",
+      "target": "in-process-fixture",
+      "recordedAt": "2026-09-23",
+      "notes": "Custom connector import from in-process fixture documents."
+    }
+  ],
   "contractChanges": [],
   "integrationPatches": [
     {

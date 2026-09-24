@@ -33,6 +33,8 @@ import {
 } from "./authored-operations.js";
 import type { ConnectorManifest } from "../core/schema.js";
 import type { RecipeDefinition } from "../core/recipe-contracts.js";
+import { isLiveSupportLabel } from "../core/connectors/index.js";
+import { authoredSupportLabel } from "./authored-evidence.js";
 
 const recordSchema = z.strictObject({
   author: z.string().min(1).max(200),
@@ -258,8 +260,51 @@ export class ConnectorDrafts {
       fetch?: typeof fetch;
       search?: ProviderSearch;
       allowLoopbackHttp?: boolean;
+      /** The clock support labels are evaluated against. */
+      now?: () => number;
     } = {},
   ) {}
+  /**
+   * The support label of an installed connector's current definition, from
+   * the evidence its own verified runs recorded (`authored-evidence.ts`).
+   * Nothing an author writes reaches it.
+   */
+  async supportLabel(actor: ActorContext, connectorId: string) {
+    const result = await authoredSupportLabel(
+      this.store,
+      actor,
+      connectorId,
+      (this.options.now ?? Date.now)(),
+    );
+    return {
+      label: result.label,
+      ...(result.basis
+        ? {
+            basis: {
+              target: result.basis.target,
+              recordedAt: result.basis.recordedAt,
+            },
+          }
+        : {}),
+    };
+  }
+  /**
+   * A manifest's `support` as its evidence earns it: `live-adapter` only
+   * while a verified live run of this very definition is fresh, exactly as
+   * a registered connector's is derived. Whatever the installed record says
+   * is replaced, so an author cannot declare their way past this.
+   */
+  private async withSupport(
+    actor: ActorContext,
+    connectorId: string,
+    manifest: ConnectorManifest,
+  ): Promise<ConnectorManifest> {
+    const { label } = await this.supportLabel(actor, connectorId);
+    return {
+      ...manifest,
+      support: isLiveSupportLabel(label) ? "live-adapter" : "fixture",
+    };
+  }
   async fromProvider(
     actor: ActorContext,
     provider: string,
@@ -411,7 +456,11 @@ export class ConnectorDrafts {
     const value = installedSchema.parse(record.value);
     if (value.author !== actor.subjectId) return undefined;
     return {
-      manifest: value.manifest as ConnectorManifest,
+      manifest: await this.withSupport(
+        actor,
+        connectorId,
+        value.manifest as ConnectorManifest,
+      ),
       definition: value.definition as RecipeDefinition,
       discovery: value.discovery,
     };
@@ -455,7 +504,13 @@ export class ConnectorDrafts {
           .custom<ConnectorManifest>((item) => item)
           .safeParse(value.data.manifest);
         if (parsed.success)
-          manifests.push(value.data.manifest as ConnectorManifest);
+          manifests.push(
+            await this.withSupport(
+              actor,
+              record.id.slice("installed-connector:".length),
+              value.data.manifest as ConnectorManifest,
+            ),
+          );
       }
       if (page.length < 100) break;
     }

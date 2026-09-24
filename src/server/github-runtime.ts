@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { loopbackAuthFetch, publicAuthFetch } from "./public-auth-fetch.js";
+import type { AuthoredEvidenceTarget } from "./authored-evidence.js";
 import type { ActorContext } from "../core/operation-contracts.js";
 import {
   createTeachingRuntime,
@@ -114,6 +115,13 @@ export interface GitHubRuntimeOptions {
   inbox?: ProgrammableInbox;
   /** Host transport for authored discovery, OAuth and human continuation. */
   authoredFetch?: typeof fetch;
+  /**
+   * What `authoredFetch` reaches, for the support evidence a verified
+   * authored run records. Only meaningful with a host transport: the
+   * runtime's own transports decide it themselves. Absent with a host
+   * transport, verified runs record no evidence.
+   */
+  authoredEvidenceTarget?: AuthoredEvidenceTarget;
   github?: Partial<Pick<AsyncGitHubOptions, "app" | "fetch">>;
   stripe?: {
     configuration(
@@ -214,6 +222,16 @@ export function createGitHubRuntime(
     (origin.startsWith("http://127.0.0.1")
       ? loopbackAuthFetch
       : publicAuthFetch);
+  // The public-only transport reaches nothing but public addresses at the
+  // provider's declared origins, so a run through it is a live run. The
+  // loopback development transport may reach a local double, so it claims
+  // no more than that. A host transport claims only what the host declares.
+  const authoredEvidenceTarget: AuthoredEvidenceTarget | undefined =
+    options.authoredFetch
+      ? options.authoredEvidenceTarget
+      : authoredFetch === publicAuthFetch
+        ? "recorded-live"
+        : "local-double";
   const broker = new AsyncPrivateCollectionBroker(store);
   const targetKey = (actor: ActorContext) => ({
     tenant: actor.tenantId,
@@ -520,6 +538,9 @@ export function createGitHubRuntime(
   registerAuthoredOperations(registry, {
     store,
     fetch: authoredFetch,
+    ...(authoredEvidenceTarget
+      ? { evidence: { target: authoredEvidenceTarget } }
+      : {}),
     ...(options.browser ? { browser: options.browser } : {}),
     ...(options.inbox ? { inbox: options.inbox } : {}),
   });

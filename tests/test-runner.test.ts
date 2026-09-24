@@ -91,6 +91,7 @@ test("canonical runner caps file concurrency without dropping inventory or failu
       "tsx",
       "--test",
       "--test-concurrency=4",
+      "--test-timeout=600000",
       ...expectedFiles,
     ]);
     writeFileSync(

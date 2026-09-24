@@ -272,7 +272,8 @@ live or certified label, with its configuration present, turns a `fixture`
 adapter into `provider-backed`. `connector_catalog` and `connector_status`
 return the label to an assistant.
 
-The generic OpenAPI and provider-catalog adapters run whatever description a
+The generic OpenAPI, provider-catalog, remote MCP and Microsoft
+custom-connector adapters run whatever description, server or connector a
 person imported, so their catalog row describes only the code path: it can
 read `local`, never `live`. Wherever a label admits or promotes something
 (the production gate, a registration, a connection's status) it is the label

@@ -343,6 +343,62 @@ test("mutation progress stops logging file starts after the initial run and pres
   assert.equal(JSON.stringify(records).includes("private"), false);
 });
 
+test("a dry-run file that never ends is named and stopped, not left to the whole run's limit", async () => {
+  // A stall outside any test - while loading, or in a hook - is bounded by
+  // nothing but Stryker's 25-minute dry-run limit, which then names no file.
+  const records: Array<Record<string, string | number | null>> = [];
+  const source = [
+    'console.log("DEBUG TapTestRunner Running: `node \\"tests/quick.test.ts\\"` in /private-checkout")',
+    'console.log("DEBUG TapTestRunner Running: `node \\"tests/stuck.test.ts\\"` in /private-checkout")',
+    "setTimeout(() => process.exit(0), 20_000)",
+  ].join(";");
+  const began = performance.now();
+  const code = await mutationProgress(
+    process.execPath,
+    ["-e", source],
+    ["tests/quick.test.ts", "tests/stuck.test.ts"],
+    (record) => records.push(record),
+    [],
+    300,
+  );
+  assert.ok(performance.now() - began < 10_000, "the stall was not cut short");
+  assert.equal(code, 1);
+  assert.deepEqual(
+    records
+      .filter((r) => r.phase === "initial-stall")
+      .map(({ phase, file }) => ({ phase, file })),
+    [{ phase: "initial-stall", file: "tests/stuck.test.ts" }],
+  );
+  assert.equal(records.at(-1)?.code, 1);
+  assert.equal(JSON.stringify(records).includes("private"), false);
+});
+
+test("a dry run that keeps starting files is never stopped for a stall", async () => {
+  const records: Array<Record<string, string | number | null>> = [];
+  const source = `
+    let n = 0;
+    const tick = setInterval(() => {
+      console.log('DEBUG TapTestRunner Running: \`node "tests/f' + (n % 2) + '.test.ts"\` in /x');
+      if (++n === 8) { clearInterval(tick); console.log("INFO DryRunExecutor Initial test run succeeded."); }
+    }, 100);
+  `;
+  assert.equal(
+    await mutationProgress(
+      process.execPath,
+      ["-e", source],
+      ["tests/f0.test.ts", "tests/f1.test.ts"],
+      (record) => records.push(record),
+      [],
+      400,
+    ),
+    0,
+  );
+  assert.equal(
+    records.some((r) => r.phase === "initial-stall"),
+    false,
+  );
+});
+
 test("mutation progress fails closed without retaining spawn errors", async () => {
   const records: Array<Record<string, string | number | null>> = [];
   assert.equal(

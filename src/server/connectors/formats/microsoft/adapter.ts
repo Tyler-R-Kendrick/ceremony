@@ -496,6 +496,10 @@ export function createMicrosoftCustomConnectorAdapter(
       "Imports Power Platform custom connectors, runs their approved dynamic field lookups server-side, and interprets their connection test as connectivity evidence only.",
     service: options.service ?? "microsoft-custom-connector",
     support: options.support ?? "provider-backed",
+    // Every imported custom connector runs through this adapter, so its
+    // suites prove the interpreter, not the API behind a definition nobody
+    // exercised: evidence speaks per definition.
+    evidenceScope: "definition",
     custody: ["host-owned"],
     configuration: [],
     profiles: [MICROSOFT_PROFILE, "swagger-2.0"],

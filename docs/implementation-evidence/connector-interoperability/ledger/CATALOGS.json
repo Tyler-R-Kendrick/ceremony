@@ -107,6 +107,50 @@
       "notes": "suggestEquivalences(items, options) returns EquivalenceSuggestion { members, confidence, reasons, limitations }. Confidence is the number of independent shared identities (high: two or more kinds; medium: repository or qualified name; low: remote origin alone), never a probability."
     }
   ],
+  "supportEvidence": [
+    {
+      "adapterId": "docker-mcp-catalog",
+      "check": "tests/connectors/docker-mcp/adapter.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Paged discovery with provenance, import and export; local execution reported unavailable, through the adapter with the platform fetch against the loopback catalog double (tests/connectors/doubles/http-fixture.ts), which checks each request independently."
+    },
+    {
+      "adapterId": "docker-mcp-catalog",
+      "check": "tests/connectors/docker-mcp/catalog.test.ts",
+      "target": "in-process-fixture",
+      "recordedAt": "2026-09-23",
+      "notes": "Catalog entry reading from in-process fixture documents."
+    },
+    {
+      "adapterId": "pulsemcp",
+      "check": "tests/connectors/pulsemcp/discovery.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Native and sub-registry paging, discovery and import, through the adapter with the platform fetch against the loopback PulseMCP double (tests/connectors/doubles/pulsemcp.ts), which checks each request independently."
+    },
+    {
+      "adapterId": "pulsemcp",
+      "check": "tests/connectors/pulsemcp/equivalence.test.ts",
+      "target": "in-process-fixture",
+      "recordedAt": "2026-09-23",
+      "notes": "Listing equivalence rules, in process."
+    },
+    {
+      "adapterId": "smithery",
+      "check": "tests/connectors/smithery/connections.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Authorize, verify, invoke, disconnect and revoke of a namespace connection, through the adapter with the platform fetch against the loopback Smithery double (tests/connectors/doubles/smithery.ts), which checks each request independently."
+    },
+    {
+      "adapterId": "smithery-registry",
+      "check": "tests/connectors/smithery/registry.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Registry discovery and import, through the adapter with the platform fetch against the loopback Smithery double, which checks each request independently."
+    }
+  ],
   "contractChanges": [
     {
       "kind": "proposed",

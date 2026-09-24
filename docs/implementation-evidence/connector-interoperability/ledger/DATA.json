@@ -130,6 +130,50 @@
       "notes": "Airbyte fixtures cover checks (SUCCEEDED/FAILED with prose that must not surface), complete and partial syncs with per-stream, global and legacy state, cursor replay windows, job restart, a noisy transcript with a non-protocol line, unsupported and unknown sync modes, and namespace collisions. The NDC double independently validates every QueryRequest/MutationRequest against the specification and its own declared capabilities, answering 501 for undeclared capabilities and 400 for unknown collections/columns/arguments, so a green policy test proves the request never left rather than that the double was lenient; fixtures cover undeclared capability, unauthorized field/relationship and version mismatch. Merge fixtures model two linked accounts with genuinely different available fields (work_email present on one, absent on the other) and different supported operations (groups model and passthrough on one only), plus INCOMPLETE and RELINK_NEEDED accounts. Retrieval fixtures are JSON files covering role changes, deletion, revoked group membership, denied readers overriding readers, inheritance chains of three levels with each inheritance type, missing and cyclic parents, stale membership and stale ACL captures, and cross-principal cache separation keyed by principal plus freshness."
     }
   ],
+  "supportEvidence": [
+    {
+      "adapterId": "airbyte",
+      "check": "tests/connectors/airbyte/adapter.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Discover, import, verify, delegate sync jobs and disconnect, through the adapter with the platform fetch against the loopback Airbyte API double (tests/connectors/doubles/airbyte-api.ts), which checks each request independently."
+    },
+    {
+      "adapterId": "airbyte",
+      "check": "tests/connectors/airbyte/catalog.test.ts",
+      "target": "in-process-fixture",
+      "recordedAt": "2026-09-23",
+      "notes": "Connector catalog reading from in-process fixture documents."
+    },
+    {
+      "adapterId": "hasura-ndc",
+      "check": "tests/connectors/hasura-ndc/policy.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Query and mutation invocation and verification held to the specification and the binding, through the adapter with the platform fetch against the loopback NDC connector double (tests/connectors/doubles/ndc-connector.ts), which checks each request independently."
+    },
+    {
+      "adapterId": "hasura-ndc",
+      "check": "tests/connectors/hasura-ndc/discover.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Import from the served /capabilities and /schema endpoints and the compatibility decision, through the adapter with the platform fetch against the loopback NDC connector double, which checks each request independently."
+    },
+    {
+      "adapterId": "merge",
+      "check": "tests/connectors/merge/adapter.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Link-token authorize and complete, verify, discover, invoke, delegate and disconnect, through the adapter with the platform fetch against the loopback Merge API double (tests/connectors/doubles/merge-api.ts), which checks each request independently."
+    },
+    {
+      "adapterId": "merge",
+      "check": "tests/connectors/merge/adapter-boundaries.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-09-23",
+      "notes": "Header rules, destinations, reconnect and refusal before submission, through the adapter with the platform fetch against the loopback Merge API double, which checks each request independently."
+    }
+  ],
   "contractChanges": [],
   "integrationPatches": [
     {

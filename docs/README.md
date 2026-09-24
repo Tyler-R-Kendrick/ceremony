@@ -39,4 +39,6 @@
 
 [Connector interoperability evidence](implementation-evidence/connector-interoperability/evidence-report.md) joins every required work item to its files, tests, recorded results, pinned sources and blocked live prerequisites, and names the requirements nobody delivered. The [source lock](implementation-evidence/connector-interoperability/source-lock.md) records every external document an adapter depends on.
 
+[Attended certification](certification.md) is how a named person certifies one flow against one real provider: the harness, the signed record, what the ledger validator checks, and the rehearsal against the local auth double, which is never accepted as certification.
+
 Local protocol tests, browser tests, installed-PWA device checks and real-provider/deployed-platform certification are different evidence classes. Missing production configuration or external certification never means PASS.
