@@ -478,6 +478,28 @@ export async function createHarness(
   };
 }
 
+/**
+ * The harness as a `fetch`, for a client that builds its own requests -- a
+ * generated one, typically. The Request goes to the real handler unchanged,
+ * with the fake host identity resolving its cookie exactly as `fetch` above.
+ */
+export function handlerFetch(
+  harness: Harness,
+): (request: Request) => Promise<Response> {
+  return async (request) => {
+    const needsActor = connectorRequestNeedsActor(
+      new URL(request.url).pathname,
+    );
+    const actor = needsActor
+      ? await harness.identity.authenticate(request)
+      : null;
+    if (needsActor && !actor)
+      return Response.json({ error: "unauthenticated" }, { status: 401 });
+    const response = await harness.http(request, actor ?? undefined);
+    return response ?? Response.json({ error: "not-found" }, { status: 404 });
+  };
+}
+
 export function human(overrides: Partial<ActorContext> = {}): ActorContext {
   return {
     tenantId: TENANT,

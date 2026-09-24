@@ -1,7 +1,6 @@
 {
   "name": "@ceremony/auth",
   "version": "0.1.0",
-  "private": true,
   "description": "Auth-ceremony connector broker: record, chain and run authentication ceremonies for people and agents.",
   "license": "MIT",
   "repository": {
@@ -14,6 +13,10 @@
   },
   "engines": {
     "node": ">=22.12"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "type": "module",
   "overrides": {
@@ -93,6 +96,8 @@
     "openapi:generate": "node --import tsx scripts/connector-openapi.ts",
     "openapi:check": "node --import tsx scripts/connector-openapi.ts --check",
     "test:package": "node --import tsx --test tests/package-consumer.test.ts tests/connectors/packaging/consumer.test.ts",
+    "prepublishOnly": "node --import tsx scripts/release-guard.ts && npm run check && npm run build && npm run test:package",
+    "test:clients": "node --no-experimental-webstorage --import tsx --test tests/openapi-client.test.ts tests/python-client/openapi-python-client.test.ts",
     "test:integration": "node scripts/test.mjs integration",
     "test:security": "node scripts/test.mjs security",
     "test:agent": "node scripts/test.mjs agent",
@@ -167,6 +172,8 @@
     "fast-check": "4.9.0",
     "linkedom": "0.18.13",
     "nitro": "3.0.260903-beta",
+    "openapi-fetch": "0.17.0",
+    "openapi-typescript": "7.13.0",
     "prettier": "^3.9.6",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
