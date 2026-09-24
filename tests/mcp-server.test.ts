@@ -499,6 +499,7 @@ const AGENT_TOOLS = [
   "ceremony_draft_edit",
   "ceremony_draft_import",
   "ceremony_draft_read",
+  "ceremony_operations",
   "ceremony_recipe_compose",
   "ceremony_recipe_execute",
   "ceremony_recipe_preview",
@@ -604,6 +605,7 @@ test("tools carry read-only and destructive hints", async () => {
       "ceremony_demonstration_read",
       "ceremony_recipes",
       "ceremony_recipe_preview",
+      "ceremony_operations",
     ])
       assert.equal(hints.get(name)?.readOnlyHint, true, name);
     for (const name of [

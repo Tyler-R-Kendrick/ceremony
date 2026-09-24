@@ -5,6 +5,7 @@ export * from "./webmcp.js";
 export * from "./resolution.js";
 export * from "./operation-contracts.js";
 export * from "./recipe-contracts.js";
+export * from "./operation-packs.js";
 export * from "./teaching-contracts.js";
 export * from "./projections.js";
 export * from "./connection-tools.js";

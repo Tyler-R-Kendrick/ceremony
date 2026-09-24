@@ -16,3 +16,4 @@ export * from "./demonstrations.js";
 export * from "./teaching-runtime.js";
 export * from "./github-runtime.js";
 export * from "./teaching-http.js";
+export * from "./operation-packs.js";
