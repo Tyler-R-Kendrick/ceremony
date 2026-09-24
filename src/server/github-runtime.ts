@@ -42,7 +42,13 @@ import {
   requireCapability,
   type HostIdentityAdapter,
 } from "./identity.js";
-import { readScopedRun, type RunRecord } from "./commands.js";
+import {
+  readScopedRun,
+  scopedRun,
+  scopedRunFor,
+  type RunPlanNode,
+  type RunRecord,
+} from "./commands.js";
 import type { ModelConfiguration } from "./agent/model.js";
 import { AsyncPrivateCollectionBroker } from "./persistence/collections.js";
 import { boundedJson, assertRequestBoundary } from "./authorization.js";
@@ -690,14 +696,17 @@ export function createGitHubRuntime(
             id: binding.runId,
           }),
         );
+        // The authorizing step's own view: a Jira step inside another
+        // provider's run returns here under the Jira connector's context.
+        const view = record && scopedRunFor(record.value, binding.nodeId);
         if (
-          !record ||
-          record.value.provider !== "jira" ||
-          !(await authorize(actor, record.value, "jira.authorize-user"))
+          !view ||
+          view.provider !== "jira" ||
+          !(await authorize(actor, view, "jira.authorize-user"))
         )
           throw new AuthorizationError("denied");
         await jira.authorization.acceptCallback(
-          { ...operationContext(actor, record.value), nodeId: binding.nodeId },
+          { ...operationContext(actor, view), nodeId: binding.nodeId },
           url,
         );
         await advance(actor, binding.runId);
@@ -794,9 +803,17 @@ export function createGitHubRuntime(
         tx.get<RunRecord>({ tenant: actor.tenantId, kind: "run", id: runId }),
       );
       let callbackUrl = new URL(request.url);
+      if (!record) throw new AuthorizationError("denied");
+      // The page's provider is the route's. For another provider than the
+      // run's it serves only the waiting step planned under that provider's
+      // connector, so a guessed provider in the URL reaches nothing.
+      const scopedStep =
+        callbackUrl.pathname.split("/")[4] === record.value.provider
+          ? undefined
+          : await crossProviderStep(actor, record.value, callbackUrl);
       if (
-        !record ||
-        callbackUrl.pathname.split("/")[4] !== record.value.provider
+        callbackUrl.pathname.split("/")[4] !== record.value.provider &&
+        !scopedStep
       )
         throw new AuthorizationError("denied");
       if (
@@ -853,17 +870,19 @@ export function createGitHubRuntime(
         record.value.status !== "active"
       )
         throw new AuthorizationError("denied");
+      // The waiting step's own view of the run: its provider, profile,
+      // target and configuration are what the host authorizes and what the
+      // page and its completion act under.
+      const view = scopedStep
+        ? scopedRun(record.value, scopedStep)
+        : record.value;
       if (
         actor.actorKind !== "human" ||
-        !(await authorize(
-          actor,
-          record.value,
-          `${record.value.provider}.human`,
-        ))
+        !(await authorize(actor, view, `${view.provider}.human`))
       )
         throw new AuthorizationError("denied");
-      const context = operationContext(actor, record.value);
-      if (record.value.provider === "jira") {
+      const context = operationContext(actor, view);
+      if (view.provider === "jira") {
         if (
           !jira ||
           decodeURIComponent(new URL(request.url).pathname) !==
@@ -884,7 +903,7 @@ export function createGitHubRuntime(
           Boolean(jiraSetup),
         );
       }
-      if (record.value.provider === "supabase") {
+      if (view.provider === "supabase") {
         if (
           !supabase ||
           decodeURIComponent(new URL(request.url).pathname) !==
@@ -903,6 +922,10 @@ export function createGitHubRuntime(
           () => advance(actor, runId),
         );
       }
+      // Only the built-in providers above and Stripe below serve a step
+      // inside another provider's run.
+      if (scopedStep && view.provider !== "stripe")
+        throw new AuthorizationError("denied");
       const accountRegistrationPending = await store.transaction(async (tx) => {
         const node = record.value.nodes.find(
           (item) => item.operationId === "authored.register-account",
@@ -915,10 +938,13 @@ export function createGitHubRuntime(
         });
         return state?.value.state === "awaiting-human";
       });
-      if (record.value.profile === "authored" || accountRegistrationPending) {
+      if (
+        !scopedStep &&
+        (record.value.profile === "authored" || accountRegistrationPending)
+      ) {
         return authoredHumanResponse(actor, runId, record, request, context);
       }
-      if (record.value.provider === "stripe") {
+      if (view.provider === "stripe") {
         if (
           !stripe ||
           decodeURIComponent(new URL(request.url).pathname) !==
@@ -947,6 +973,42 @@ export function createGitHubRuntime(
       );
     },
   });
+  /**
+   * The step a provider's human page serves inside another provider's run:
+   * the first step waiting on a person that was planned under that
+   * provider's connector. Only the page itself (`/human`) is served this way;
+   * callbacks, recovery and account claims stay with the run's own provider.
+   */
+  async function crossProviderStep(
+    actor: ActorContext,
+    run: RunRecord,
+    url: URL,
+  ): Promise<RunPlanNode | undefined> {
+    const provider = url.pathname.split("/")[4];
+    if (
+      !provider ||
+      decodeURIComponent(url.pathname) !==
+        `/api/v1/teaching/${provider}/${run.id}/human`
+    )
+      return undefined;
+    return store.transaction(async (tx) => {
+      for (const node of run.nodes) {
+        if (node.context?.provider !== provider) continue;
+        const state = await tx.get<{ state: string; verified: boolean }>({
+          tenant: actor.tenantId,
+          kind: "node",
+          id: `${run.id}:${node.id}`,
+        });
+        if (state?.value.verified) continue;
+        return ["awaiting-human", "uncertain"].includes(
+          state?.value.state ?? "",
+        )
+          ? node
+          : undefined;
+      }
+      return undefined;
+    });
+  }
   async function authoredHumanResponse(
     actor: ActorContext,
     runId: string,
