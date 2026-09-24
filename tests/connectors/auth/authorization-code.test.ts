@@ -861,3 +861,138 @@ test("callbackUri refuses a path that could escape the host origin", async (t) =
       path,
     );
 });
+
+async function exchanged(
+  harness: AuthHarness,
+  overrides: {
+    begin?: Partial<BeginAuthorizationCodeInput>;
+    parameters?: Record<string, string>;
+  } = {},
+) {
+  const ctx = harness.ctx();
+  const { record } = await begun(harness, ctx, overrides.begin);
+  const callback = await harness.server.authorize(
+    record.private["authorizationUrl"]!,
+  );
+  return completeAuthorizationCode(ctx, {
+    url: new URL(callback),
+    handoff: record,
+    server: harness.resolved,
+    client: harness.client,
+    policy: harness.policy,
+    ...(overrides.parameters ? { parameters: overrides.parameters } : {}),
+  });
+}
+
+test("declared extra token parameters ride on the code exchange", async (t) => {
+  const harness = await authHarness(t, {
+    configuration: { OAUTH_CLIENT_ID: "fixture-client" },
+  });
+  const result = await exchanged(harness, {
+    begin: { scopes: ["profile"] },
+    parameters: { audience: "https://api.fixture.example" },
+  });
+  assert.equal(result.state, "complete");
+  const request = harness.server.tokenRequests.find(
+    (item) => item.grantType === "authorization_code",
+  );
+  assert.equal(request?.parameters["audience"], "https://api.fixture.example");
+  assert.ok(request?.parameters["code_verifier"]);
+});
+
+test("an extra token parameter that names one the grant owns is refused before the code is spent", async (t) => {
+  for (const name of [
+    "code",
+    "client_secret",
+    "grant_type",
+    "redirect_uri",
+    "code_verifier",
+    "client_assertion",
+    "resource",
+    "scope",
+    "not a name",
+  ]) {
+    const harness = await authHarness(t, {
+      configuration: { OAUTH_CLIENT_ID: "fixture-client" },
+    });
+    await assert.rejects(
+      exchanged(harness, {
+        begin: { scopes: ["profile"] },
+        parameters: { [name]: "chosen-elsewhere" },
+      }),
+      (error: unknown) =>
+        error instanceof ConnectorError &&
+        error.code === "configuration-required" &&
+        error.detail === "oauth.token-parameter.reserved",
+      name,
+    );
+    // Refused before the journal and the wire: the code is still unspent.
+    assert.equal(harness.server.counts.token, 0, name);
+    assert.deepEqual(harness.ports.inspect.effects(), [], name);
+  }
+});
+
+test("a pre-joined scope value containing openid still binds a nonce", async (t) => {
+  const harness = await authHarness(t, {
+    configuration: { OAUTH_CLIENT_ID: "fixture-client" },
+    server: { openidConnect: true, subject: "ada" },
+  });
+  const ctx = harness.ctx();
+  const { record } = await begun(harness, ctx, { scopes: ["openid profile"] });
+  assert.ok(record.private["nonce"], "the nonce is kept privately");
+  const url = new URL(record.private["authorizationUrl"]!);
+  assert.equal(url.searchParams.get("nonce"), record.private["nonce"]);
+});
+
+test("an ID token carrying another request's nonce is refused", async (t) => {
+  const harness = await authHarness(t, {
+    configuration: { OAUTH_CLIENT_ID: "fixture-client" },
+    server: {
+      openidConnect: true,
+      misbehave: { idTokenNonce: "nonce-from-another-request" },
+    },
+  });
+  await assert.rejects(
+    exchanged(harness),
+    (error: unknown) =>
+      error instanceof ConnectorError &&
+      error.detail === "oauth.token.invalid-response",
+  );
+  assert.deepEqual(harness.ports.inspect.credentialRefs(), []);
+});
+
+test("an ID token issued in the future is refused; one within the skew is not", async (t) => {
+  const ahead = await authHarness(t, {
+    configuration: { OAUTH_CLIENT_ID: "fixture-client" },
+    server: {
+      openidConnect: true,
+      misbehave: { idTokenIssuedAtOffsetSeconds: 600 },
+    },
+  });
+  await assert.rejects(
+    exchanged(ahead),
+    (error: unknown) =>
+      error instanceof ConnectorError &&
+      error.detail === "oauth.token.invalid-response",
+  );
+  assert.deepEqual(ahead.ports.inspect.credentialRefs(), []);
+  const skewed = await authHarness(t, {
+    configuration: { OAUTH_CLIENT_ID: "fixture-client" },
+    server: {
+      openidConnect: true,
+      misbehave: { idTokenIssuedAtOffsetSeconds: 20 },
+    },
+  });
+  assert.equal((await exchanged(skewed)).state, "complete");
+});
+
+test("an RS256 ID token verifies against the issuer's published RSA key", async (t) => {
+  const harness = await authHarness(t, {
+    configuration: { OAUTH_CLIENT_ID: "fixture-client" },
+    server: { openidConnect: true, subject: "ada", idTokenAlgorithm: "RS256" },
+  });
+  const result = await exchanged(harness);
+  assert.equal(result.state, "complete");
+  assert.deepEqual(result.target, { kind: "oidc-subject", id: "ada" });
+  assert.ok(harness.server.counts.jwks >= 1);
+});

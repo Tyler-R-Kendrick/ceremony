@@ -76,11 +76,12 @@
         "operationId": "approveBinding",
         "tags": ["bindings"],
         "summary": "Approve a definition into a runtime binding (review step)",
-        "description": "A reviewer's explicit decisions: destinations, operations, custody and settings. Letting an assistant read personal output, and pinning an OAuth issuer policy, are a person's decisions only.\n\nRequires one of these capabilities: `reviewer`, `publisher` (or `admin`).\n\n**Human-only inputs:** `approvals.agentOutputConsent`, `approvals.oauth`. An assistant that sends them is refused (or, for `confirm`, the flag is ignored).",
+        "description": "A reviewer's explicit decisions: destinations, operations, custody and settings. Letting an assistant read personal output, and pinning an OAuth issuer policy, are a person's decisions only.\n\nRequires one of these capabilities: `reviewer`, `publisher` (or `admin`).\n\n**Human-only inputs:** `approvals.agentOutputConsent`, `approvals.oauth`, `approvals.oauthProfiles`. An assistant that sends them is refused (or, for `confirm`, the flag is ignored).",
         "x-ceremony-capabilities": ["reviewer", "publisher"],
         "x-ceremony-human-only-inputs": [
           "approvals.agentOutputConsent",
-          "approvals.oauth"
+          "approvals.oauth",
+          "approvals.oauthProfiles"
         ],
         "parameters": [{ "$ref": "#/components/parameters/Origin" }],
         "requestBody": {
@@ -1719,6 +1720,22 @@
                   "maxLength": 120
                 },
                 "additionalProperties": {}
+              },
+              "oauthProfiles": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z][a-zA-Z0-9_.:-]{0,95}$"
+                },
+                "additionalProperties": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "additionalProperties": {}
+                }
               },
               "verifier": {
                 "type": "object",

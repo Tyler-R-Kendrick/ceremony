@@ -313,6 +313,12 @@ export interface ConnectorAdapter {
    * as is `oauth`, which only the reviewed issuer policy sets.
    */
   readonly reservedSettings?: readonly string[];
+  /**
+   * Whether the adapter reads per-profile issuer policies
+   * (`settings["oauth-profiles"]`). Approval refuses them for an adapter that
+   * does not, rather than pinning a reviewed policy nothing would ever read.
+   */
+  readonly profileIssuerPolicies?: boolean;
 }
 
 /** One approved operation with every reviewer decision already resolved. */

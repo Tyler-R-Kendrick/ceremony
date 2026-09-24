@@ -75,7 +75,12 @@ export const RESERVED_AUTHORIZATION_PARAMETERS: ReadonlySet<string> = new Set([
   "request",
 ]);
 
-/** Token request parameters the client-credentials request owns. */
+/**
+ * Token request parameters either grant owns: the grant type and what binds
+ * the request to one attempt (code, verifier, redirect URI), client
+ * authentication, and scope, resource and refresh token, which come from the
+ * request itself or host policy. An entry's `tokenParams` may name none.
+ */
 export const RESERVED_TOKEN_PARAMETERS: ReadonlySet<string> = new Set([
   "grant_type",
   "client_id",
@@ -83,6 +88,7 @@ export const RESERVED_TOKEN_PARAMETERS: ReadonlySet<string> = new Set([
   "client_assertion",
   "client_assertion_type",
   "scope",
+  "resource",
   "code",
   "code_verifier",
   "redirect_uri",
@@ -313,6 +319,11 @@ function authSchema(options: ParseOptions) {
        */
       issuer: url.optional(),
       /**
+       * Where the issuer publishes its signing keys, when that is not on the
+       * issuer's origin. Needed only for `openid`; discovery must agree.
+       */
+      jwksUrl: url.optional(),
+      /**
        * Whether the provider is known to verify PKCE. S256 is sent either way
        * (RFC 9700); this records what the provider enforces, for review.
        */
@@ -325,6 +336,11 @@ function authSchema(options: ParseOptions) {
       authorizationParams: parameterRecord(
         RESERVED_AUTHORIZATION_PARAMETERS,
       ).default({}),
+      /**
+       * Static extra parameters for the code exchange (not refresh), such as
+       * an `audience`. Values may fill declared connection fields only.
+       */
+      tokenParams: parameterRecord(RESERVED_TOKEN_PARAMETERS).default({}),
       tokenRequestAuth: z
         .enum(["client_secret_basic", "client_secret_post", "none"])
         .default("client_secret_post"),
@@ -459,9 +475,15 @@ export function entrySchemaFor(options: ParseOptions = {}) {
       if (auth.mode === "oauth2-authorization-code") {
         urls.push(auth.authorizationUrl, auth.tokenUrl);
         if (auth.refreshUrl) urls.push(auth.refreshUrl);
-        values.push(...Object.values(auth.authorizationParams));
+        values.push(
+          ...Object.values(auth.authorizationParams),
+          ...Object.values(auth.tokenParams),
+        );
         if (auth.issuer && referencedFields(auth.issuer).fields.length)
           fail("catalog.issuer.templated");
+        // Keys decide whose identity an ID token proves: never per connection.
+        if (auth.jwksUrl && referencedFields(auth.jwksUrl).fields.length)
+          fail("catalog.jwks.templated");
       }
       if (auth.mode === "oauth2-client-credentials") {
         urls.push(auth.tokenUrl);
@@ -718,7 +740,10 @@ export function requiredFields(entry: ProviderCatalogEntry): string[] {
   if (auth.mode === "oauth2-authorization-code") {
     templates.push(auth.authorizationUrl, auth.tokenUrl);
     if (auth.refreshUrl) templates.push(auth.refreshUrl);
-    templates.push(...Object.values(auth.authorizationParams));
+    templates.push(
+      ...Object.values(auth.authorizationParams),
+      ...Object.values(auth.tokenParams),
+    );
   }
   if (auth.mode === "oauth2-client-credentials")
     templates.push(auth.tokenUrl, ...Object.values(auth.tokenParams));
