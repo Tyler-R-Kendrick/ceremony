@@ -47,7 +47,16 @@ const page = (body: string, head = "") => `<!doctype html>
 
 export type Harness = Awaited<ReturnType<typeof startConnectorHarness>>;
 
-export async function startConnectorHarness(options: FixtureOptions = {}) {
+export async function startConnectorHarness(
+  harnessOptions: FixtureOptions & {
+    /**
+     * Holds the return page's script this long, so the window it runs in is
+     * still open, not yet relayed and closed, when the app acts again.
+     */
+    returnScriptDelayMs?: number;
+  } = {},
+) {
+  const { returnScriptDelayMs = 0, ...options } = harnessOptions;
   const assets = await bundle();
   const listen = async (server: Server) => {
     server.listen(0, "127.0.0.1");
@@ -93,6 +102,12 @@ export async function startConnectorHarness(options: FixtureOptions = {}) {
       });
       response.end(body);
     };
+    if (
+      url.pathname === "/harness.js" &&
+      returnScriptDelayMs > 0 &&
+      String(request.headers.referer ?? "").includes("/callback")
+    )
+      await new Promise((resolve) => setTimeout(resolve, returnScriptDelayMs));
     if (url.pathname === "/harness.js")
       return send(200, "text/javascript; charset=utf-8", assets.script);
     if (url.pathname === "/harness.css")
