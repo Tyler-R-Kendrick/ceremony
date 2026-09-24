@@ -6,6 +6,7 @@ import {
   connectionSummarySchema,
   connectorHandoffSummarySchema,
   connectorImportResultSchema,
+  definitionListEntrySchema,
   normalizedDefinitionSchema,
   refineSourceRecord,
   sourceRecordShape,
@@ -14,7 +15,7 @@ import {
   type CompatibilityIssue,
   type ConnectionSummary,
   type ConnectorImportResult,
-  type NormalizedDefinition,
+  type DefinitionListEntry,
 } from "./contracts.js";
 import {
   connectorReferenceSchema,
@@ -151,7 +152,7 @@ const catalogResponseSchema = z.object({
   viewer: connectorViewerSchema.optional(),
 });
 const definitionsResponseSchema = z.object({
-  definitions: z.array(normalizedDefinitionSchema).max(4096),
+  definitions: z.array(definitionListEntrySchema).max(4096),
 });
 const { artifactRef: _artifactRef, ...reviewSourceShape } = sourceRecordShape;
 void _artifactRef;
@@ -301,7 +302,7 @@ export interface ConnectorClient {
   ): Promise<{ entries: CatalogEntry[]; viewer: ConnectorViewer }>;
   definitions(
     signal?: AbortSignal,
-  ): Promise<{ definitions: NormalizedDefinition[] }>;
+  ): Promise<{ definitions: DefinitionListEntry[] }>;
   definition(ref: string, signal?: AbortSignal): Promise<DefinitionReview>;
   import(
     input: ImportInput,

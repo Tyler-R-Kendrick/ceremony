@@ -5,6 +5,7 @@
 - [Teaching and reusable recipes](ceremony-teaching.md): whole/partial demonstrations, review, consent and composition.
 - [Embedding](integration.md): framework-neutral and React interfaces, host-owned styles/navigation and consumer examples.
 - [API and protocol reference](reference.md): detailed library examples, WebMCP hooks and presentation contracts.
+- [Clients and the package](sdk.md): the OpenAPI 3.1 description of the connector API, generating clients in other languages from it, and installing the `@ceremony/auth` tarball.
 - [Live authentication](live-auth.md), [service support](service-examples.md), and [auth catalog](auth-catalog.md): real adapters versus simulations and unsupported profiles.
 - [Connector directory](connector-directory.md): the two in-application connector surfaces — browsing before committing with the four-step Add Connection drawer, and the server-bound workspace for finding, reviewing, connecting and managing a connector.
 - [Workflow studio](workflow-studio.md): author new connectors and ceremonies, save drafts, validate and export Arazzo/manifest definitions.
