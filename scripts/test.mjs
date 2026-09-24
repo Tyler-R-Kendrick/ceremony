@@ -128,12 +128,19 @@ const result = spawnSync(
   process.execPath,
   // Files also launch browsers, databases and covered children. Bound the outer
   // pool rather than exhausting each nested fixture's unchanged deadline.
+  //
+  // `--test-timeout` bounds each test and each whole file, so a file that
+  // hangs while loading or in a hook fails by name. Without it, one hung file
+  // held `verify` until the job's own 45-minute limit cancelled it, which
+  // names nothing. The slowest test takes about 75 s and the whole suite about
+  // 5 to 8 minutes, so ten minutes stops only something that will never end.
   [
     "--no-experimental-webstorage",
     "--import",
     "tsx",
     "--test",
     "--test-concurrency=4",
+    "--test-timeout=600000",
     ...files,
   ],
   { stdio: "inherit", env: process.env },
