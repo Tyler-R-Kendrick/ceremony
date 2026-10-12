@@ -403,6 +403,19 @@ export function memoryPorts(options: { now?: () => number } = {}) {
           };
       return undefined;
     },
+    async listByExternalId(tenantId, authorityInstance, name, value) {
+      return [...connections.values()]
+        .filter(
+          (entry) =>
+            entry.record.tenantId === tenantId &&
+            entry.record.authorityInstance === authorityInstance &&
+            entry.record.externalIds[name] === value,
+        )
+        .map((entry) => ({
+          record: structuredClone(entry.record),
+          revision: entry.revision,
+        }));
+    },
   };
 
   const claims = new Map<

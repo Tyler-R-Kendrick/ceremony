@@ -222,6 +222,13 @@ export interface ConnectionStorePort {
     name: string,
     value: string,
   ): Promise<{ record: ConnectionRecord; revision: number } | undefined>;
+  /** Every connection carrying that external id (several may share one grant), in the same scope as `findByExternalId`. */
+  listByExternalId(
+    tenantId: string,
+    authorityInstance: string,
+    name: string,
+    value: string,
+  ): Promise<Array<{ record: ConnectionRecord; revision: number }>>;
 }
 
 export interface EvidenceStorePort {

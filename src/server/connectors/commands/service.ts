@@ -2846,21 +2846,21 @@ export class ConnectorCommandService {
 
   private async sharedWith(record: ConnectionRecord): Promise<string[]> {
     const shared = new Set<string>();
-    for (const [name, value] of Object.entries(record.externalIds)) {
-      const other = await this.ports.connections.findByExternalId(
+    for (const [name, value] of Object.entries(record.externalIds))
+      // Every holder of the id, not the first the store lists: that one can be
+      // this connection itself, which hides the rest from it.
+      for (const other of await this.ports.connections.listByExternalId(
         record.tenantId,
         record.authorityInstance,
         name,
         value,
-      );
-      if (
-        other &&
-        other.record.connectionRef !== record.connectionRef &&
-        !closed(other.record) &&
-        !deleted(other.record)
-      )
-        shared.add(other.record.connectionRef);
-    }
+      ))
+        if (
+          other.record.connectionRef !== record.connectionRef &&
+          !closed(other.record) &&
+          !deleted(other.record)
+        )
+          shared.add(other.record.connectionRef);
     return [...shared];
   }
 
