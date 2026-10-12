@@ -22,16 +22,10 @@ import {
   type SupportLabel,
   type VerificationClaim,
 } from "../../../core/connectors/index.js";
-import {
-  AuthorizationError,
-  requireCapability,
-  type Capability,
-} from "../../identity.js";
-import { PersistenceConflict } from "../../persistence/index.js";
+import { requireCapability } from "../../identity.js";
 import type { AgentConnectorDependencies } from "../agents/intents.js";
 import type {
   AdapterCallContext,
-  AuthorizationIntent,
   AuthorizationStart,
   CompletionResult,
   ConnectorAdapter,
@@ -90,7 +84,6 @@ import {
   disconnectInputSchema,
   handoffValuesSchema,
   importInputSchema,
-  intentInputSchema,
   invokeInputSchema,
   reconnectInputSchema,
   type BindingApprovalInput,
@@ -103,8 +96,26 @@ import {
   type OperationApproval,
   type ReconnectInput,
 } from "./inputs.js";
+import {
+  boundOperationTransport,
+  declaredOAuthOrigins,
+  narrowConfiguration,
+  OAUTH_PROFILE_KINDS,
+} from "./definitions.js";
 import { closeDisconnected } from "./disconnect-close.js";
+import { adapterCall, port, requireAny } from "./failures.js";
 import { withHandoffClaim } from "./handoff-claim.js";
+import {
+  boundedState,
+  closed,
+  code,
+  currentHandoff,
+  deleted,
+  intentOf,
+  pending,
+  presentationOf,
+  toAdapterIntent,
+} from "./records.js";
 import {
   releaseSession,
   SESSION_RELEASE_TIMEOUT_MS,
@@ -203,7 +214,6 @@ export interface ConnectorCommandServiceOptions {
 export const CONNECTOR_CALLBACK_PATH = "/api/v1/connectors/callback";
 const MAX_HANDOFF_MS = 24 * 60 * 60 * 1000;
 const MAX_OUTPUT_BYTES = 1024 * 1024;
-const dottedCode = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+){0,11}$/;
 const externalIdName = /^[a-zA-Z][a-zA-Z0-9_.-]{0,63}$/;
 const configurationName = /^[A-Z][A-Z0-9_]{0,95}$/;
 const classificationRank = { public: 0, personal: 1, secret: 2 } as const;
@@ -232,182 +242,6 @@ const revocationRequestSchema = z.object({
 const sha256Hex = (value: unknown) =>
   createHash("sha256").update(canonicalConnectorJson(value)).digest("hex");
 const iso = (ms: number) => new Date(ms).toISOString();
-/** Origins a definition declares for its OAuth profiles; candidates for review, never approval. */
-/** Profile kinds an issuer policy can apply to. */
-const OAUTH_PROFILE_KINDS: ReadonlySet<string> = new Set([
-  "oauth-authorization-code",
-  "openid-connect",
-  "oauth-device",
-  "oauth-client-credentials",
-]);
-
-function declaredOAuthOrigins(definition: NormalizedDefinition): string[] {
-  const origins = new Set<string>();
-  for (const profile of definition.authentication)
-    for (const key of [
-      "issuer",
-      "authorizationEndpoint",
-      "tokenEndpoint",
-      "deviceAuthorizationEndpoint",
-    ] as const) {
-      const value = (profile as Partial<Record<typeof key, string>>)[key];
-      if (value && URL.canParse(value)) origins.add(new URL(value).origin);
-    }
-  return [...origins];
-}
-/** A configuration port that answers only for the names given; any other reads as absent. */
-function narrowConfiguration(
-  port: ConfigurationPort,
-  names: ReadonlySet<string>,
-): ConfigurationPort {
-  return {
-    read: async (name) => (names.has(name) ? port.read(name) : undefined),
-    present: async (asked) => {
-      const allowed = asked.filter((name) => names.has(name));
-      return allowed.length ? port.present(allowed) : new Set<string>();
-    },
-    revision: () => port.revision(),
-  };
-}
-const code = (value: string | undefined, fallback: string) =>
-  value && value.length <= 120 && dottedCode.test(value) ? value : fallback;
-/**
- * The handoff this connection is actually waiting on. A handoff issued for an
- * earlier generation was superseded when the generation advanced, so it is
- * neither pending nor projected — it cannot be completed, presented or
- * cancelled as if it still belonged here.
- */
-const pending = (record: ConnectionRecord) =>
-  record.handoff &&
-  record.handoff.generation === record.generation &&
-  (record.handoff.state === "issued" || record.handoff.state === "waiting")
-    ? record.handoff
-    : undefined;
-const currentHandoff = (record: ConnectionRecord) =>
-  record.handoff && record.handoff.generation === record.generation
-    ? record.handoff
-    : undefined;
-const closed = (record: ConnectionRecord) =>
-  record.lifecycle === "locally-disconnected" ||
-  record.lifecycle === "upstream-revoked";
-const deleted = (record: ConnectionRecord) => record.state.deleted === true;
-
-function requireAny(actor: ActorContext, capabilities: Capability[]): void {
-  if (
-    !actor.capabilities.includes("admin") &&
-    !capabilities.some((capability) => actor.capabilities.includes(capability))
-  )
-    throw new AuthorizationError("denied");
-}
-
-/** Port failures in the connector vocabulary; ownership failures leak no existence. */
-async function port<T>(work: () => Promise<T>): Promise<T> {
-  try {
-    return await work();
-  } catch (error) {
-    if (error instanceof ConnectorError || error instanceof AuthorizationError)
-      throw error;
-    if (error instanceof PersistenceConflict)
-      throw new ConnectorError("conflict", { cause: error });
-    if (error instanceof Error) {
-      if (/conflict|stale|already/i.test(error.message))
-        throw new ConnectorError("conflict", { cause: error });
-      if (/denied|unknown|not found/i.test(error.message))
-        throw new ConnectorError("not-found", { cause: error });
-    }
-    throw error;
-  }
-}
-
-/** Adapter failures never reach a caller as text; only a code does. */
-async function adapterCall<T>(work: () => Promise<T>): Promise<T> {
-  try {
-    return await work();
-  } catch (error) {
-    if (error instanceof ConnectorError) throw error;
-    if (error instanceof z.ZodError)
-      throw new ConnectorError("invalid-request", {
-        detail: "adapter.input",
-        cause: error,
-      });
-    if (error instanceof DOMException && error.name === "AbortError")
-      throw new ConnectorError("upstream-unavailable", {
-        detail: "adapter.timeout",
-        cause: error,
-      });
-    throw new ConnectorError("upstream-unavailable", {
-      detail: "adapter.failure",
-      cause: error,
-    });
-  }
-}
-
-function presentationOf(
-  material: Readonly<Record<string, string>>,
-): HumanPresentation | undefined {
-  const shown: HumanPresentation = {};
-  // The OAuth grants in `connectors/auth` keep the page to open under their
-  // own names (an authorization URL, a device verification URI); those are
-  // the same one thing a person may see, never the state or codes beside them.
-  const url =
-    material.url ??
-    material.authorizationUrl ??
-    material.verificationUriComplete ??
-    material.verificationUri;
-  if (url !== undefined) shown.url = url;
-  if (material.userCode !== undefined) shown.userCode = material.userCode;
-  if (material.instructions !== undefined)
-    shown.instructions = material.instructions;
-  return Object.keys(shown).length ? shown : undefined;
-}
-
-function intentOf(record: ConnectionRecord): IntentInput {
-  const parsed = intentInputSchema.safeParse(record.state.intent);
-  return parsed.success
-    ? parsed.data
-    : {
-        requestedPermissions: [],
-        accountSwitch: false,
-        interruption: "allowed",
-      };
-}
-
-function toAdapterIntent(
-  intent: IntentInput,
-  ownerKind: ConnectionRecord["ownerKind"],
-  profileId: string | undefined,
-): AuthorizationIntent {
-  return {
-    ...(profileId ? { profileId } : {}),
-    ownerKind,
-    requestedPermissions: [...intent.requestedPermissions],
-    ...(intent.target ? { target: intent.target } : {}),
-    accountSwitch: intent.accountSwitch,
-    interruption: intent.interruption,
-  };
-}
-
-function boundedState(
-  current: Record<string, unknown>,
-  extra: Record<string, unknown> | undefined,
-): Record<string, unknown> {
-  const merged: Record<string, unknown> = { ...current };
-  for (const [key, value] of Object.entries(extra ?? {}))
-    if (
-      /^[^\p{Cc}]{1,120}$/u.test(key) &&
-      !["__proto__", "prototype", "constructor", "intent", "deleted"].includes(
-        key,
-      )
-    )
-      merged[key] = value;
-  if (
-    Object.keys(merged).length > 64 ||
-    Buffer.byteLength(JSON.stringify(merged)) > 65536
-  )
-    throw new ConnectorError("invalid-request", { detail: "state.bounds" });
-  return merged;
-}
-
 /** Every name a support-evidence entry may use for a definition. */
 const definitionNames = (definition: NormalizedDefinition) => [
   definition.definitionRef,
@@ -3401,52 +3235,4 @@ export class ConnectorCommandService {
     const entry = await this.connection(actor, view.connectionRef);
     return this.summary(entry);
   }
-}
-
-function boundOperationTransport(
-  value: unknown,
-): BoundOperation["transport"] | undefined {
-  const parsed = z
-    .discriminatedUnion("kind", [
-      z.strictObject({
-        kind: z.literal("http"),
-        method: z.enum([
-          "GET",
-          "HEAD",
-          "POST",
-          "PUT",
-          "PATCH",
-          "DELETE",
-          "OPTIONS",
-        ]),
-        pathTemplate: z
-          .string()
-          .max(1024)
-          .regex(/^\/[^\p{Cc}?#]*$/u),
-      }),
-      z.strictObject({
-        kind: z.literal("mcp-tool"),
-        toolName: z.string().min(1).max(512),
-      }),
-      z.strictObject({
-        kind: z.literal("mcp-resource"),
-        uriTemplate: z.string().max(2048),
-      }),
-      z.strictObject({
-        kind: z.literal("mcp-prompt"),
-        promptName: z.string().min(1).max(512),
-      }),
-      z.strictObject({
-        kind: z.literal("broker-action"),
-        action: z.string().min(1).max(512),
-      }),
-      z.strictObject({
-        kind: z.literal("delegated"),
-        route: z.string().min(1).max(256),
-      }),
-    ])
-    .safeParse(value);
-  return parsed.success
-    ? (parsed.data as BoundOperation["transport"])
-    : undefined;
 }
