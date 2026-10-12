@@ -11,7 +11,11 @@ import type {
   HandoffPort,
   HandoffRecord,
 } from "../ports.js";
-import { createHandoffClaims, withoutClaim } from "./handoff-claims.js";
+import {
+  assertNotClaimedByAnother,
+  createHandoffClaims,
+  withoutClaim,
+} from "./handoff-claims.js";
 import {
   SCHEMA_VERSION,
   checkActor,
@@ -315,7 +319,7 @@ export function createHandoffPort(
       });
     },
 
-    async complete(handoffRef, expectedGeneration, state) {
+    async complete(handoffRef, expectedGeneration, state, attempt) {
       const target = z
         .enum(["completed", "denied", "expired", "cancelled", "superseded"])
         .safeParse(state);
@@ -335,6 +339,7 @@ export function createHandoffPort(
           throw new ConnectorError("not-found", { detail: "handoff.unknown" });
         const at = await time(tx);
         const current = await settleExpiry(tx, tenantId, record, at);
+        assertNotClaimedByAnother(current, attempt, at);
         if (current.generation !== expectedGeneration)
           throw new ConnectorError("conflict", {
             detail: "handoff.stale-generation",

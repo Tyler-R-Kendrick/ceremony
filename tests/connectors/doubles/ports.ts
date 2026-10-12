@@ -131,7 +131,7 @@ export function memoryPorts(options: { now?: () => number } = {}) {
   const handoffRecords = new Map<string, HandoffRecord>();
   const handoffClaims = new Map<
     string,
-    { submission: string; claimedAt: number }
+    { submission: string; attempt: string; expiresAt: number }
   >();
   const handoffs: HandoffPort = {
     async issue(input: HandoffIssue) {
@@ -180,9 +180,17 @@ export function memoryPorts(options: { now?: () => number } = {}) {
           return record;
       return undefined;
     },
-    async complete(handoffRef, expectedGeneration, state) {
+    async complete(handoffRef, expectedGeneration, state, attempt) {
       const record = handoffRecords.get(handoffRef);
       if (!record) throw new Error("unknown handoff");
+      const held = handoffClaims.get(handoffRef);
+      if (
+        attempt !== undefined &&
+        held &&
+        held.attempt !== attempt &&
+        now() < held.expiresAt
+      )
+        throw new ConnectorError("conflict", { detail: "handoff.claim-lost" });
       if (record.generation !== expectedGeneration)
         throw new Error("stale handoff generation");
       if (record.state !== "issued" && record.state !== "waiting")
@@ -193,9 +201,13 @@ export function memoryPorts(options: { now?: () => number } = {}) {
     },
     // The claim rules of the persistent port, kept beside the records so a
     // test that passes here cannot be hiding a claim the real store refuses.
-    async claim(handoffRef, expectedGeneration, submission, leaseMs) {
+    async claim(handoffRef, expectedGeneration, submission, attempt, leaseMs) {
       const record = handoffRecords.get(handoffRef);
-      if (!/^[a-f0-9]{64}$/.test(submission) || leaseMs <= 0)
+      if (
+        !/^[a-f0-9]{64}$/.test(submission) ||
+        !/^[A-Za-z0-9_-]{8,64}$/.test(attempt) ||
+        leaseMs <= 0
+      )
         throw new ConnectorError("invalid-request", {
           detail: "handoff.claim",
         });
@@ -218,17 +230,21 @@ export function memoryPorts(options: { now?: () => number } = {}) {
           detail: "handoff.stale-generation",
         });
       const held = handoffClaims.get(handoffRef);
-      if (held && now() - held.claimedAt < leaseMs) {
+      if (held && now() < held.expiresAt) {
         if (held.submission === submission) return "shared";
         throw new ConnectorError("conflict", {
           detail: "handoff.already-claimed",
         });
       }
-      handoffClaims.set(handoffRef, { submission, claimedAt: now() });
+      handoffClaims.set(handoffRef, {
+        submission,
+        attempt,
+        expiresAt: now() + leaseMs,
+      });
       return "claimed";
     },
-    async release(handoffRef, submission) {
-      if (handoffClaims.get(handoffRef)?.submission === submission)
+    async release(handoffRef, attempt) {
+      if (handoffClaims.get(handoffRef)?.attempt === attempt)
         handoffClaims.delete(handoffRef);
     },
     async cancelAll(connectionRef, _reason) {

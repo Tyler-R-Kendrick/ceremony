@@ -10,12 +10,13 @@ import type { HandoffPort, HandoffRecord } from "../ports.js";
  * input-required handoff through an adapter that may share work between
  * callers (a single-flight rotation answers a second caller from the first
  * caller's run), so which values were acted on cannot be left to whichever
- * caller settles the handoff first. The handoff is claimed for one submission
- * before any adapter runs. A different submission is refused and nothing on
- * the connection changes; an identical one is answered from the first run.
+ * caller settles the handoff first. The handoff is claimed for one attempt of
+ * one submission before any adapter runs. A different submission is refused
+ * and nothing on the connection changes; an identical one is answered from the
+ * first run.
  *
  * Redirects and provider events are not claimed here: their effect journal
- * entry is keyed by the handoff alone and already admits only one.
+ * entry is keyed by the handoff alone and already admits one.
  */
 
 /** How often a joined submission looks again at the run it joined. */
@@ -44,21 +45,29 @@ export function submissionOf(
 }
 
 /**
- * Claims the handoff for a submission. `claimed` means the caller runs it (and
- * must give the claim back if it does not settle the handoff); `settled` means
- * an identical submission was in flight and has since settled the handoff, so
- * the caller's answer is the connection as that run left it. Anything else is
- * a refusal from the port. A joined submission whose run failed takes the
- * claim over and runs for itself, as a second try would.
+ * Claims the handoff for one attempt of a submission. `claimed` means the
+ * caller runs it (and must give the claim back if it does not settle the
+ * handoff); `settled` means an identical submission was in flight and has
+ * since settled the handoff, so the caller's answer is the connection as that
+ * run left it. Anything else is a refusal from the port. A joined submission
+ * whose run failed takes the claim over and runs for itself, as a second try
+ * would.
  */
 export async function claimHandoff(
   handoffs: HandoffPort,
   handoff: Pick<HandoffRecord, "handoffRef" | "generation">,
   submission: string,
+  attempt: string,
   leaseMs: number,
 ): Promise<"claimed" | "settled"> {
   const claim = () =>
-    handoffs.claim(handoff.handoffRef, handoff.generation, submission, leaseMs);
+    handoffs.claim(
+      handoff.handoffRef,
+      handoff.generation,
+      submission,
+      attempt,
+      leaseMs,
+    );
   let outcome = await claim();
   for (let waited = 0; outcome === "shared"; waited += POLL_MS) {
     if (waited >= leaseMs)
@@ -77,4 +86,45 @@ export async function claimHandoff(
     }
   }
   return "claimed";
+}
+
+export type ClaimContext = {
+  handoffs: HandoffPort;
+  /** A fresh random token naming one attempt. */
+  newAttempt(): string;
+  leaseMs: number;
+};
+
+/**
+ * Runs `run` while holding the handoff's claim, if a person's values are being
+ * submitted (any other completion runs as it always did, `attempt` undefined).
+ * `run` gets the attempt token, which it presents when it settles the handoff.
+ * The claim is given back when `run` ends, so an attempt that failed or left
+ * the handoff pending lets the next try in; settling the handoff took it
+ * already. A submission that joined another's run is answered by
+ * `answerSettled` once that run has settled the handoff.
+ */
+export async function withHandoffClaim<T>(
+  context: ClaimContext,
+  handoff: Pick<HandoffRecord, "handoffRef" | "generation">,
+  input: CompletionInput,
+  run: (attempt: string | undefined) => Promise<T>,
+  answerSettled: () => Promise<T>,
+): Promise<T> {
+  const submission = submissionOf(handoff, input);
+  if (submission === undefined) return run(undefined);
+  const attempt = context.newAttempt();
+  const claimed = await claimHandoff(
+    context.handoffs,
+    handoff,
+    submission,
+    attempt,
+    context.leaseMs,
+  );
+  if (claimed === "settled") return answerSettled();
+  try {
+    return await run(attempt);
+  } finally {
+    await context.handoffs.release(handoff.handoffRef, attempt).catch(() => {});
+  }
 }

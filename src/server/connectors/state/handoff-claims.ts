@@ -60,6 +60,29 @@ export function withoutClaim(record: StoredHandoff): StoredHandoff {
   return rest;
 }
 
+const attemptPattern = /^[A-Za-z0-9_-]{8,64}$/;
+
+/**
+ * A settlement made by an attempt is refused while another attempt holds a
+ * live claim: the run whose claim lapsed and was taken over has lost the
+ * handoff to its successor. A settlement with no attempt, or on a handoff no
+ * one holds, is not fenced here.
+ */
+export function assertNotClaimedByAnother(
+  record: StoredHandoff,
+  attempt: string | undefined,
+  at: number,
+): void {
+  const held = record.claim;
+  if (
+    attempt !== undefined &&
+    held &&
+    held.attempt !== attempt &&
+    at < held.expiresAt
+  )
+    throw new ConnectorError("conflict", { detail: "handoff.claim-lost" });
+}
+
 export function createHandoffClaims(
   store: AsyncCeremonyStore,
   time: TimeSource,
@@ -67,9 +90,10 @@ export function createHandoffClaims(
   const unknown = () =>
     new ConnectorError("not-found", { detail: "handoff.unknown" });
   return {
-    async claim(handoffRef, expectedGeneration, submission, leaseMs) {
+    async claim(handoffRef, expectedGeneration, submission, attempt, leaseMs) {
       if (
         !sha256HexSchema.safeParse(submission).success ||
+        !attemptPattern.test(attempt) ||
         !Number.isSafeInteger(expectedGeneration) ||
         !Number.isSafeInteger(leaseMs) ||
         leaseMs <= 0
@@ -113,7 +137,7 @@ export function createHandoffClaims(
             detail: "handoff.stale-generation",
           });
         const held = current.claim;
-        if (held && at - held.claimedAt < leaseMs) {
+        if (held && at < held.expiresAt) {
           if (held.submission === submission) return "shared";
           throw new ConnectorError("conflict", {
             detail: "handoff.already-claimed",
@@ -121,25 +145,24 @@ export function createHandoffClaims(
         }
         await tx.put(
           key,
-          { ...current, claim: { submission, claimedAt: at } },
+          {
+            ...current,
+            claim: { submission, attempt, expiresAt: at + leaseMs },
+          },
           record.revision,
         );
         return "claimed";
       });
     },
 
-    async release(handoffRef, submission) {
-      if (
-        !isReference(handoffRef) ||
-        !sha256HexSchema.safeParse(submission).success
-      )
-        return;
+    async release(handoffRef, attempt) {
+      if (!isReference(handoffRef) || !attemptPattern.test(attempt)) return;
       await untilDecided(store, async (tx) => {
         const tenantId = await resolveRef(tx, "connector-handoff", handoffRef);
         if (!tenantId) return;
         const key = handoffKey(tenantId, handoffRef);
         const record = await readRecord(tx, key, storedHandoffSchema);
-        if (record?.value.claim?.submission !== submission) return;
+        if (record?.value.claim?.attempt !== attempt) return;
         await tx.put(key, withoutClaim(record.value), record.revision);
       });
     },

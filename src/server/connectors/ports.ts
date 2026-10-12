@@ -112,37 +112,47 @@ export interface HandoffPort {
     tenantId: string,
     correlationKey: string,
   ): Promise<HandoffRecord | undefined>;
-  /** One-use completion fenced by generation; a stale or repeated completion is refused. */
+  /**
+   * One-use completion fenced by generation; a stale or repeated completion is
+   * refused. With the `attempt` that claimed the handoff, it is also refused
+   * (`handoff.claim-lost`) while another attempt holds a live claim: a run
+   * whose claim lapsed and was taken over cannot settle what its successor is
+   * working. Without one it is not fenced by claims.
+   */
   complete(
     handoffRef: HandoffRef,
     expectedGeneration: number,
     state: Exclude<ConnectorHandoffSummary["state"], "issued" | "waiting">,
+    attempt?: string,
   ): Promise<HandoffRecord>;
   /**
-   * Claims a pending handoff for one submission, by compare-and-set on the
-   * handoff itself, before anything is run for it. `submission` is a digest of
-   * what was submitted (a SHA-256 hex string the caller computes; the values
-   * never reach the port). `claimed` means this caller runs the work and must
+   * Claims a pending handoff for one attempt of a submission, by
+   * compare-and-set on the handoff itself, before anything is run for it.
+   * `submission` is a digest of what was submitted (SHA-256 hex, computed by
+   * the caller; the values never reach the port) and `attempt` is a random
+   * token naming this run. `claimed` means this attempt runs the work and must
    * `release` or settle; `shared` means an identical submission already holds
    * the claim, so this one is answered from that run. Another submission, a
    * stale generation or a handoff that is no longer pending is refused
    * (`handoff.already-claimed`, `handoff.stale-generation`,
    * `handoff.already-completed`, `handoff.expired`). A claim older than
-   * `leaseMs` is no one's: a worker that died with it does not hold the
-   * handoff forever.
+   * `leaseMs` is no one's: a worker that died with one does not hold the
+   * handoff forever, and the attempt that takes it over replaces it.
    */
   claim(
     handoffRef: HandoffRef,
     expectedGeneration: number,
     submission: string,
+    attempt: string,
     leaseMs: number,
   ): Promise<"claimed" | "shared">;
   /**
    * Gives a claim back when its attempt ended without settling the handoff, so
-   * the person can submit again. Only the holder's own claim is removed, and a
-   * handoff that is gone, settled or claimed by another is left alone.
+   * the person can submit again. Only the attempt's own claim is removed: a
+   * handoff that is gone, settled, unclaimed or claimed by another attempt
+   * (a successor after a lapse) is left alone.
    */
-  release(handoffRef: HandoffRef, submission: string): Promise<void>;
+  release(handoffRef: HandoffRef, attempt: string): Promise<void>;
   cancelAll(connectionRef: ConnectionRef, reason: string): Promise<number>;
 }
 

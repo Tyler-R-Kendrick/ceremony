@@ -103,7 +103,7 @@ import {
   type OperationApproval,
   type ReconnectInput,
 } from "./inputs.js";
-import { claimHandoff, submissionOf } from "./handoff-claim.js";
+import { withHandoffClaim } from "./handoff-claim.js";
 import {
   releaseSession,
   SESSION_RELEASE_TIMEOUT_MS,
@@ -216,7 +216,12 @@ const REUSED_COMMAND = "command.reused";
 
 type ConnectionEntry = { record: ConnectionRecord; revision: number };
 type ConnectionPatch = Parameters<ConnectionStorePort["update"]>[3];
-type HandoffHandle = { handoffRef: string; generation: number };
+type HandoffHandle = {
+  handoffRef: string;
+  generation: number;
+  /** The attempt holding the handoff's claim, presented when the handoff is settled. */
+  attempt?: string | undefined;
+};
 
 /** A pending revocation request as recorded on a connection's server-side state. */
 const revocationRequestSchema = z.object({
@@ -1834,6 +1839,7 @@ export class ConnectorCommandService {
             handoff.handoffRef,
             handoff.generation,
             state,
+            handoff.attempt,
           ),
         );
       if (record.handoff?.handoffRef === handoff.handoffRef)
@@ -2102,40 +2108,31 @@ export class ConnectorCommandService {
     // A person's values are claimed before any adapter runs (handoff-claim.ts):
     // another submission is refused here, and an identical one waits for this
     // run's answer, so the connection never names values it was not built from.
-    const submission = submissionOf(handoff, input);
-    if (
-      submission !== undefined &&
-      (await port(() =>
-        claimHandoff(
-          this.ports.handoffs,
+    return withHandoffClaim(
+      {
+        handoffs: this.ports.handoffs,
+        newAttempt: () => this.random.uuid(),
+        leaseMs: this.callTimeoutMs * 2,
+      },
+      handoff,
+      input,
+      async (attempt) =>
+        this.runCompletion(
+          actor,
+          // A claim can be won after waiting on another submission's run,
+          // which leaves its own outcome on the connection: work from what
+          // is there now.
+          attempt === undefined
+            ? entry
+            : await this.handoffConnection(actor, handoff),
+          binding,
+          adapter,
           handoff,
-          submission,
-          this.callTimeoutMs * 2,
+          input,
+          attempt,
         ),
-      )) === "settled"
-    )
-      return this.status(actor, record.connectionRef);
-    try {
-      return await this.runCompletion(
-        actor,
-        // A claim can be won after waiting on another submission's run, which
-        // leaves its own outcome on the connection: work from what is there now.
-        submission === undefined
-          ? entry
-          : await this.handoffConnection(actor, handoff),
-        binding,
-        adapter,
-        handoff,
-        input,
-      );
-    } finally {
-      // A settled handoff took the claim with it; an attempt that failed or
-      // left the handoff pending gives it back for the next try.
-      if (submission !== undefined)
-        await this.ports.handoffs
-          .release(handoff.handoffRef, submission)
-          .catch(() => {});
-    }
+      () => this.status(actor, record.connectionRef),
+    );
   }
 
   /** The connection a handoff was issued for, while it is still open and still that generation. */
@@ -2160,6 +2157,7 @@ export class ConnectorCommandService {
     adapter: ConnectorAdapter,
     handoff: HandoffRecord,
     input: Parameters<NonNullable<ConnectorAdapter["complete"]>>[1],
+    attempt: string | undefined,
   ): Promise<ConnectionView> {
     const record = entry.record;
     // One completion per handoff and generation, even under concurrency: the
@@ -2203,7 +2201,11 @@ export class ConnectorCommandService {
       actor,
       entry,
       result,
-      { handoffRef: handoff.handoffRef, generation: handoff.generation },
+      {
+        handoffRef: handoff.handoffRef,
+        generation: handoff.generation,
+        attempt,
+      },
       intent,
       "authorize",
     );

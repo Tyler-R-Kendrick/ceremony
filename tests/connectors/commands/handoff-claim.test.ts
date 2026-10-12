@@ -69,6 +69,7 @@ function scripted(...script: Array<"claimed" | "shared" | ConnectorError>) {
   return { handoffs, calls };
 }
 const SUBMISSION = "c".repeat(64);
+const ATTEMPT = "attempt-one-0001";
 const completed = new ConnectorError("conflict", {
   detail: "handoff.already-completed",
 });
@@ -76,16 +77,16 @@ const completed = new ConnectorError("conflict", {
 test("a claim that is ours is answered at once, with the handoff, generation and lease it named", async () => {
   const { handoffs, calls } = scripted("claimed");
   assert.equal(
-    await claimHandoff(handoffs, handoff, SUBMISSION, 1000),
+    await claimHandoff(handoffs, handoff, SUBMISSION, ATTEMPT, 1000),
     "claimed",
   );
-  assert.deepEqual(calls, [["handoff:one", 0, SUBMISSION, 1000]]);
+  assert.deepEqual(calls, [["handoff:one", 0, SUBMISSION, ATTEMPT, 1000]]);
 });
 
 test("an identical submission in flight is waited for, and its settling is our answer", async () => {
   const { handoffs, calls } = scripted("shared", "shared", completed);
   assert.equal(
-    await claimHandoff(handoffs, handoff, SUBMISSION, 1000),
+    await claimHandoff(handoffs, handoff, SUBMISSION, ATTEMPT, 1000),
     "settled",
   );
   assert.equal(calls.length, 3);
@@ -94,7 +95,7 @@ test("an identical submission in flight is waited for, and its settling is our a
 test("an identical submission whose run failed hands us the claim", async () => {
   const { handoffs } = scripted("shared", "claimed");
   assert.equal(
-    await claimHandoff(handoffs, handoff, SUBMISSION, 1000),
+    await claimHandoff(handoffs, handoff, SUBMISSION, ATTEMPT, 1000),
     "claimed",
   );
 });
@@ -111,13 +112,19 @@ test("a refusal from the port is not swallowed, at the first look or a later one
   ] as const) {
     const { handoffs } = scripted(...script);
     await assert.rejects(
-      claimHandoff(handoffs, handoff, SUBMISSION, 1000),
+      claimHandoff(handoffs, handoff, SUBMISSION, ATTEMPT, 1000),
       (error: unknown) => error === script.at(-1),
     );
   }
   // A completed handoff at the first look is the caller's to refuse, not an answer.
   await assert.rejects(
-    claimHandoff(scripted(completed).handoffs, handoff, SUBMISSION, 1000),
+    claimHandoff(
+      scripted(completed).handoffs,
+      handoff,
+      SUBMISSION,
+      ATTEMPT,
+      1000,
+    ),
     (error: unknown) => error === completed,
   );
 });
@@ -127,7 +134,7 @@ test("waiting on an identical submission ends at the lease, with a typed refusal
     ...Array.from({ length: 50 }, () => "shared" as const),
   );
   await assert.rejects(
-    claimHandoff(handoffs, handoff, SUBMISSION, 60),
+    claimHandoff(handoffs, handoff, SUBMISSION, ATTEMPT, 60),
     (error: unknown) =>
       error instanceof ConnectorError &&
       error.code === "conflict" &&
