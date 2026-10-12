@@ -17,6 +17,7 @@ import {
 } from "../../auth/index.js";
 import type { ConnectorOAuthOptions } from "../../auth/connector-oauth.js";
 import { issuerPolicyFromBinding } from "../../auth/policy.js";
+import { displayText } from "../../display-text.js";
 import { ConnectorError } from "../../errors.js";
 import {
   accountApiDestination,
@@ -176,7 +177,7 @@ export function planTeams(
 }
 
 function describeTeams(teams: AccountTeam[], truncated: boolean): string {
-  const clean = (value: string) => value.replace(/\p{Cc}/gu, " ").trim();
+  const clean = displayText;
   const lead = "Enter the team slug to use: ";
   const parts: string[] = [];
   let length = lead.length;

@@ -7,6 +7,7 @@ import {
   assertHandoffCurrent,
   inputRequiredHandoff,
 } from "../../auth/index.js";
+import { displayText } from "../../display-text.js";
 import { ConnectorError } from "../../errors.js";
 import {
   AWS_IDENTITY_CENTER_ADAPTER_ID,
@@ -149,7 +150,7 @@ async function planChoice(
 
 /** One line a person can read; free text from the portal is cleaned of control characters. */
 function describeChoices(choices: Choice[], truncated: boolean): string {
-  const clean = (value: string) => value.replace(/\p{Cc}/gu, " ").trim();
+  const clean = displayText;
   const lead = "Enter the account id and the role name to use: ";
   const parts: string[] = [];
   let length = lead.length;
