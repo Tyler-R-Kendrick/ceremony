@@ -12,7 +12,7 @@ import { ConnectorError } from "../../errors.js";
 import { AWS_IDENTITY_CENTER_ADAPTER_ID } from "./contracts.js";
 import { sentNothing } from "./client.js";
 import { rotateSession } from "./material.js";
-import { logout } from "./portal.js";
+import { logout, type LogoutAnswer } from "./portal.js";
 
 /*
  * Ending the sign-in session at the portal (`Logout`) when the connection ends.
@@ -28,6 +28,14 @@ import { logout } from "./portal.js";
  */
 
 const code = (suffix: string) => `${AWS_IDENTITY_CENTER_ADAPTER_ID}.${suffix}`;
+
+/** What each answer of the portal's Logout is reported as. */
+const RELEASE_OF: Record<LogoutAnswer, SessionRelease> = {
+  ended: { revoked: true, reason: code("release.session-ended") },
+  gone: { revoked: "unavailable", reason: code("release.session-gone") },
+  unknown: { revoked: false, reason: code("release.indeterminate") },
+  refused: { revoked: false, reason: code("release.refused") },
+};
 
 /** Why custody would not hand over the session: it is gone, it is busy, or something else failed. */
 function rotationFailure(error: unknown): SessionRelease {
@@ -60,9 +68,7 @@ async function endSession(
         looked = true;
         if (!current.accessToken) return current;
         try {
-          release = (await logout(ctx, current.accessToken))
-            ? { revoked: true, reason: code("release.session-ended") }
-            : { revoked: false, reason: code("release.refused") };
+          release = RELEASE_OF[await logout(ctx, current.accessToken)];
         } catch (error) {
           // Nothing listening is `unreachable`; a request that went out and
           // did not come back as an answer (a timeout, an abort, a body too
@@ -122,9 +128,17 @@ export async function endSignIn(
     upstream: "not-attempted",
   };
   if (!heldSessions(ctx).length) return result;
-  const release = await releaseSignIn(ctx);
-  return {
-    ...result,
-    upstream: release.revoked === true ? "applied" : "failed",
-  };
+  return { ...result, upstream: upstreamOf(await releaseSignIn(ctx)) };
+}
+
+/**
+ * The upstream scope's outcome for what the release came to: applied only when
+ * the portal acknowledged; a session that was already gone had nothing done to
+ * it; a Logout the portal did not process is unknown; the rest did not work.
+ */
+function upstreamOf(release: SessionRelease): DisconnectResult["upstream"] {
+  if (release.revoked === true) return "applied";
+  if (release.reason === code("release.session-gone")) return "not-attempted";
+  if (release.reason === code("release.indeterminate")) return "indeterminate";
+  return "failed";
 }

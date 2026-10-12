@@ -167,10 +167,24 @@ export function roleExpiry(
   return credentials.expiration;
 }
 
+/**
+ * What the portal's answer to Logout means. The Logout reference lists the
+ * generic errors only; the statuses are read as HTTP defines them, and the 401
+ * for a session that is unknown, lapsed or already logged out is an assumption
+ * (`AWS_ASSUMPTIONS`):
+ *
+ * - `ended`: 2xx, the sign-in session was ended;
+ * - `gone`: 401, there was no live session to end;
+ * - `unknown`: 408, 425, 429 and 5xx, the portal did not process the request,
+ *   so whether the session ended is not known;
+ * - `refused`: any other answer, the portal looked and did not accept.
+ */
+export type LogoutAnswer = "ended" | "gone" | "unknown" | "refused";
+
 export async function logout(
   ctx: AdapterCallContext,
   accessToken: string,
-): Promise<boolean> {
+): Promise<LogoutAnswer> {
   const reply = await callAws(ctx, {
     role: "portal",
     method: "POST",
@@ -178,5 +192,9 @@ export async function logout(
     headers: { [TOKEN_HEADER]: accessToken },
     schema: z.undefined(),
   });
-  return reply.ok;
+  if (reply.ok) return "ended";
+  if (reply.status === 401) return "gone";
+  return [408, 425, 429].includes(reply.status) || reply.status >= 500
+    ? "unknown"
+    : "refused";
 }

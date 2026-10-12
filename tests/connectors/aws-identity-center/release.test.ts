@@ -97,31 +97,35 @@ test("an upstream disconnect still reports its Logout as the upstream outcome, o
   assert.equal(setup.fixture.counts.logout, 1);
 });
 
-/** Each way the portal can fail, and the code that says so. */
+/** Each way the portal can fail, and what the release says about it. */
 const failures: Array<
   [
     name: string,
     arrange: (setup: AwsSetup) => Promise<void> | void,
-    reason: string,
+    release: { revoked: boolean | "unavailable"; reason: string },
   ]
 > = [
-  ["a 5xx answer", (setup) => setup.fixture.failPortal(503), `${CODE}.refused`],
+  [
+    "a 5xx answer",
+    (setup) => setup.fixture.failPortal(503),
+    { revoked: false, reason: `${CODE}.indeterminate` },
+  ],
   [
     "a session that already lapsed",
     (setup) =>
       setup.fixture.expireAccessToken(setup.fixture.issued.accessTokens[0]!),
-    `${CODE}.refused`,
+    { revoked: "unavailable", reason: `${CODE}.session-gone` },
   ],
   [
     "a portal nobody is listening on",
     async (setup) => {
       await setup.fixture.stopPortal();
     },
-    `${CODE}.unreachable`,
+    { revoked: false, reason: `${CODE}.unreachable` },
   ],
 ];
 
-for (const [name, arrange, reason] of failures)
+for (const [name, arrange, release] of failures)
   test(`a Logout that meets ${name} is reported and never stops the disconnect`, async (t) => {
     const setup = await awsSetup(t, {
       double: { errorWords: "CANARY_AWS_77ac" },
@@ -133,7 +137,7 @@ for (const [name, arrange, reason] of failures)
       scope: "local",
     });
     closedLocally(result);
-    assert.deepEqual(result.result.release, { revoked: false, reason });
+    assert.deepEqual(result.result.release, release);
     assert.equal(await custodyEmpty(setup, connectionRef), true);
     assert.equal(JSON.stringify(result).includes("CANARY_AWS_77ac"), false);
   });
