@@ -23,6 +23,14 @@ import type { HandoffPort, HandoffRecord } from "../ports.js";
 const POLL_MS = 25;
 
 /**
+ * How long the waits here may last is time that has passed, read from a
+ * monotonic clock, not loops that were made: a store that takes longer than
+ * 25 ms to answer would otherwise stretch "at most the lease" to a multiple
+ * of it.
+ */
+const elapsedSince = (started: number) => performance.now() - started;
+
+/**
  * One poll interval, ended early by the request's own signal: a client that
  * has gone away stops being waited for, and what was being waited on is not
  * answered to no one. Aborting is `cancelled`, as everywhere else here.
@@ -83,8 +91,9 @@ export async function claimHandoff(
       leaseMs,
     );
   let outcome = await claim();
-  for (let waited = 0; outcome === "shared"; waited += POLL_MS) {
-    if (waited >= leaseMs)
+  const started = performance.now();
+  while (outcome === "shared") {
+    if (elapsedSince(started) >= leaseMs)
       throw new ConnectorError("conflict", { detail: "handoff.claim-timeout" });
     await nap(signal);
     try {
@@ -123,9 +132,10 @@ async function pollUntil(
   budgetMs: number,
   signal: AbortSignal | undefined,
 ): Promise<boolean> {
-  for (let waited = 0; ; waited += POLL_MS) {
+  const started = performance.now();
+  for (;;) {
     if (await check()) return true;
-    if (waited >= budgetMs) return false;
+    if (elapsedSince(started) >= budgetMs) return false;
     await nap(signal);
   }
 }

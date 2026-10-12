@@ -287,3 +287,61 @@ test("a waiter whose winner has settled also stops waiting for the write when ab
       error instanceof ConnectorError && error.code === "cancelled",
   );
 });
+
+/** The budget is time that has passed, not loops that were made: a slow store does not stretch it. */
+const slow = (ms: number, answers: Array<"shared" | ConnectorError>) =>
+  ({
+    claim: async () => {
+      await new Promise((resolve) => setTimeout(resolve, ms));
+      const next = answers.shift();
+      if (next === undefined)
+        throw new Error("claimed more often than scripted");
+      if (next instanceof ConnectorError) throw next;
+      return next;
+    },
+  }) as unknown as HandoffPort;
+
+test("waiting on an identical submission is bounded by elapsed time even when each look is slow", async () => {
+  const started = Date.now();
+  await assert.rejects(
+    claimHandoff(
+      slow(
+        100,
+        Array.from({ length: 100 }, () => "shared" as const),
+      ),
+      handoff,
+      SUBMISSION,
+      ATTEMPT,
+      500,
+    ),
+    (error: unknown) =>
+      error instanceof ConnectorError &&
+      error.detail === "handoff.claim-timeout",
+  );
+  // Counting 25 ms per loop, twenty slow looks would have taken 2.5 s.
+  assert.ok(Date.now() - started < 1_500, `${Date.now() - started} ms`);
+});
+
+test("waiting for the winner's write is bounded by elapsed time even when each look is slow", async () => {
+  const started = Date.now();
+  let looks = 0;
+  const answered = await withHandoffClaim(
+    {
+      handoffs: joined().handoffs,
+      newAttempt: () => ATTEMPT,
+      leaseMs: 400,
+      landed: async () => {
+        looks++;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        return false;
+      },
+    },
+    handoff,
+    submitted,
+    async () => "ran",
+    async () => "answered anyway",
+  );
+  assert.equal(answered, "answered anyway");
+  assert.ok(looks < 10, `${looks} looks`);
+  assert.ok(Date.now() - started < 1_200, `${Date.now() - started} ms`);
+});
