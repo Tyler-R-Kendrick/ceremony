@@ -50,6 +50,12 @@ export {
 } from "./policy.js";
 
 export {
+  boundResponse,
+  MAX_RESPONSE_BYTES,
+  ResponseTooLargeError,
+} from "./response-bound.js";
+
+export {
   boundedSignal,
   joinScope,
   neverSent,

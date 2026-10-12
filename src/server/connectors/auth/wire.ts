@@ -1,19 +1,22 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import * as oauth from "oauth4webapi";
 import { ConnectorError } from "../errors.js";
+import { boundResponse, MAX_RESPONSE_BYTES } from "./response-bound.js";
 
 /*
  * Everything this module sends leaves through the fetch the call context
- * injected, with redirects refused and an abort bound. oauth4webapi builds the
- * protocol messages; this file only decides how they travel and how a failure
- * is named once it comes back, because a provider's error text is not ours to
- * repeat.
+ * injected, with redirects refused, an abort bound and a ceiling on the size
+ * of the answer. oauth4webapi builds the protocol messages; this file only
+ * decides how they travel and how a failure is named once it comes back,
+ * because a provider's error text is not ours to repeat.
  */
 
 export type WireOptions = {
   fetch: typeof fetch;
   signal?: AbortSignal | undefined;
   timeoutMs?: number | undefined;
+  /** The ceiling on one response body; the default is `MAX_RESPONSE_BYTES`. */
+  maxResponseBytes?: number | undefined;
   allowLoopbackHttp: boolean;
 };
 
@@ -30,21 +33,30 @@ export function boundedSignal(
   return AbortSignal.any([...signals, AbortSignal.timeout(timeoutMs)]);
 }
 
-/** The fetch oauth4webapi calls: injected transport, no redirects, bounded time. */
+/**
+ * The fetch oauth4webapi calls: injected transport, no redirects, bounded time
+ * and a bounded answer. Every response it reads (token, device authorization,
+ * revocation, introspection, registration, pushed authorization) passes the
+ * size ceiling here, before the library sees a byte of it.
+ */
 export function wireFetch(options: WireOptions) {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  return <M extends string, B>(
+  const limitBytes = options.maxResponseBytes ?? MAX_RESPONSE_BYTES;
+  return async <M extends string, B>(
     url: string,
     init: oauth.CustomFetchOptions<M, B>,
   ): Promise<Response> =>
-    options.fetch(url, {
-      method: init.method,
-      headers: init.headers,
-      body: init.body as BodyInit | null | undefined,
-      redirect: "error",
-      signal: boundedSignal(options.signal, timeoutMs, init.signal),
-      ...(init.duplex ? { duplex: init.duplex } : {}),
-    } as RequestInit);
+    boundResponse(
+      await options.fetch(url, {
+        method: init.method,
+        headers: init.headers,
+        body: init.body as BodyInit | null | undefined,
+        redirect: "error",
+        signal: boundedSignal(options.signal, timeoutMs, init.signal),
+        ...(init.duplex ? { duplex: init.duplex } : {}),
+      } as RequestInit),
+      limitBytes,
+    );
 }
 
 /** Options every oauth4webapi request in this module is made with. */

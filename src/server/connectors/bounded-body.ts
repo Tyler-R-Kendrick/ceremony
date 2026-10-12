@@ -3,15 +3,17 @@ import { ConnectorError } from "./errors.js";
 /**
  * A response body read under a byte ceiling. A body that runs past it is
  * cancelled and refused rather than buffered: a provider's reply is not
- * allowed to decide how much memory the host spends on it.
+ * allowed to decide how much memory the host spends on it. `refuse` names the
+ * refusal; it is raised at the first chunk that crosses the ceiling, so what
+ * is held is never more than the ceiling plus that one chunk.
  */
-export async function readBoundedBody(
+export async function readBoundedBytes(
   response: Response,
   limitBytes: number,
-  detail: string,
-): Promise<string> {
+  refuse: () => Error,
+): Promise<Uint8Array<ArrayBuffer>> {
   const reader = response.body?.getReader();
-  if (!reader) return "";
+  if (!reader) return new Uint8Array();
   const chunks: Uint8Array[] = [];
   let received = 0;
   for (;;) {
@@ -19,10 +21,25 @@ export async function readBoundedBody(
     if (done) break;
     received += value.byteLength;
     if (received > limitBytes) {
-      await reader.cancel();
-      throw new ConnectorError("upstream-rejected", { detail });
+      await reader.cancel().catch(() => {});
+      throw refuse();
     }
     chunks.push(value);
   }
-  return new TextDecoder().decode(Buffer.concat(chunks));
+  return new Uint8Array(Buffer.concat(chunks));
+}
+
+/** The same ceiling for a body read as text, refused as an `upstream-rejected` with `detail`. */
+export async function readBoundedBody(
+  response: Response,
+  limitBytes: number,
+  detail: string,
+): Promise<string> {
+  return new TextDecoder().decode(
+    await readBoundedBytes(
+      response,
+      limitBytes,
+      () => new ConnectorError("upstream-rejected", { detail }),
+    ),
+  );
 }
