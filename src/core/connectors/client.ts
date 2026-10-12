@@ -186,6 +186,13 @@ export const disconnectOutcomes = [
   "indeterminate",
 ] as const;
 export type DisconnectOutcome = (typeof disconnectOutcomes)[number];
+/** `local` adds two for a record this disconnect did not close: another disconnect did, or a reconnect took it over. */
+export const localDisconnectOutcomes = [
+  ...disconnectOutcomes,
+  "superseded",
+  "already-closed",
+] as const;
+export type LocalDisconnectOutcome = (typeof localDisconnectOutcomes)[number];
 /**
  * What became of the provider's side of the sign-in a connection held, when it
  * was disconnected without asking the provider to end the grant: `true` when
@@ -200,7 +207,7 @@ export const sessionReleaseSchema = z.strictObject({
 });
 export type SessionRelease = z.infer<typeof sessionReleaseSchema>;
 export const disconnectResultSchema = z.object({
-  local: z.enum(disconnectOutcomes),
+  local: z.enum(localDisconnectOutcomes),
   broker: z.enum(disconnectOutcomes),
   upstream: z.enum(disconnectOutcomes),
   /** Other local connections sharing the affected upstream grant. */

@@ -4433,7 +4433,9 @@
                   "unsupported",
                   "failed",
                   "not-attempted",
-                  "indeterminate"
+                  "indeterminate",
+                  "superseded",
+                  "already-closed"
                 ]
               },
               "broker": {

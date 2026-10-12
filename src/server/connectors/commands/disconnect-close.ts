@@ -69,3 +69,19 @@ export async function closeDisconnected(
     current = fresh;
   }
 }
+
+/**
+ * What a disconnect did to the record, from where it started to where closing
+ * left it: it closed it (`applied`), or the record had already moved to
+ * another generation, either closed by another disconnect (`already-closed`)
+ * or taken over by a reconnect (`superseded`). Either way what the disconnect
+ * held was released; only the record was not its to write.
+ */
+export function localOutcome(
+  fenced: ClosingConnection,
+  after: ClosingConnection,
+  isClosed: (record: ConnectionRecord) => boolean,
+): "applied" | "superseded" | "already-closed" {
+  if (after.record.generation === fenced.record.generation) return "applied";
+  return isClosed(after.record) ? "already-closed" : "superseded";
+}

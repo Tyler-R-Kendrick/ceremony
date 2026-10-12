@@ -17,6 +17,7 @@ import {
   type ConnectionSummary,
   type ConnectorImportResult,
   type HumanPresentation,
+  type LocalDisconnectOutcome,
   type NormalizedDefinition,
   type SourceRecord,
   type SupportLabel,
@@ -103,7 +104,7 @@ import {
   narrowConfiguration,
   OAUTH_PROFILE_KINDS,
 } from "./definitions.js";
-import { closeDisconnected } from "./disconnect-close.js";
+import { closeDisconnected, localOutcome } from "./disconnect-close.js";
 import { adapterCall, port, requireAny } from "./failures.js";
 import { withHandoffClaim } from "./handoff-claim.js";
 import {
@@ -227,6 +228,10 @@ const classificationRank = { public: 0, personal: 1, secret: 2 } as const;
 const REUSED_COMMAND = "command.reused";
 
 type ConnectionEntry = { record: ConnectionRecord; revision: number };
+/** What a disconnect or a revoke reports: an adapter's outcomes, with the local one the service decides. */
+type Disconnected = Omit<DisconnectResult, "local"> & {
+  local: LocalDisconnectOutcome;
+};
 type ConnectionPatch = Parameters<ConnectionStorePort["update"]>[3];
 type HandoffHandle = {
   handoffRef: string;
@@ -2720,7 +2725,7 @@ export class ConnectorCommandService {
     actor: ActorContext,
     connectionRef: string,
     rawInput: unknown,
-  ): Promise<{ result: DisconnectResult; connection: ConnectionView }> {
+  ): Promise<{ result: Disconnected; connection: ConnectionView }> {
     requireCapability(actor, "executor");
     const input: DisconnectInput = disconnectInputSchema.parse(rawInput);
     const entry = await this.connection(actor, connectionRef);
@@ -2823,6 +2828,7 @@ export class ConnectorCommandService {
     };
     // The record is closed even if something wrote it while the provider was
     // being told (disconnect-close.ts).
+    const fenced = current;
     current = await port(() =>
       closeDisconnected(
         this.ports.connections,
@@ -2841,7 +2847,10 @@ export class ConnectorCommandService {
         },
       ),
     );
-    return { result, connection: this.project(actor, current) };
+    return {
+      result: { ...result, local: localOutcome(fenced, current, closed) },
+      connection: this.project(actor, current),
+    };
   }
 
   private async sharedWith(record: ConnectionRecord): Promise<string[]> {
@@ -2869,7 +2878,7 @@ export class ConnectorCommandService {
     actor: ActorContext,
     connectionRef: string,
     rawInput: unknown,
-  ): Promise<{ result: DisconnectResult; connection: ConnectionView }> {
+  ): Promise<{ result: Disconnected; connection: ConnectionView }> {
     requireCapability(actor, "admin");
     if (!actor.capabilities.includes("admin") || actor.actorKind !== "human")
       throw new ConnectorError("denied", { detail: "revoke.admin-only" });
@@ -2922,6 +2931,7 @@ export class ConnectorCommandService {
       .catch(() => {});
     // Closed even if something wrote the record while the provider was being
     // told, as a disconnect is (disconnect-close.ts).
+    const fenced = current;
     current = await port(() =>
       closeDisconnected(
         this.ports.connections,
@@ -2944,7 +2954,7 @@ export class ConnectorCommandService {
       ),
     );
     return {
-      result: { ...remote, local: "applied" },
+      result: { ...remote, local: localOutcome(fenced, current, closed) },
       connection: this.project(actor, current),
     };
   }
