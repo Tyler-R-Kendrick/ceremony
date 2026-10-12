@@ -81,3 +81,72 @@ test("a write that lands while Logout is in flight does not stop the disconnect 
     assert.equal(await setup.ports.credentials.describe(scope, ref), undefined);
   assert.equal(setup.fixture.counts.logout, 1);
 });
+
+/*
+ * The administrator's revoke is the same shape: it fences the connection, tells
+ * AWS, drops custody and only then writes the closing lifecycle.
+ */
+test("a write that lands while Logout is in flight does not stop a revoke closing the record", async (t) => {
+  const setup = await awsSetup(t);
+  const { connectionRef, done } = await connectAndChoose(setup);
+
+  const real = globalThis.fetch;
+  const reached = Promise.withResolvers<void>();
+  const gate = Promise.withResolvers<void>();
+  t.mock.method(
+    globalThis,
+    "fetch",
+    async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (new URL(url).pathname === "/logout") {
+        reached.resolve();
+        await gate.promise;
+      }
+      return real(input, init);
+    },
+  );
+
+  const revoking = setup.service
+    .revoke(setup.person, connectionRef, {
+      expectedRevision: (done as View).revision,
+    })
+    .then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    );
+  await reached.promise;
+  const meanwhile = await setup.service.verify(setup.person, connectionRef);
+  assert.equal((meanwhile as View).lifecycle, "active");
+  gate.resolve();
+
+  const outcome = await revoking;
+  assert.ok(
+    "value" in outcome,
+    `the revoke threw: ${String("error" in outcome ? outcome.error : "")}`,
+  );
+  assert.equal(outcome.value.result.upstream, "applied");
+  assert.equal(
+    (outcome.value.connection as View).lifecycle,
+    "upstream-revoked",
+  );
+  const record = await setup.record(connectionRef);
+  assert.equal(record.lifecycle, "upstream-revoked");
+  assert.equal(record.generation, 1);
+  assert.equal(record.lastOutcome, "revoke.applied");
+  const scope = {
+    tenantId: record.tenantId,
+    ownerKind: record.ownerKind,
+    ownerId: record.ownerId,
+    connectionRef: record.connectionRef,
+    bindingRef: record.bindingRef,
+    custody: record.custody,
+  };
+  for (const ref of setup.stored)
+    assert.equal(await setup.ports.credentials.describe(scope, ref), undefined);
+  assert.equal(setup.fixture.counts.logout, 1);
+});

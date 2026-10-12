@@ -2920,16 +2920,29 @@ export class ConnectorCommandService {
     await this.ports.evidence
       .invalidate(actor, connectionRef, "revoke")
       .catch(() => {});
-    current = await this.update(actor, current, {
-      lifecycle:
-        remote.upstream === "applied"
-          ? "upstream-revoked"
-          : "locally-disconnected",
-      lastOutcome:
-        remote.upstream === "applied"
-          ? "revoke.applied"
-          : `revoke.${remote.upstream}`,
-    });
+    // Closed even if something wrote the record while the provider was being
+    // told, as a disconnect is (disconnect-close.ts).
+    current = await port(() =>
+      closeDisconnected(
+        this.ports.connections,
+        async (ref) =>
+          this.ports.credentials
+            .revoke(this.scope(record), ref)
+            .catch(() => {}),
+        actor,
+        current,
+        {
+          lifecycle:
+            remote.upstream === "applied"
+              ? "upstream-revoked"
+              : "locally-disconnected",
+          lastOutcome:
+            remote.upstream === "applied"
+              ? "revoke.applied"
+              : `revoke.${remote.upstream}`,
+        },
+      ),
+    );
     return {
       result: { ...remote, local: "applied" },
       connection: this.project(actor, current),
