@@ -160,7 +160,13 @@ export async function verifyAccount(
     if (seen.user.id !== account.userId)
       return { state: "denied", claims: [], code: code("user.changed") };
     const team = seen.listing.teams.find((item) => item.id === account.teamId);
-    if (!team) return { state: "denied", claims: [], code: code("team.left") };
+    // Not found in a listing that was cut off is not "left": the team may be
+    // on a page that was not read, and ending the connection on a guess is not
+    // a verification.
+    if (!team)
+      return seen.listing.truncated
+        ? { state: "indeterminate", claims: [], code: code("team.not-listed") }
+        : { state: "denied", claims: [], code: code("team.left") };
     return {
       state: "complete",
       claims: claimsFor(ctx, {

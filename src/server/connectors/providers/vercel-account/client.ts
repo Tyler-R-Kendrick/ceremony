@@ -118,12 +118,18 @@ export type AccountTeam = {
   name?: string | null | undefined;
 };
 
-/** Every page, bounded; `truncated` says a later page was left unread. */
+/**
+ * Every page, bounded, as a set. `truncated` says the listing is not known to
+ * be whole: a later page was left unread, or a page added no team not already
+ * seen (the same page again, which a server that is not advancing answers) and
+ * reading on would only repeat it.
+ */
 export async function listTeams(
   ctx: AdapterCallContext,
   bearer: string,
 ): Promise<{ teams: AccountTeam[]; truncated: boolean }> {
   const teams: AccountTeam[] = [];
+  const seen = new Set<string>();
   let until: number | undefined;
   for (let page = 0; page < MAX_TEAM_PAGES; page++) {
     const body = await get(
@@ -133,9 +139,16 @@ export async function listTeams(
       { limit: TEAMS_PAGE_SIZE, until },
       teamsResponseSchema,
     );
-    teams.push(...body.teams);
+    let added = 0;
+    for (const team of body.teams) {
+      if (seen.has(team.id)) continue;
+      seen.add(team.id);
+      teams.push(team);
+      added += 1;
+    }
     const next = body.pagination?.next;
     if (next === undefined || next === null) return { teams, truncated: false };
+    if (added === 0) return { teams, truncated: true };
     until = next;
   }
   return { teams, truncated: true };

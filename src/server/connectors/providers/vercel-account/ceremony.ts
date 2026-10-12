@@ -171,8 +171,11 @@ export function planTeams(
     (team) =>
       permitted.has(team.id) && (wanted === undefined || team.id === wanted),
   );
+  // "Exactly one" is a claim about the whole list; a listing that was cut off
+  // is a part of it, so the person is asked.
   if (!teams.length) return { kind: "none" };
-  if (teams.length === 1) return { kind: "single", team: teams[0]! };
+  if (teams.length === 1 && !listing.truncated)
+    return { kind: "single", team: teams[0]! };
   return { kind: "choose", teams, truncated: listing.truncated };
 }
 
@@ -248,7 +251,12 @@ async function continueAfterSignIn(
     return {
       state: "denied",
       claims: [],
-      code: code("selection.nothing-permitted"),
+      // A cut-off listing cannot say there is nothing: only that none was found.
+      code: code(
+        listed.listing.truncated
+          ? "selection.listing-incomplete"
+          : "selection.nothing-permitted",
+      ),
       handoffSettled: true,
     };
   }

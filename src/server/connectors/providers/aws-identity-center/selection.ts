@@ -110,16 +110,19 @@ async function planChoice(
       permitted.has(account.accountId) &&
       (intended === undefined || intended.accountId === account.accountId),
   );
-  if (!accounts.length) return { kind: "none" };
-  if (accounts.length === 1) {
+  // "Nothing permitted" and "exactly one" are claims about the whole list. A
+  // listing that was cut off is a part of it, so the person is asked instead,
+  // and what they type is checked against the portal, not against this list.
+  if (!accounts.length)
+    return listing.truncated
+      ? { kind: "choose", choices: [], truncated: true }
+      : { kind: "none" };
+  if (accounts.length === 1 && !listing.truncated) {
     const account = accounts[0]!;
-    const roles = allowedRoles(
-      ctx,
-      account.accountId,
-      (await listAccountRoles(ctx, accessToken, account.accountId)).items,
-    );
-    if (!roles.length) return { kind: "none" };
-    if (roles.length === 1)
+    const found = await listAccountRoles(ctx, accessToken, account.accountId);
+    const roles = allowedRoles(ctx, account.accountId, found.items);
+    if (!roles.length && !found.truncated) return { kind: "none" };
+    if (roles.length === 1 && !found.truncated)
       return {
         kind: "single",
         accountId: account.accountId,
@@ -134,7 +137,7 @@ async function planChoice(
           roles,
         },
       ],
-      truncated: listing.truncated,
+      truncated: found.truncated,
     };
   }
   return {
@@ -165,10 +168,8 @@ function describeChoices(choices: Choice[], truncated: boolean): string {
     parts.push(part);
     length += part.length + 2;
   }
-  return `${lead}${parts.join("; ")}${truncated ? "; more are available" : ""}.`.slice(
-    0,
-    PRESENTATION_LIMIT,
-  );
+  const more = truncated ? `${parts.length ? "; " : ""}more are available` : "";
+  return `${lead}${parts.join("; ")}${more}.`.slice(0, PRESENTATION_LIMIT);
 }
 
 function selectionHandoff(

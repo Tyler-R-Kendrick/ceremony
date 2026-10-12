@@ -47,18 +47,33 @@ async function portalGet<T>(
   return reply.body;
 }
 
-/** Every page, up to a bound; `truncated` says a later page was left unread. */
+/**
+ * Every page, up to a bound, as a set. `truncated` says the listing is not
+ * known to be whole: a later page was left unread, or a page added nothing new
+ * (the same page again, which a server that is not advancing answers) and
+ * reading on would only repeat it.
+ */
 async function pages<T>(
   fetchPage: (
     nextToken: string | undefined,
   ) => Promise<{ items: T[]; nextToken: string | null | undefined }>,
+  keyOf: (item: T) => string,
 ): Promise<{ items: T[]; truncated: boolean }> {
   const items: T[] = [];
+  const seen = new Set<string>();
   let nextToken: string | undefined;
   for (let page = 0; page < MAX_PORTAL_PAGES; page++) {
     const result = await fetchPage(nextToken);
-    items.push(...result.items);
+    let added = 0;
+    for (const item of result.items) {
+      const key = keyOf(item);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      items.push(item);
+      added += 1;
+    }
     if (!result.nextToken) return { items, truncated: false };
+    if (added === 0) return { items, truncated: true };
     nextToken = result.nextToken;
   }
   return { items, truncated: true };
@@ -68,16 +83,19 @@ export function listAccounts(
   ctx: AdapterCallContext,
   accessToken: string,
 ): Promise<{ items: PortalAccount[]; truncated: boolean }> {
-  return pages(async (nextToken) => {
-    const body = await portalGet(
-      ctx,
-      accessToken,
-      "/assignment/accounts",
-      { max_result: PORTAL_PAGE_SIZE, next_token: nextToken },
-      accountsResponseSchema,
-    );
-    return { items: body.accountList, nextToken: body.nextToken };
-  });
+  return pages(
+    async (nextToken) => {
+      const body = await portalGet(
+        ctx,
+        accessToken,
+        "/assignment/accounts",
+        { max_result: PORTAL_PAGE_SIZE, next_token: nextToken },
+        accountsResponseSchema,
+      );
+      return { items: body.accountList, nextToken: body.nextToken };
+    },
+    (account) => account.accountId,
+  );
 }
 
 export async function listAccountRoles(
@@ -85,29 +103,32 @@ export async function listAccountRoles(
   accessToken: string,
   accountId: string,
 ): Promise<{ items: string[]; truncated: boolean }> {
-  return pages(async (nextToken) => {
-    const body = await portalGet(
-      ctx,
-      accessToken,
-      "/assignment/roles",
-      {
-        account_id: accountId,
-        max_result: PORTAL_PAGE_SIZE,
-        next_token: nextToken,
-      },
-      rolesResponseSchema,
-    );
-    // A role the portal lists under another account is not this account's.
-    return {
-      items: body.roleList
-        .filter(
-          (role) =>
-            role.accountId === undefined || role.accountId === accountId,
-        )
-        .map((role) => role.roleName),
-      nextToken: body.nextToken,
-    };
-  });
+  return pages(
+    async (nextToken) => {
+      const body = await portalGet(
+        ctx,
+        accessToken,
+        "/assignment/roles",
+        {
+          account_id: accountId,
+          max_result: PORTAL_PAGE_SIZE,
+          next_token: nextToken,
+        },
+        rolesResponseSchema,
+      );
+      // A role the portal lists under another account is not this account's.
+      return {
+        items: body.roleList
+          .filter(
+            (role) =>
+              role.accountId === undefined || role.accountId === accountId,
+          )
+          .map((role) => role.roleName),
+        nextToken: body.nextToken,
+      };
+    },
+    (roleName) => roleName,
+  );
 }
 
 /** Credentials are validated here; the caller stores them and returns nothing that contains them. */
