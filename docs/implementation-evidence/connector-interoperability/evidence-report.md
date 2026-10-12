@@ -2070,6 +2070,7 @@ Every limitation any ledger recorded, kept verbatim. These are the boundaries an
 ## External effects performed
 
 - ACCOUNTS: Read-only documentation fetches from docs.aws.amazon.com (OIDC and Portal API references, the General Reference endpoint table, and the IAM Identity Center and AWS CLI user guides)
+- ACCOUNTS: Read-only fetches from vercel.com and api.vercel.com: the OpenID Connect discovery document and the Sign in with Vercel, vercel login, changelog and REST reference pages
 - AUTOMATION: {"kind":"documentation-read","detail":"Fetched vendor documentation over HTTPS on 2026-09-18: docs.zapier.com/integrations/build-cli/overview and the raw zapier-platform schema.md (zapier-platform-schema 19.1.0); docs.n8n.io sitemap and the /connect/create-nodes/ reference pages (the charter's /integrations/creating-nodes/overview/ returns 404 and its successor is recorded in n8n/profile.ts); docs.workato.com SDK reference and authentication guides. Read-only GETs; no account, no token, no write."}
 - BINDINGS: {"effect":"Read public specification and documentation pages over HTTPS during research","targets":["https://raw.githubusercontent.com/openservicebrokerapi/servicebroker/v2.17/spec.md","https://raw.githubusercontent.com/apache/camel-kamelets/v4.22.0/kamelets/timer-source.kamelet.yaml","https://raw.githubusercontent.com/apache/camel-kamelets/v4.14.0/kamelets/aws-s3-source.kamelet.yaml","https://camel.apache.org/camel-kamelets/4.22.x/security-model.html","https://docs.dapr.io/reference/api/bindings_api/","https://docs.dapr.io/reference/components-reference/supported-bindings/","https://docs.dapr.io/operations/security/api-token/","https://docs.dapr.io/operations/security/app-api-token/"],"note":"Read-only public documentation. No account was created, no credential issued, no package installed, no image pulled, no container or JVM started, and no vendor API was called with credentials."}
 - CLOUD: Read-only documentation retrieval over HTTPS on 2026-09-18: AWS Bedrock AgentCore developer guide and control-plane API reference pages, the IAM SigV4 signing pages, and the Google Integration Connectors documentation plus the public discovery documents at https://connectors.googleapis.com/$discovery/rest?version=v1 and ?version=v2 (unauthenticated GETs).
@@ -2089,8 +2090,8 @@ Every limitation any ledger recorded, kept verbatim. These are the boundaries an
 
 ## Pinned sources
 
-The [source lock](source-lock.md) pins 85 records as of 2026-09-18, each with its URL, retrieval time, upstream version, licence position and the adapters and profile identifiers that depend on it. It also reports its own coverage gaps. Read it before trusting any wire fact in this repository.
+The [source lock](source-lock.md) pins 90 records as of 2026-09-18, each with its URL, retrieval time, upstream version, licence position and the adapters and profile identifiers that depend on it. It also reports its own coverage gaps. Read it before trusting any wire fact in this repository.
 
 ## Adapter inventory read for this report
 
-29 adapter factories construct with no host configuration and report their own capability rows; 7 modules could not be introspected or export no adapter, and each is named in the [support matrix](../../specifications/connector-support-matrix.md).
+30 adapter factories construct with no host configuration and report their own capability rows; 7 modules could not be introspected or export no adapter, and each is named in the [support matrix](../../specifications/connector-support-matrix.md).

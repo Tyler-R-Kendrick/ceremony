@@ -2106,6 +2106,130 @@
       },
       "recordedBy": ["ACCOUNTS"],
       "notes": "Alias only. The profile covers the device authorization grant against the OIDC service and the access portal operations that turn its access token into role credentials."
+    },
+    {
+      "id": "vercel-oidc-discovery-2026-10",
+      "kind": "vendor-api",
+      "title": "Vercel OpenID Connect discovery document",
+      "url": "https://vercel.com/.well-known/openid-configuration",
+      "retrievedAt": "2026-10-12",
+      "upstreamVersion": "served 2026-10-12; carries no version",
+      "revision": "read 2026-10-12",
+      "digest": "sha256:6c856723f1336f7d3a3a9db8be33350af7b5f538065a9b4802663351da53024d",
+      "digestNote": "sha256 of the document as retrieved. tests/connectors/fixtures/vercel/openid-configuration.json holds the same JSON reformatted by the repository's formatter, and the double serves it with only its two origins replaced.",
+      "licence": {
+        "spdx": null,
+        "status": "proprietary vendor documentation",
+        "statement": "Vercel's documentation is the vendor's copyrighted publication; no open licence is offered for it and none is assumed. No Vercel SDK or CLI source is a dependency of this repository or was vendored.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "The issuer, the device, token, revocation and registration endpoints on api.vercel.com, the grant types (including the device code grant and refresh_token), the token endpoint authentication methods and the scopes. The document is machine-readable metadata; it is reproduced as a test fixture so a test can prove the host's issuer policy resolves it.",
+      "dependents": {
+        "adapters": ["vercel-account"],
+        "profiles": ["vercel-account-device-2026-10"],
+        "modules": ["src/server/connectors/providers/vercel-account/"]
+      },
+      "recordedBy": ["ACCOUNTS"],
+      "notes": "token_endpoint_auth_methods_supported lists no `none` method although the Sign in with Vercel dashboard page offers `none` per application, so the generic client resolution refuses RFC 7591 registration of a `none` client against this document; the host's client is pre-registered. No page describes the device authorization endpoint's request or response, so those are assumptions listed in VERCEL_ACCOUNT_ASSUMPTIONS."
+    },
+    {
+      "id": "vercel-cli-login-changelog-2026-10",
+      "kind": "vendor-doc",
+      "title": "Vercel changelog: New Vercel CLI login flow (September 12, 2025) and the vercel login reference",
+      "url": "https://vercel.com/changelog/new-vercel-cli-login-flow",
+      "retrievedAt": "2026-10-12",
+      "upstreamVersion": "published September 12, 2025",
+      "revision": "read 2026-10-12, with https://vercel.com/docs/cli/login (last_updated 2026-04-10)",
+      "digest": "sha256:10ad3a06e8cb222e9f0ca0b62151ea8e1be8c2723a5141e1613ebb6cf7e32a96",
+      "digestNote": "sha256 over the bytes retrieved for the changelog entry and then the vercel login page, as markdown.",
+      "licence": {
+        "spdx": null,
+        "status": "proprietary vendor documentation",
+        "statement": "Vercel's documentation is the vendor's copyrighted publication; no open licence is offered for it and none is assumed. No Vercel SDK or CLI source is a dependency of this repository or was vendored.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "The statement that vercel login uses the OAuth 2.0 Device Flow (RFC 8628) and that approving a login should check the location, IP and request time. Nothing else is taken from either page.",
+      "dependents": {
+        "adapters": ["vercel-account"],
+        "profiles": ["vercel-account-device-2026-10"],
+        "modules": ["src/server/connectors/providers/vercel-account/"]
+      },
+      "recordedBy": ["ACCOUNTS"],
+      "notes": "The pages name no endpoint, client id or scope, and do not say whether an application made on the Sign in with Vercel dashboard page may use the device grant."
+    },
+    {
+      "id": "vercel-sign-in-docs-2026-10",
+      "kind": "vendor-doc",
+      "title": "Sign in with Vercel: overview, tokens, scopes and permissions, authorization server API and managing an application",
+      "url": "https://vercel.com/docs/sign-in-with-vercel",
+      "retrievedAt": "2026-10-12",
+      "upstreamVersion": "read 2026-10-12",
+      "revision": "pages sign-in-with-vercel, /tokens, /manage-from-dashboard, /scopes-and-permissions, /authorization-server-api",
+      "digest": "sha256:64f189edb5aeb66da67deec4370d000095c9eff1eeda67c4af02524ada88e249",
+      "digestNote": "sha256 over the bytes retrieved for the five pages in the order listed, as markdown.",
+      "licence": {
+        "spdx": null,
+        "status": "proprietary vendor documentation",
+        "statement": "Vercel's documentation is the vendor's copyrighted publication; no open licence is offered for it and none is assumed. No Vercel SDK or CLI source is a dependency of this repository or was vendored.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "The access token (vca_, one hour) and refresh token (vcr_, thirty days, single use, rotated on exchange, issued with offline_access); the scopes openid, email, profile and offline_access; client authentication `none` for CLIs and public clients; the authorization-code grant with PKCE, recorded as a documented non-goal here because the generic authorization-code family already runs it under any issuer policy.",
+      "dependents": {
+        "adapters": ["vercel-account"],
+        "profiles": ["vercel-account-device-2026-10"],
+        "modules": ["src/server/connectors/providers/vercel-account/"]
+      },
+      "recordedBy": ["ACCOUNTS"],
+      "notes": "API permissions behind a sign-in token are described as a private beta, so whether Vercel Connect accepts a sign-in token is unverified."
+    },
+    {
+      "id": "vercel-rest-user-teams-2026-10",
+      "kind": "vendor-api",
+      "title": "Vercel REST API reference: Get the User (GET /v2/user), List all teams (GET /v2/teams) and the REST authentication overview",
+      "url": "https://vercel.com/docs/rest-api/teams/list-all-teams",
+      "retrievedAt": "2026-10-12",
+      "upstreamVersion": "last_updated 2026-10-11",
+      "revision": "read 2026-10-12, with /docs/rest-api/user/get-the-user and /docs/rest-api/authentication",
+      "digest": "sha256:caa61b767e168ede4c173f4b81ebe036700a2dc74a95c9c79cf95e7e62617cbd",
+      "digestNote": "sha256 over the bytes retrieved for the Get the User page, the List all teams page and the Authentication page, in that order, as markdown.",
+      "licence": {
+        "spdx": null,
+        "status": "proprietary vendor documentation",
+        "statement": "Vercel's documentation is the vendor's copyrighted publication; no open licence is offered for it and none is assumed. No Vercel SDK or CLI source is a dependency of this repository or was vendored.",
+        "evidence": "not-read-here"
+      },
+      "reuse": "Bearer authentication, the response members user.id, username, name, email and defaultTeamId, and teams[].id, slug, name with pagination and the limit, since and until query names.",
+      "dependents": {
+        "adapters": ["vercel-account"],
+        "profiles": ["vercel-account-device-2026-10"],
+        "modules": ["src/server/connectors/providers/vercel-account/"]
+      },
+      "recordedBy": ["ACCOUNTS"],
+      "notes": "The example responses on the pages stringify numbers, so the adapter reads pagination.next as a number and the double serves one. That teams page by `until` set to pagination.next is an assumption."
+    },
+    {
+      "id": "vercel-account-device-2026-10",
+      "kind": "alias",
+      "title": "Profile of the Vercel account sign-in adapter (alias of its discovery, sign-in, changelog and REST records)",
+      "url": "https://vercel.com/.well-known/openid-configuration",
+      "retrievedAt": "2026-10-12",
+      "upstreamVersion": "2026-10",
+      "revision": "alias record so the adapter's profile name resolves",
+      "digest": null,
+      "licence": {
+        "spdx": null,
+        "status": "proprietary vendor documentation",
+        "statement": "See vercel-sign-in-docs-2026-10.",
+        "evidence": "see vercel-sign-in-docs-2026-10"
+      },
+      "reuse": "See vercel-oidc-discovery-2026-10, vercel-cli-login-changelog-2026-10, vercel-sign-in-docs-2026-10 and vercel-rest-user-teams-2026-10.",
+      "dependents": {
+        "adapters": ["vercel-account"],
+        "profiles": ["vercel-account-device-2026-10"],
+        "modules": ["src/server/connectors/providers/vercel-account/"]
+      },
+      "recordedBy": ["ACCOUNTS"],
+      "notes": "Alias only. The profile covers the device authorization grant at the issuer vercel.com, the refresh grant, revocation and the two REST reads that name the user and the teams."
     }
   ]
 }

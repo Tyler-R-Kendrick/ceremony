@@ -8,7 +8,7 @@ Read it with three rules in mind.
 - **Evidence is not certification.** Every level below is `unit`, `protocol-fixture` or `local-integration`. No live vendor credential exists in this environment, so no row anywhere claims live or vendor-certified behaviour. A loopback double proving wire correctness is not a provider's endorsement.
 - **Rows are measured with no configuration present.** `capabilities(new Set())` is what a fresh deployment sees. A dimension shown as `requires-configuration` becomes usable once the named configuration is supplied and the host approves a binding, not before.
 
-Generated from 29 constructible adapters and 30 ledgers.
+Generated from 30 constructible adapters and 30 ledgers.
 
 ## Support labels
 
@@ -63,6 +63,7 @@ No recorded entry has expired.
 | `supabase-management`           | supabase                      | hosted-server | provider-backed | local             | host-owned                                            | unsupported                              | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported                              | unsupported                    |
 | `supabase-mcp`                  | supabase                      | hosted-server | provider-backed | fixture           | host-owned                                            | unsupported                              | implemented / protocol-fixture           | unsupported                              | implemented / protocol-fixture           | implemented / protocol-fixture           | unsupported                              | unsupported                    |
 | `supabase-wrappers`             | supabase                      | hosted-server | provider-backed | fixture           | external-execution-broker                             | implemented / protocol-fixture           | implemented / protocol-fixture           | unsupported                              | implemented / protocol-fixture           | implemented / protocol-fixture           | unsupported                              | implemented / protocol-fixture |
+| `vercel-account`                | vercel                        | hosted-server | provider-backed | local             | host-owned                                            | unsupported                              | unsupported                              | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported                              | unsupported                    |
 | `vercel-connect`                | vercel                        | hosted-server | provider-backed | local             | host-owned, external-credential-broker                | unsupported                              | implemented / protocol-fixture           | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported                    |
 | `workos-pipes`                  | workos-pipes                  | hosted-server | provider-backed | local             | external-credential-broker, external-execution-broker | unsupported                              | implemented / missing / unit             | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported                              | unsupported                    |
 
@@ -99,6 +100,7 @@ Lifecycle is not one dimension. Local disconnect, broker deletion and upstream r
 | `supabase-management`           | implemented / missing / protocol-fixture | unsupported                              | reconnect: implemented; disconnect: implemented; revoke: implemented    |
 | `supabase-mcp`                  | implemented / protocol-fixture           | unsupported                              | reconnect: unsupported; disconnect: implemented; revoke: unsupported    |
 | `supabase-wrappers`             | implemented / protocol-fixture           | unsupported                              | reconnect: unsupported; disconnect: implemented; revoke: unsupported    |
+| `vercel-account`                | unsupported                              | unsupported                              | reconnect: implemented; disconnect: implemented; revoke: implemented    |
 | `vercel-connect`                | implemented / missing / protocol-fixture | unsupported                              | reconnect: implemented; disconnect: implemented; revoke: implemented    |
 | `workos-pipes`                  | implemented / missing / protocol-fixture | unsupported                              | reconnect: implemented; disconnect: implemented; revoke: unsupported    |
 
@@ -135,7 +137,8 @@ A `provider-backed` adapter missing required configuration is shown in the direc
 | `supabase-management`           | 1.0.0           | `SUPABASE_OAUTH_CLIENT_ID` (public), `SUPABASE_OAUTH_CLIENT_SECRET` (secret)                                                          | protocol-fixture | `tests/connectors/supabase/management.test.ts` (local-double, 2026-09-23)                   | SUPABASE           | `oauth-authorization-code`, `supabase-management-api-v1`                                                |
 | `supabase-mcp`                  | 1.0.0           | none                                                                                                                                  | protocol-fixture | `tests/connectors/supabase/hosted-mcp.test.ts` (in-process-fixture, 2026-09-23)             | SUPABASE           | `mcp-2026-07-28`, `mcp-2025-11-25`, `oauth-authorization-code`                                          |
 | `supabase-wrappers`             | 1.0.0           | none                                                                                                                                  | protocol-fixture | `tests/connectors/supabase/wrappers.test.ts` (in-process-fixture, 2026-09-23)               | SUPABASE           | `supabase-wrappers-catalog-v1`, `external-broker`                                                       |
-| `vercel-connect`                | 1.0.0           | `VERCEL_TEAM_ID` (public), `VERCEL_CONNECT_WORKLOAD_TOKEN` (secret)                                                                   | protocol-fixture | `tests/connectors/vercel/authorization.test.ts` (local-double, 2026-09-23)                  | VERCEL             | `vercel-connect-rest-2026-09`, `external-broker`                                                        |
+| `vercel-account`                | 1.0.0           | `VERCEL_ACCOUNT_CLIENT_ID` (public)                                                                                                   | protocol-fixture | `tests/connectors/vercel-account/ceremony.test.ts` (local-double, 2026-10-12)               | ACCOUNTS           | `vercel-account-device-2026-10`                                                                         |
+| `vercel-connect`                | 1.0.0           | `VERCEL_TEAM_ID` (public), `VERCEL_CONNECT_WORKLOAD_TOKEN` (secret)                                                                   | protocol-fixture | `tests/connectors/vercel/authorization.test.ts` (local-double, 2026-09-23)                  | ACCOUNTS, VERCEL   | `vercel-connect-rest-2026-09`, `external-broker`                                                        |
 | `workos-pipes`                  | 2026.09.18      | `WORKOS_API_KEY` (secret), `WORKOS_CLIENT_ID` (public)                                                                                | protocol-fixture | `tests/connectors/workos/authorization.test.ts` (local-double, 2026-09-23)                  | IDENTITY-BROKERS   | `external-broker`, `workos-pipes-credentials`, `workos-pipes-relay`                                     |
 
 ## Native limitations, as each adapter reports them
@@ -591,6 +594,20 @@ Module: `src/server/connectors/providers/supabase/index.ts` (`createSupabaseWrap
 - export: Foreign Data Wrappers do not provide Row Level Security; only host-approved narrow reads are exposed
 - export: Exports the descriptor: names and types only
 - delegate: Foreign Data Wrappers do not provide Row Level Security; only host-approved narrow reads are exposed
+
+### `vercel-account` — Vercel account sign-in
+
+Module: `src/server/connectors/providers/vercel-account/index.ts` (`createVercelAccountAdapter`).
+
+- authorize: The person signs in and approves on Vercel's own page; this adapter never sees the sign-in.
+- authorize: Then GET /v2/user and GET /v2/teams name who signed in and which teams the binding permits; one permitted team binds without asking, otherwise the person types a slug that Vercel's own list must contain.
+- authorize: Written from Vercel's discovery document and published pages and run only against a loopback double; whether a dashboard-made client may use the device grant is an assumption listed in contracts.ts.
+- authorize: Authorization code with PKCE is not implemented here: it is the generic authorization-code family under another issuer policy, not a second mechanism.
+- verify: Renews the access token with its single-use refresh token when it is about to lapse, then re-reads the user and teams.
+- invoke: Read-only: GET /v2/user and GET /v2/teams. The token is never an output; the management leg of Vercel Connect reaches it through a lease the host wires.
+- reconnect: Reconnecting is a new sign-in; a different team needs an explicit switch.
+- disconnect: Local release revokes the held tokens; the upstream scope presents them to Vercel's revocation endpoint only when the reviewed issuer policy turns that on.
+- revoke: RFC 7009 revocation of the refresh and access tokens, off unless the issuer policy says on-upstream-disconnect.
 
 ### `vercel-connect` — Vercel Connect
 

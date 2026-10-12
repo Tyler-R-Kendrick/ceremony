@@ -17,6 +17,8 @@ import { createPulseMcpAdapter } from "./registries/pulsemcp/adapter.js";
 
 import { createMcpRemoteAdapter } from "./mcp/adapter.js";
 import { createVercelConnectAdapter } from "./providers/vercel/index.js";
+import type { ManagementTokenSource } from "./providers/vercel/credentials.js";
+import { createVercelAccountAdapter } from "./providers/vercel-account/index.js";
 import { createNangoAdapter } from "./providers/nango/index.js";
 import { createPipedreamConnectAdapter } from "./providers/pipedream/index.js";
 import { createComposioAdapter } from "./providers/composio/index.js";
@@ -74,6 +76,13 @@ export interface ConnectorHostPorts {
   workOsPrincipals?: WorkOsPrincipalPort;
   /** Custody of the user's Auth0 tokens and the My Account API token. */
   auth0Identity?: HostIdentityTokenPort;
+  /**
+   * Finds the calling person's signed-in Vercel account (see
+   * `accountManagementSource`), so the Vercel Connect management leg uses that
+   * session in place of a configured token. Optional: without it Connect uses
+   * the configured management token as before.
+   */
+  vercelManagementToken?: ManagementTokenSource;
 }
 
 export interface ConnectorInventoryOptions {
@@ -123,7 +132,14 @@ const standardAdapters: readonly ((
   // Runtimes and brokers.
   (options) =>
     createMcpRemoteAdapter(options.oauth ? { oauth: options.oauth } : {}),
-  () => createVercelConnectAdapter(),
+  (options) =>
+    createVercelConnectAdapter(
+      options.ports?.vercelManagementToken
+        ? { managementToken: options.ports.vercelManagementToken }
+        : {},
+    ),
+  (options) =>
+    createVercelAccountAdapter(options.oauth ? { oauth: options.oauth } : {}),
   () => createNangoAdapter(),
   () => createPipedreamConnectAdapter(),
   () => createComposioAdapter(),

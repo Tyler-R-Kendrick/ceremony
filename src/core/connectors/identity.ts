@@ -107,6 +107,7 @@ export const knownEcosystems = [
   "merge",
   "aws-agentcore",
   "aws-identity-center",
+  "vercel-account",
   "google-integration-connectors",
   "camel-kamelet",
   "dapr",

@@ -13,6 +13,18 @@
       "support": "provider-backed",
       "custody": ["host-owned"],
       "profiles": ["aws-identity-center-device-2026-10"]
+    },
+    {
+      "factory": "createVercelAccountAdapter()",
+      "module": "src/server/connectors/providers/vercel-account/index.ts",
+      "id": "vercel-account",
+      "ecosystem": "vercel-account",
+      "service": "vercel",
+      "adapterVersion": "1.0.0",
+      "runtime": "hosted-server",
+      "support": "provider-backed",
+      "custody": ["host-owned"],
+      "profiles": ["vercel-account-device-2026-10"]
     }
   ],
   "sourceProfiles": [
@@ -27,6 +39,17 @@
         "https://docs.aws.amazon.com/cli/latest/userguide/sso-configure-profile-token.html"
       ],
       "notInstalled": "No AWS SDK is a dependency. The adapter speaks the documented JSON wire format directly with fetch and zod."
+    },
+    {
+      "id": "vercel-account-device-2026-10",
+      "retrievedAt": "2026-10-12",
+      "sources": [
+        "https://vercel.com/.well-known/openid-configuration (retrieved 2026-10-12)",
+        "https://vercel.com/changelog/new-vercel-cli-login-flow and https://vercel.com/docs/cli/login",
+        "https://vercel.com/docs/sign-in-with-vercel (overview, tokens, manage-from-dashboard, scopes-and-permissions, authorization-server-api)",
+        "https://vercel.com/docs/rest-api/user/get-the-user, https://vercel.com/docs/rest-api/teams/list-all-teams and https://vercel.com/docs/rest-api/authentication"
+      ],
+      "notInstalled": "No Vercel SDK or CLI is a dependency. The device grant is the generic RFC 8628 family under an issuer policy; the two REST reads are plain fetch calls validated with zod."
     }
   ],
   "workItems": [
@@ -72,6 +95,52 @@
         "Authorization-code with PKCE for IAM Identity Center is not implemented: RegisterClient supports it, but a second browser leg adds nothing the device grant does not for a host that has no redirect origin of its own"
       ],
       "notes": "The person signs in on the AWS access portal's own page; the adapter registers a public client per sign-in, shows the verification URI and user code through the same device-code handoff every device grant here issues, polls CreateToken (pending, slow_down, access_denied, expired_token, a lost response) with each poll journaled before it is sent, then lists the accounts the binding permits and either binds the one account and role there is or asks the person. GetRoleCredentials issues the role's credentials, which go into custody with the sign-in tokens as one record so a local disconnect releases all of it. Role credentials are renewed with a new GetRoleCredentials call while the access token holds; only a lapsed access token costs a refresh grant, which is presented once."
+    },
+    {
+      "id": "ACCT-02",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/vercel-account/contracts.ts",
+        "src/server/connectors/providers/vercel-account/client.ts",
+        "src/server/connectors/providers/vercel-account/session.ts",
+        "src/server/connectors/providers/vercel-account/ceremony.ts",
+        "src/server/connectors/providers/vercel-account/evidence.ts",
+        "src/server/connectors/providers/vercel-account/invoke.ts",
+        "src/server/connectors/providers/vercel-account/management.ts",
+        "src/server/connectors/providers/vercel-account/index.ts",
+        "src/server/connectors/providers/vercel/credentials.ts",
+        "src/server/connectors/providers/vercel/management.ts",
+        "src/server/connectors/providers/vercel/index.ts"
+      ],
+      "tests": [
+        "tests/connectors/vercel-account/ceremony.test.ts",
+        "tests/connectors/vercel-account/renewal.test.ts",
+        "tests/connectors/vercel-account/custody.test.ts",
+        "tests/connectors/vercel-account/management.test.ts",
+        "tests/connectors/vercel-account/faults.test.ts",
+        "tests/connectors/vercel-account/wire.test.ts",
+        "tests/connectors/vercel-account/double.test.ts"
+      ],
+      "acceptanceIds": ["AC-ACCT-05", "AC-ACCT-06", "AC-ACCT-07", "AC-ACCT-08"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": [
+        "vercel-account-device-2026-10",
+        "vercel-oidc-discovery-2026-10",
+        "vercel-cli-login-changelog-2026-10",
+        "vercel-sign-in-docs-2026-10",
+        "vercel-rest-user-teams-2026-10",
+        "rfc8628"
+      ],
+      "limitations": [
+        "Live account evidence blocked: no authorized Vercel account, team or Sign in with Vercel application exists in this environment, so the sign-in has never run against Vercel",
+        "No page describes the device authorization endpoint, so its request and response, the verification page, that a dashboard-made application may use the device grant, that a `none` client is accepted there, the error codes for a replayed code or refresh token, and that teams page by `until` are assumptions listed in VERCEL_ACCOUNT_ASSUMPTIONS; the double serves them as written there",
+        "That Vercel Connect accepts a sign-in token as its management credential is unverified: the permissions page calls API permissions a private beta, and the Connect double models the acceptance",
+        "The recorded discovery document lists no `none` client authentication method, so RFC 7591 registration of a public client is refused by the generic client resolution; the host's client is pre-registered",
+        "The sign-in token is the person's own: Vercel reports granted scopes, not the permissions the person holds in the team, and the team binding narrows what this connection is for, not what the token can do",
+        "Authorization code with PKCE (Sign in with Vercel) is a documented non-goal here: it is the generic authorization-code family under another issuer policy, not a second mechanism",
+        "The shipping server does not compose the two connections: a host that wants the sign-in to feed the Connect management leg passes `vercelManagementToken` (see accountManagementSource) and owns the lookup of the person's connection"
+      ],
+      "notes": "The person signs in on Vercel's own page with the generic device-code handoff; the adapter then reads who signed in (GET /v2/user) and which teams they belong to (GET /v2/teams), binds the one permitted team there is or asks the person, and checks any typed team against Vercel's own list and the binding. The token and its single-use refresh token stay in one custody record under the connection; the Vercel Connect management leg can use that record in place of a pasted token through a lease that names the record, never copies the value, is refused for another person or another team, and is never given to the workload leg."
     }
   ],
   "supportEvidence": [
@@ -95,13 +164,45 @@
       "target": "local-double",
       "recordedAt": "2026-10-12",
       "notes": "A sweep of every surface a caller can read for the secrets the double issued, with a positive control that finds them in custody."
+    },
+    {
+      "adapterId": "vercel-account",
+      "check": "tests/connectors/vercel-account/ceremony.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-10-12",
+      "notes": "Connect, approve, choose a team, invoke and the refusals, through the real command service over the persistent state ports against the loopback Vercel account double (tests/connectors/doubles/vercel-account.ts), which checks each request independently."
+    },
+    {
+      "adapterId": "vercel-account",
+      "check": "tests/connectors/vercel-account/renewal.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-10-12",
+      "notes": "Refresh with a rotating single-use refresh token, session end, reconnect, a different person on reconnect, and local and upstream disconnect against the same loopback double."
+    },
+    {
+      "adapterId": "vercel-account",
+      "check": "tests/connectors/vercel-account/custody.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-10-12",
+      "notes": "A sweep of every surface a caller can read for the secrets and the email address the double issued, with a positive control that finds the secrets in custody."
+    },
+    {
+      "adapterId": "vercel-account",
+      "check": "tests/connectors/vercel-account/management.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-10-12",
+      "notes": "The Vercel Connect management leg administering with a signed-in account's token against the loopback Connect double, which asks the account double whether a token is live; Connect's acceptance of such a token is modelled, not observed."
     }
   ],
   "acceptanceOracles": {
     "AC-ACCT-01": "tests/connectors/aws-identity-center/ceremony.test.ts - the person approves on the provider's page, picks an account and role, and the connection is active with the account, role and expiry visible",
     "AC-ACCT-02": "tests/connectors/aws-identity-center/double.test.ts and ceremony.test.ts - a wrong deviceCode, a replayed deviceCode, polling faster than the interval, an expired code, a denied approval, another client's code and a role the person does not hold are each refused",
     "AC-ACCT-03": "tests/connectors/aws-identity-center/renewal.test.ts - role credentials renewed by a new GetRoleCredentials call, a refresh token presented once, a revoked role a reconnect",
-    "AC-ACCT-04": "tests/connectors/aws-identity-center/custody.test.ts - no issued secret on any surface a caller, a model, a log or the journal can read"
+    "AC-ACCT-04": "tests/connectors/aws-identity-center/custody.test.ts - no issued secret on any surface a caller, a model, a log or the journal can read",
+    "AC-ACCT-05": "tests/connectors/vercel-account/ceremony.test.ts - the person approves on Vercel's page, picks a team, and the connection is active with the team and the token's expiry visible and no token in sight",
+    "AC-ACCT-06": "tests/connectors/vercel-account/double.test.ts, ceremony.test.ts and renewal.test.ts - a wrong device code, a replayed device code, polling faster than the interval, an expired code, a denied approval, another client's device code or refresh token and a replayed refresh token are each refused",
+    "AC-ACCT-07": "tests/connectors/vercel-account/custody.test.ts - no issued secret and no email address on any surface a caller, a model, a log or the journal can read",
+    "AC-ACCT-08": "tests/connectors/vercel-account/management.test.ts - the management leg uses the signed-in token for the team the person chose, never for another team, another person or the workload leg"
   },
   "verifiedFields": {
     "verified": [
@@ -113,7 +214,12 @@
       "RoleCredentials members accessKeyId, secretAccessKey, sessionToken, expiration; AccountInfo accountId, accountName, emailAddress; RoleInfo accountId, roleName",
       "Logout leaves IAM role sessions created from the permission set running for their configured duration",
       "Role session duration is one to twelve hours with a one hour default",
-      "oidc.<region>.amazonaws.com is the OIDC host"
+      "oidc.<region>.amazonaws.com is the OIDC host",
+      "Discovery at https://vercel.com/.well-known/openid-configuration: issuer https://vercel.com; device_authorization_endpoint, token_endpoint, revocation_endpoint, registration_endpoint on https://api.vercel.com/login/oauth/; grant_types_supported includes urn:ietf:params:oauth:grant-type:device_code and refresh_token; scopes openid, email, profile, offline_access",
+      "vercel login uses the OAuth 2.0 Device Flow (changelog, September 12, 2025)",
+      "Access token vca_ valid one hour; refresh token vcr_ valid thirty days, single use, rotated on exchange, issued with offline_access",
+      "Client authentication `none` is offered per application for CLIs and public clients",
+      "GET /v2/user answers {user: {id, username, name, email, defaultTeamId, ...}}; GET /v2/teams takes limit, since, until and answers {teams: [{id, slug, name, ...}], pagination: {count, next, prev}}"
     ],
     "unverified": [
       "The Portal API host name",
@@ -123,20 +229,36 @@
       "Which error answers a wrong, foreign or already-used deviceCode (read as invalid_grant)",
       "That an unassigned role or account is answered 404",
       "That a refresh token is issued only to a client registered with the refresh_token grant and a scope, and whether it rotates",
-      "That a portal call with another client's token or a lapsed token is answered 401"
+      "That a portal call with another client's token or a lapsed token is answered 401",
+      "The device authorization endpoint's request and response bodies and the verification page",
+      "That an application made on the Sign in with Vercel page may use the device grant, and that a `none` client is accepted at the device and token endpoints although the discovery document lists no such method",
+      "The error codes for a replayed device code and a replayed refresh token (read as invalid_grant) and the slow_down step (five seconds, RFC 8628)",
+      "That GET /v2/teams pages by `until` set to pagination.next",
+      "That Vercel Connect accepts a device-grant access token on its management endpoints"
     ]
   },
-  "evidence": {
-    "command": "node --no-experimental-webstorage --import tsx --test tests/connectors/aws-identity-center/*.test.ts",
-    "result": "see the generated evidence summary",
-    "notLive": "Every result is protocol-fixture evidence over loopback. No AWS account, IAM Identity Center instance, client registration or credential was used, and no request left the machine except the documentation reads listed in externalEffectsPerformed.",
-    "independence": "tests/connectors/doubles/aws-identity-center.ts imports nothing from src/server/connectors/providers/aws-identity-center. It checks the method, path, content type, body members and token header of every request and records a wire deviation in `violations`; the ceremony tests assert it empty."
-  },
+  "evidence": [
+    {
+      "command": "node --no-experimental-webstorage --import tsx --test tests/connectors/aws-identity-center/*.test.ts",
+      "result": "see the generated evidence summary",
+      "notLive": "Every result is protocol-fixture evidence over loopback. No AWS account, IAM Identity Center instance, client registration or credential was used, and no request left the machine except the documentation reads listed in externalEffectsPerformed.",
+      "independence": "tests/connectors/doubles/aws-identity-center.ts imports nothing from src/server/connectors/providers/aws-identity-center. It checks the method, path, content type, body members and token header of every request and records a wire deviation in `violations`; the ceremony tests assert it empty."
+    },
+    {
+      "command": "node --no-experimental-webstorage --import tsx --test tests/connectors/vercel-account/*.test.ts",
+      "result": "see the generated evidence summary",
+      "notLive": "Every result is protocol-fixture evidence over loopback. No Vercel account, team, application, client registration or credential was used, and no request left the machine except the documentation reads listed in externalEffectsPerformed.",
+      "independence": "tests/connectors/doubles/vercel-account.ts imports nothing from src/server/connectors/providers. It serves the recorded discovery document, checks the encoding and members of every OAuth request and records a wire deviation in `violations`; the ceremony tests assert it empty."
+    }
+  ],
   "unmet": [
     "Live-authorized evidence for every dimension (no authorized AWS account or IAM Identity Center instance is available in this environment)",
-    "The abandoned-attempt sweep: a registration record whose person never completes the account and role choice stays in custody until its access token expires"
+    "The abandoned-attempt sweep: a registration record whose person never completes the account and role choice stays in custody until its access token expires",
+    "Live-authorized evidence for every Vercel account dimension (no authorized Vercel account, team or application is available in this environment)",
+    "A shipping-server composition of the sign-in and the Connect management leg: only the host port and the lease source exist"
   ],
   "externalEffectsPerformed": [
-    "Read-only documentation fetches from docs.aws.amazon.com (OIDC and Portal API references, the General Reference endpoint table, and the IAM Identity Center and AWS CLI user guides)"
+    "Read-only documentation fetches from docs.aws.amazon.com (OIDC and Portal API references, the General Reference endpoint table, and the IAM Identity Center and AWS CLI user guides)",
+    "Read-only fetches from vercel.com and api.vercel.com: the OpenID Connect discovery document and the Sign in with Vercel, vercel login, changelog and REST reference pages"
   ]
 }

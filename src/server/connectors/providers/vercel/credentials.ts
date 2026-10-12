@@ -27,6 +27,8 @@ export type RoleCredential<R extends VercelCredentialRole> = {
   readonly role: R;
   readonly scope: CredentialScope;
   readonly ref: string;
+  /** Present when the token is a signed-in person's, held under their own connection. */
+  readonly lease?: ManagementLease;
 };
 export type ManagementCredential = RoleCredential<"management">;
 export type WorkloadCredential = RoleCredential<"workload">;
@@ -35,6 +37,34 @@ export type WorkloadCredential = RoleCredential<"workload">;
 export type WorkloadTokenSource = (
   ctx: AdapterCallContext,
 ) => Promise<string | undefined>;
+
+/**
+ * A management token that stays where it was issued. When a person signed in
+ * to their Vercel account (the `vercel-account` adapter), the token is in
+ * custody under that connection; the lease says where, which team the
+ * sign-in was for, and how to make the token good before a request. Nothing
+ * is copied: the value is read inside a custody callback, as for any other
+ * management credential, and a lease can only ever serve the management role.
+ */
+export type ManagementLease = {
+  /** The team the sign-in was bound to; a lease for another team is refused. */
+  readonly teamId: string;
+  readonly scope: CredentialScope;
+  readonly ref: string;
+  /** The material member that holds the bearer. */
+  readonly member: string;
+  /** Renews the token when it is about to lapse; run before every request. */
+  readonly prepare: () => Promise<void>;
+};
+
+/**
+ * A host hook that finds the calling person's signed-in Vercel account, if
+ * they have one. Absent or `undefined`, the configured management token is
+ * used instead.
+ */
+export type ManagementTokenSource = (
+  ctx: AdapterCallContext,
+) => Promise<ManagementLease | undefined>;
 
 // Bearer tokens are printable ASCII without whitespace; anything else is a
 // configuration mistake, not a credential.
@@ -84,7 +114,10 @@ export async function resolveCredential<R extends VercelCredentialRole>(
   ctx: AdapterCallContext,
   role: R,
   settings: VercelSettings,
-  options: { workloadToken?: WorkloadTokenSource } = {},
+  options: {
+    workloadToken?: WorkloadTokenSource;
+    managementToken?: ManagementTokenSource;
+  } = {},
 ): Promise<RoleCredential<R>> {
   const perContext =
     resolved.get(ctx) ??
@@ -93,6 +126,24 @@ export async function resolveCredential<R extends VercelCredentialRole>(
   const cached = perContext.get(role);
   if (cached) return cached as RoleCredential<R>;
   const teamId = await configuredTeamId(ctx);
+  const lease =
+    role === "management" ? await options.managementToken?.(ctx) : undefined;
+  if (lease) {
+    // A sign-in for one team never administers another.
+    if (lease.teamId !== teamId)
+      throw new ConnectorError("denied", {
+        detail: "vercel.management.team-mismatch",
+      });
+    const credential = Object.freeze({
+      [roleBrand]: role,
+      role,
+      scope: lease.scope,
+      ref: lease.ref,
+      lease,
+    }) as RoleCredential<R>;
+    perContext.set(role, credential);
+    return credential;
+  }
   const value =
     role === "workload"
       ? ((await options.workloadToken?.(ctx)) ??
@@ -153,11 +204,14 @@ export async function withBearer<T, R extends VercelCredentialRole>(
     throw new ConnectorError("denied", {
       detail: "vercel.credential.role-mismatch",
     });
+  // A leased token is renewed before it is read, outside the custody callback.
+  await credential.lease?.prepare();
+  const member = credential.lease?.member ?? "token";
   return ctx.environment.credentials.use(
     credential.scope,
     credential.ref,
     async (material) => {
-      const token = material["token"];
+      const token = material[member];
       if (!token)
         throw new ConnectorError("configuration-required", {
           detail: "vercel.credential.empty",
