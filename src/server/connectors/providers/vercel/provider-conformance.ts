@@ -1,7 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
 import { decodeJwt } from "jose";
 import { z } from "zod";
+import { MAX_RESPONSE_BYTES } from "../../auth/response-bound.js";
 import { destinationUrl, type ApprovedDestination } from "../../binding.js";
+import { readBoundedBody } from "../../bounded-body.js";
+import { ConnectorError } from "../../errors.js";
 import { VERCEL_CONNECT_PROVIDER_REDIRECT_URI } from "./contracts.js";
 
 /*
@@ -205,6 +208,30 @@ function issuerIdentifier(value: string): string | undefined {
   return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
 }
 
+const TOO_LARGE = "vercel.conformance.response-too-large";
+
+/**
+ * A JSON answer from the server under test, read under the OAuth ceiling. This
+ * harness is pointed at whatever authorization server an operator names, so it
+ * takes no larger bound than any other OAuth answer. An answer that is too
+ * large or is not JSON is no answer (the finding that needed it is not met);
+ * an aborted read is still an abort.
+ */
+async function readJson(response: Response): Promise<unknown> {
+  try {
+    return JSON.parse(
+      await readBoundedBody(response, MAX_RESPONSE_BYTES, TOO_LARGE),
+    );
+  } catch (error) {
+    if (
+      error instanceof SyntaxError ||
+      (error instanceof ConnectorError && error.detail === TOO_LARGE)
+    )
+      return undefined;
+    throw error;
+  }
+}
+
 async function fetchMetadata(
   fetchImpl: typeof fetch,
   url: string,
@@ -219,7 +246,7 @@ async function fetchMetadata(
     if (!response.ok) return undefined;
     if (!/json/i.test(response.headers.get("content-type") ?? ""))
       return undefined;
-    const parsed = metadataSchema.safeParse(await response.json());
+    const parsed = metadataSchema.safeParse(await readJson(response));
     return parsed.success ? parsed.data : undefined;
   } catch {
     return undefined;
@@ -419,7 +446,7 @@ export async function assessConnectProviderConformance(input: {
       const body = z
         .object({ authorization_servers: z.array(z.string()).min(1) })
         .loose()
-        .safeParse(await response.json());
+        .safeParse(await readJson(response));
       return body.success;
     } catch {
       return false;
@@ -520,7 +547,7 @@ export async function assessConnectProviderConformance(input: {
       true,
     );
     const body = response.ok
-      ? registrationSchema.safeParse(await response.json())
+      ? registrationSchema.safeParse(await readJson(response))
       : undefined;
     if (!body?.success) {
       finding(
@@ -650,7 +677,7 @@ export async function assessConnectProviderConformance(input: {
     ...(input.signal ? { signal: input.signal } : {}),
   });
   const tokens = tokenResponse.ok
-    ? tokenSchema.safeParse(await tokenResponse.json())
+    ? tokenSchema.safeParse(await readJson(tokenResponse))
     : undefined;
   if (!tokens?.success)
     return fail(`code exchange failed (${tokenResponse.status})`);
@@ -676,7 +703,7 @@ export async function assessConnectProviderConformance(input: {
       refresh.set("client_secret", clientSecret);
     const refreshed = await post(token.href, refresh, false);
     const body = refreshed.ok
-      ? tokenSchema.safeParse(await refreshed.json())
+      ? tokenSchema.safeParse(await readJson(refreshed))
       : undefined;
     exercise.refreshGrantAccepted = body?.success === true;
     if (body?.success)
