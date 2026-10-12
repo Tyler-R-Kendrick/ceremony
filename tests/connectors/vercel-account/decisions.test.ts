@@ -752,7 +752,7 @@ test("a listing with no pagination member is one page, and the destination may n
 
 // ------------------------------------------------------------- the lease
 
-test("a lookup that finds nothing usable gives no lease, one that finds another's connection is refused, and a lease is made once per call", async (t) => {
+test("a lookup that finds nothing gives no lease, a connection that is another's or cannot serve is refused, and a lease is made once per call", async (t) => {
   const setup = await accountSetup(t);
   const { connectionRef } = await connectAndChoose(setup);
   const accountCtx = await setup.adapterContext(connectionRef);
@@ -783,23 +783,39 @@ test("a lookup that finds nothing usable gives no lease, one that finds another'
   await notOwner({ ownerKind: "organization" });
   await notOwner({ ownerId: "someone-else" });
   await notOwner({ tenantId: "elsewhere" });
-  // A connection that is not active, or holds no credential, is not a credential.
-  assert.equal(
-    await call(async () => ({
-      ...accountCtx,
-      connection: { ...accountCtx.connection!, lifecycle: "expired" },
-    })),
-    undefined,
+  // A connection that is not active, or holds no credential, cannot serve, and
+  // the person is told so: it is a refusal, never "no lease" (which would let
+  // the configured team token serve in their place).
+  const cannotServe = (
+    change: Record<string, unknown>,
+    code: string,
+    detail: string,
+  ) =>
+    assert.rejects(
+      call(
+        async () =>
+          ({
+            ...accountCtx,
+            connection: { ...accountCtx.connection!, ...change },
+          }) as unknown as AdapterCallContext,
+      ),
+      (error: unknown) =>
+        error instanceof ConnectorError &&
+        error.code === code &&
+        error.detail === `vercel-account.management.${detail}`,
+      JSON.stringify(change),
+    );
+  await cannotServe({ lifecycle: "expired" }, "expired", "session-expired");
+  await cannotServe(
+    { lifecycle: "reconnect-required" },
+    "human-required",
+    "sign-in-required",
   );
-  assert.equal(
-    await call(
-      async () =>
-        ({
-          ...accountCtx,
-          connection: { ...accountCtx.connection!, credentialRef: undefined },
-        }) as unknown as AdapterCallContext,
-    ),
-    undefined,
+  await cannotServe({ lifecycle: "degraded" }, "conflict", "sign-in-unsettled");
+  await cannotServe(
+    { credentialRef: undefined },
+    "human-required",
+    "sign-in-required",
   );
 
   // The same context asked twice is answered with the same credential, not a second lease.

@@ -231,7 +231,7 @@ export function createVercelConnectAdapter(
           "Management operations use the documented per-operation versions; provider calls use the custody token.",
           ...(options.managementToken
             ? [
-                "A person who signed in to a Vercel account (the vercel-account adapter) administers with that session for the team it was bound to; without one the configured management token is used. Whether Connect accepts that session is not verified.",
+                "A person who signed in to a Vercel account (the vercel-account adapter) administers with that session for the team it was bound to, and is refused, not served by the configured token, while it cannot serve. A person with no sign-in uses the configured management token, or is refused when none is configured. Whether Connect accepts that session is not verified.",
               ]
             : []),
         ]),

@@ -134,6 +134,15 @@ export async function resolveCredential<R extends VercelCredentialRole>(
       throw new ConnectorError("denied", {
         detail: "vercel.management.team-mismatch",
       });
+    // Nor is a lease anyone's but the caller's, whatever source produced it.
+    if (
+      lease.scope.tenantId !== ctx.actor.tenantId ||
+      lease.scope.ownerKind !== "user" ||
+      lease.scope.ownerId !== ctx.actor.subjectId
+    )
+      throw new ConnectorError("denied", {
+        detail: "vercel.management.lease-not-owner",
+      });
     const credential = Object.freeze({
       [roleBrand]: role,
       role,

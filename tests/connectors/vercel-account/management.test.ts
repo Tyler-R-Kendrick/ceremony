@@ -150,7 +150,7 @@ test("a person who removes the app stops the management leg", async (t) => {
   );
 });
 
-test("a sign-in that was disconnected is not a credential: the configured token serves, or nothing does", async (t) => {
+test("a sign-in the person disconnected stops the management leg: the configured token does not take over", async (t) => {
   const rigged = await rig(t, { configured: true });
   const record = await rigged.setup.record(rigged.connectionRef);
   await rigged.setup.service.disconnect(
@@ -165,14 +165,18 @@ test("a sign-in that was disconnected is not a credential: the configured token 
   const accountCtx = await rigged.setup.adapterContext(rigged.connectionRef);
   const source = accountManagementSource({ account: async () => accountCtx });
   const adapter = createVercelConnectAdapter({ managementToken: source });
-  const result = await adapter.invoke!(rigged.connectCtx(), {
-    operationRef: vercelOperationRef("connect.connectors.list"),
-    input: {},
-    commandId: "after-disconnect",
-  });
-  assert.equal(result.state, "complete");
-  const [call] = rigged.connect.routed("connect.connectors.list");
-  assert.equal(bearerOf(call!), CONFIGURED_TOKEN);
+  await assert.rejects(
+    adapter.invoke!(rigged.connectCtx(), {
+      operationRef: vercelOperationRef("connect.connectors.list"),
+      input: {},
+      commandId: "after-disconnect",
+    }),
+    (error: unknown) =>
+      error instanceof ConnectorError &&
+      error.code === "human-required" &&
+      error.detail === "vercel-account.management.sign-in-required",
+  );
+  assert.equal(rigged.connect.calls.length, 0);
 });
 
 test("the workload leg never takes the signed-in token, and the signed-in token is never spent as a workload credential", async (t) => {
@@ -220,6 +224,16 @@ test("the capability rows say a signed-in account feeds management, and that Con
   const invoke = rows.find((row) => row.dimension === "invoke")!;
   assert.equal(invoke.configuration, "ready");
   assert.match(invoke.limitations.join(" "), /not verified/);
+  assert.match(
+    invoke.limitations.join(" "),
+    /refused, not served by the configured token/,
+    "the row says a sign-in that cannot serve is not replaced by the team token",
+  );
+  assert.match(
+    invoke.limitations.join(" "),
+    /refused when none is configured/,
+    "ready is per person: with no configured token only a signed-in person can administer",
+  );
   // Without the hook the same configuration is not enough.
   const plain = createVercelConnectAdapter().capabilities(
     new Set(["VERCEL_TEAM_ID"]),
