@@ -147,6 +147,48 @@ test("a portal that is down after the person approved leaves no tokens in custod
     );
 });
 
+test("a handoff that cannot be settled after the person approved leaves no tokens in custody", async (t) => {
+  const setup = await awsSetup(t);
+  const connected = await setup.service.connect(setup.person, {
+    bindingRef: setup.binding.bindingRef,
+    intent: {},
+  });
+  setup.fixture.approve(userCodeOf(connected));
+  setup.advance(6_000);
+  // A disconnect or reconnect cancelled the handoff while CreateToken was in flight.
+  const real = setup.ports.handoffs.complete.bind(setup.ports.handoffs);
+  setup.ports.handoffs.complete = async () => {
+    throw new ConnectorError("conflict", { detail: "handoff.cancelled" });
+  };
+  t.after(() => {
+    setup.ports.handoffs.complete = real;
+  });
+  await assert.rejects(
+    setup.service.poll(setup.person, connectionRefOf(connected)),
+    (error: unknown) =>
+      error instanceof ConnectorError &&
+      error.code === "conflict" &&
+      error.detail === "oauth.handoff.stale-generation",
+  );
+  assert.equal(setup.fixture.issued.accessTokens.length, 1);
+  assert.equal(setup.stored.length > 0, true);
+  const connection = await setup.record(connectionRefOf(connected));
+  const scope = {
+    tenantId: connection.tenantId,
+    ownerKind: connection.ownerKind,
+    ownerId: connection.ownerId,
+    connectionRef: connection.connectionRef,
+    bindingRef: connection.bindingRef,
+    custody: connection.custody,
+  };
+  for (const ref of setup.stored)
+    assert.equal(
+      await setup.ports.credentials.describe(scope, ref),
+      undefined,
+      "the record, with its refresh token and client secret, does not outlive the attempt",
+    );
+});
+
 test("nothing the binding permits is held by the person: the attempt ends and nothing is kept", async (t) => {
   const setup = await awsSetup(t, { accounts: ["999900001111"] });
   const { connectionRef, polled } = await connectAndApprove(setup);

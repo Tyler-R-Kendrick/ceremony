@@ -379,7 +379,15 @@ export async function pollSignIn(
     }
     return indeterminate(ctx, poll, settle);
   }
-  await settleHandoff(ctx, "completed");
+  // The tokens are in custody and nothing points at them yet. If the handoff
+  // can no longer be settled (a disconnect or reconnect cancelled it while
+  // CreateToken was in flight), they must not wait there for their expiry.
+  try {
+    await settleHandoff(ctx, "completed");
+  } catch (error) {
+    await discardRegistration(ctx, registrationRef);
+    throw error;
+  }
   return continueAfterSignIn(ctx, registrationRef);
 }
 
