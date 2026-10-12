@@ -118,6 +118,31 @@ export interface HandoffPort {
     expectedGeneration: number,
     state: Exclude<ConnectorHandoffSummary["state"], "issued" | "waiting">,
   ): Promise<HandoffRecord>;
+  /**
+   * Claims a pending handoff for one submission, by compare-and-set on the
+   * handoff itself, before anything is run for it. `submission` is a digest of
+   * what was submitted (a SHA-256 hex string the caller computes; the values
+   * never reach the port). `claimed` means this caller runs the work and must
+   * `release` or settle; `shared` means an identical submission already holds
+   * the claim, so this one is answered from that run. Another submission, a
+   * stale generation or a handoff that is no longer pending is refused
+   * (`handoff.already-claimed`, `handoff.stale-generation`,
+   * `handoff.already-completed`, `handoff.expired`). A claim older than
+   * `leaseMs` is no one's: a worker that died with it does not hold the
+   * handoff forever.
+   */
+  claim(
+    handoffRef: HandoffRef,
+    expectedGeneration: number,
+    submission: string,
+    leaseMs: number,
+  ): Promise<"claimed" | "shared">;
+  /**
+   * Gives a claim back when its attempt ended without settling the handoff, so
+   * the person can submit again. Only the holder's own claim is removed, and a
+   * handoff that is gone, settled or claimed by another is left alone.
+   */
+  release(handoffRef: HandoffRef, submission: string): Promise<void>;
   cancelAll(connectionRef: ConnectionRef, reason: string): Promise<number>;
 }
 

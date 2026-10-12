@@ -11,6 +11,7 @@ import type {
   HandoffPort,
   HandoffRecord,
 } from "../ports.js";
+import { createHandoffClaims, withoutClaim } from "./handoff-claims.js";
 import {
   SCHEMA_VERSION,
   checkActor,
@@ -73,11 +74,13 @@ const recordOf = (value: StoredHandoff): HandoffRecord => {
     schemaVersion: _schema,
     completedAt: _completed,
     reason: _reason,
+    claim: _claim,
     ...rest
   } = value;
   void _schema;
   void _completed;
   void _reason;
+  void _claim;
   return compact({ ...rest, private: { ...rest.private } });
 };
 
@@ -115,7 +118,7 @@ export async function settlePendingHandoffs(
     await tx.put(
       handoffKey(tenantId, handoffRef),
       {
-        ...record.value,
+        ...withoutClaim(record.value),
         state,
         reason,
         completedAt: at,
@@ -150,7 +153,7 @@ async function settleExpiry(
   if (!pending(record.value.state) || record.value.expiresAt > at)
     return record.value;
   const expired: StoredHandoff = {
-    ...record.value,
+    ...withoutClaim(record.value),
     state: "expired",
     reason: "handoff.expired",
     completedAt: at,
@@ -170,6 +173,7 @@ export function createHandoffPort(
 ): HandoffPort {
   const time = timeSource(options.now);
   return {
+    ...createHandoffClaims(store, time),
     async issue(input: HandoffIssue) {
       const actor = checkActor(input.actor);
       const { actor: _actor, ...rest } = input;
@@ -356,7 +360,7 @@ export function createHandoffPort(
           await tx.put(
             key,
             {
-              ...current,
+              ...withoutClaim(current),
               state: "superseded",
               reason: "handoff.stale-generation",
               completedAt: at,
@@ -369,7 +373,7 @@ export function createHandoffPort(
           });
         }
         const completed: StoredHandoff = {
-          ...current,
+          ...withoutClaim(current),
           state: target.data,
           completedAt: at,
         };

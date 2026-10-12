@@ -92,6 +92,15 @@ export const handoffIssueInputSchema = z.strictObject({
   correlationKey: z.string().min(1).max(1024).regex(noControl).optional(),
   private: stringRecordSchema(32, 65536),
 });
+/**
+ * Which submission is working a pending handoff, and since when. The
+ * submission is a digest the caller computed; the values behind it never
+ * reach the store. It exists only while the handoff is pending.
+ */
+export const handoffClaimSchema = z.strictObject({
+  submission: sha256HexSchema,
+  claimedAt: time,
+});
 export const storedHandoffSchema = handoffIssueInputSchema.safeExtend({
   schemaVersion,
   handoffRef: connectorReferenceSchema,
@@ -102,6 +111,7 @@ export const storedHandoffSchema = handoffIssueInputSchema.safeExtend({
   issuedAt: time,
   completedAt: time.optional(),
   reason: stateCodeSchema.optional(),
+  claim: handoffClaimSchema.optional(),
 });
 export type StoredHandoff = z.infer<typeof storedHandoffSchema>;
 export const correlationIndexSchema = z.strictObject({

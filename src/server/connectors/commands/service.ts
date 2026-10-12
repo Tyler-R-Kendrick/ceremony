@@ -103,6 +103,7 @@ import {
   type OperationApproval,
   type ReconnectInput,
 } from "./inputs.js";
+import { claimHandoff, submissionOf } from "./handoff-claim.js";
 import type { ConnectorPolicy, PolicySubject } from "./policy.js";
 
 /*
@@ -2053,14 +2054,8 @@ export class ConnectorCommandService {
   ): Promise<ConnectionView> {
     if (handoff.state !== "issued" && handoff.state !== "waiting")
       throw new ConnectorError("conflict", { detail: "handoff.consumed" });
-    const entry = await this.connection(actor, handoff.connectionRef);
+    const entry = await this.handoffConnection(actor, handoff);
     const record = entry.record;
-    if (closed(record))
-      throw new ConnectorError("denied", { detail: "connection.disconnected" });
-    if (handoff.generation !== record.generation)
-      throw new ConnectorError("expired", {
-        detail: "handoff.stale-generation",
-      });
     if (handoff.expiresAt <= this.now()) {
       await port(() =>
         this.ports.handoffs.complete(
@@ -2100,6 +2095,69 @@ export class ConnectorCommandService {
           : "callback",
     );
     await this.requireSupport(actor, adapter, binding);
+    // A person's values are claimed before any adapter runs (handoff-claim.ts):
+    // another submission is refused here, and an identical one waits for this
+    // run's answer, so the connection never names values it was not built from.
+    const submission = submissionOf(handoff, input);
+    if (
+      submission !== undefined &&
+      (await port(() =>
+        claimHandoff(
+          this.ports.handoffs,
+          handoff,
+          submission,
+          this.callTimeoutMs * 2,
+        ),
+      )) === "settled"
+    )
+      return this.status(actor, record.connectionRef);
+    try {
+      return await this.runCompletion(
+        actor,
+        // A claim can be won after waiting on another submission's run, which
+        // leaves its own outcome on the connection: work from what is there now.
+        submission === undefined
+          ? entry
+          : await this.handoffConnection(actor, handoff),
+        binding,
+        adapter,
+        handoff,
+        input,
+      );
+    } finally {
+      // A settled handoff took the claim with it; an attempt that failed or
+      // left the handoff pending gives it back for the next try.
+      if (submission !== undefined)
+        await this.ports.handoffs
+          .release(handoff.handoffRef, submission)
+          .catch(() => {});
+    }
+  }
+
+  /** The connection a handoff was issued for, while it is still open and still that generation. */
+  private async handoffConnection(
+    actor: ActorContext,
+    handoff: HandoffRecord,
+  ): Promise<ConnectionEntry> {
+    const entry = await this.connection(actor, handoff.connectionRef);
+    if (closed(entry.record))
+      throw new ConnectorError("denied", { detail: "connection.disconnected" });
+    if (handoff.generation !== entry.record.generation)
+      throw new ConnectorError("expired", {
+        detail: "handoff.stale-generation",
+      });
+    return entry;
+  }
+
+  private async runCompletion(
+    actor: ActorContext,
+    entry: ConnectionEntry,
+    binding: RuntimeBinding,
+    adapter: ConnectorAdapter,
+    handoff: HandoffRecord,
+    input: Parameters<NonNullable<ConnectorAdapter["complete"]>>[1],
+  ): Promise<ConnectionView> {
+    const record = entry.record;
     // One completion per handoff and generation, even under concurrency: the
     // journal entry is written before the adapter touches the provider.
     const journal = await this.ports.effects.begin({
