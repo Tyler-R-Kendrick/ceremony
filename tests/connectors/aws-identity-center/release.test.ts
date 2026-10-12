@@ -3,6 +3,7 @@ import test from "node:test";
 import { inspect } from "node:util";
 import {
   awsSetup,
+  connectAndApprove,
   connectAndChoose,
   connectionRefOf,
   userCodeOf,
@@ -155,6 +156,52 @@ test("a sign-in that was never approved holds no session to end", async (t) => {
   });
   assert.equal(setup.fixture.counts.logout, 0);
 });
+
+/** Every custody record the ceremony stored, and whether any is still there. */
+async function leftInCustody(setup: AwsSetup, connectionRef: string) {
+  const record = await setup.record(connectionRef);
+  const scope = {
+    tenantId: record.tenantId,
+    ownerKind: record.ownerKind,
+    ownerId: record.ownerId,
+    connectionRef: record.connectionRef,
+    bindingRef: record.bindingRef,
+    custody: record.custody,
+  };
+  const left: string[] = [];
+  for (const ref of setup.stored)
+    if (await setup.ports.credentials.describe(scope, ref)) left.push(ref);
+  return left;
+}
+
+for (const scope of ["local", "upstream"] as const)
+  test(`${scope === "local" ? "a local" : "an upstream"} disconnect while the role choice is open ends the sign-in held for it, and discards it`, async (t) => {
+    const setup = await awsSetup(t);
+    const { connectionRef, polled } = await connectAndApprove(setup);
+    // The sign-in is held under the open choice, not yet under the connection.
+    assert.equal((await setup.record(connectionRef)).credentialRef, undefined);
+    assert.equal(setup.stored.length, 1);
+    assert.equal((await leftInCustody(setup, connectionRef)).length, 1);
+
+    const result = await setup.service.disconnect(setup.person, connectionRef, {
+      expectedRevision: (polled as View).revision,
+      scope,
+    });
+
+    assert.equal(result.result.local, "applied");
+    if (scope === "local")
+      assert.deepEqual(result.result.release, {
+        revoked: true,
+        reason: `${CODE}.session-ended`,
+      });
+    else assert.equal(result.result.upstream, "applied");
+    assert.equal(setup.fixture.counts.logout, 1);
+    assert.deepEqual(
+      await leftInCustody(setup, connectionRef),
+      [],
+      "the tokens, the client secret and the refresh token are gone",
+    );
+  });
 
 test("no token, role credential or provider word is in anything the disconnect leaves behind", async (t) => {
   const printed: string[] = [];

@@ -20,9 +20,10 @@ import {
   roleTargetId,
   type AwsPortalOperation,
 } from "./contracts.js";
-import { rotateSession, withSession } from "./material.js";
+import { rotateSession, sessionScope, withSession } from "./material.js";
 import { listAccountRoles, listAccounts, logout } from "./portal.js";
 import { ensureCurrent } from "./refresh.js";
+import { SELECT_ROLE_INTENT } from "./selection.js";
 
 /*
  * What a caller may do with a connection besides use it: read the accounts and
@@ -152,6 +153,43 @@ async function readRoles(
 }
 
 /**
+ * The custody record this connection's sign-in is held in. Once a role is
+ * bound it is the connection's own `credentialRef`; until then (the person has
+ * approved and has not yet chosen) it is the one the open choice points at, and
+ * the connection has none, so the command layer would never release it.
+ * `orphan` says the record is not the connection's, which makes releasing it
+ * this adapter's job. The open choice is read as its owner, so an actor that is
+ * not the person who signed in finds nothing here.
+ */
+async function heldSession(
+  ctx: AdapterCallContext,
+): Promise<{ ref: string; orphan: boolean } | undefined> {
+  const own = ctx.connection?.credentialRef;
+  if (own) return { ref: own, orphan: false };
+  const choice = ctx.connection?.handoff?.handoffRef;
+  if (!choice) return undefined;
+  const handoff = await ctx.environment.handoffs
+    .present(ctx.actor, choice)
+    .catch(() => undefined);
+  const ref =
+    handoff?.intent === SELECT_ROLE_INTENT
+      ? handoff.private["sessionRef"]
+      : undefined;
+  return ref ? { ref, orphan: true } : undefined;
+}
+
+/** Drops a sign-in held under an open choice; best effort, as everything about a disconnect is. */
+async function discardOrphan(
+  ctx: AdapterCallContext,
+  held: { ref: string; orphan: boolean },
+): Promise<void> {
+  if (held.orphan)
+    await ctx.environment.credentials
+      .revoke(sessionScope(ctx), held.ref)
+      .catch(() => {});
+}
+
+/**
  * Ends the sign-in session at the portal (`Logout`). Role sessions already
  * issued keep running until their own expiry, which the reference says
  * outright, so this reports what it did and never "revoked the role".
@@ -159,22 +197,24 @@ async function readRoles(
 export async function endSignIn(
   ctx: AdapterCallContext,
 ): Promise<DisconnectResult> {
-  const ref = ctx.connection?.credentialRef;
+  const held = await heldSession(ctx);
   const result: DisconnectResult = {
     local: "not-attempted",
     broker: "not-attempted",
     upstream: "not-attempted",
   };
-  if (!ref) return result;
+  if (!held) return result;
   let ended = false;
   try {
-    await rotateSession(ctx, ref, async (current) => {
+    await rotateSession(ctx, held.ref, async (current) => {
       if (current.accessToken) ended = await logout(ctx, current.accessToken);
       return current;
     });
   } catch {
+    await discardOrphan(ctx, held);
     return { ...result, upstream: "failed" };
   }
+  await discardOrphan(ctx, held);
   return { ...result, upstream: ended ? "applied" : "failed" };
 }
 
@@ -191,15 +231,15 @@ export async function endSignIn(
 export async function releaseSignIn(
   ctx: AdapterCallContext,
 ): Promise<SessionRelease> {
-  const ref = ctx.connection?.credentialRef;
-  if (!ref)
+  const held = await heldSession(ctx);
+  if (!held)
     return { revoked: "unavailable", reason: code("release.no-session") };
   let release: SessionRelease = {
     revoked: "unavailable",
     reason: code("release.no-token"),
   };
   try {
-    await rotateSession(ctx, ref, async (current) => {
+    await rotateSession(ctx, held.ref, async (current) => {
       if (!current.accessToken) return current;
       try {
         release = (await logout(ctx, current.accessToken))
@@ -215,5 +255,6 @@ export async function releaseSignIn(
     if (release.revoked === "unavailable")
       return { revoked: false, reason: code("release.credential-gone") };
   }
+  await discardOrphan(ctx, held);
   return release;
 }
