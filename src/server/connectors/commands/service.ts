@@ -96,7 +96,7 @@ import {
   type OperationApproval,
   type ReconnectInput,
 } from "./inputs.js";
-import { abandonPendingSession } from "./abandon-pending.js";
+import { abandonedSession, dropAbandoned } from "./abandon-pending.js";
 import {
   boundOperationTransport,
   declaredOAuthOrigins,
@@ -2688,23 +2688,24 @@ export class ConnectorCommandService {
     const summary = pending(entry.record);
     if (!summary) return this.project(actor, entry);
     await this.ports.handoffs.cancelAll(connectionRef, "cancelled");
-    const abandoned = await abandonPendingSession(
+    // Write first, drop second (abandon-pending.ts).
+    const abandoned = abandonedSession(entry.record);
+    const cancelled = await this.update(actor, entry, {
+      handoff: { ...summary, state: "cancelled" },
+      lastOutcome: "handoff.cancelled",
+      lifecycle:
+        entry.record.lifecycle === "human-required"
+          ? "authorization-required"
+          : entry.record.lifecycle,
+      ...abandoned.patch,
+    });
+    await dropAbandoned(
       this.ports.credentials,
-      this.scope(entry.record),
-      entry.record,
+      this.scope(cancelled.record),
+      abandoned.ref,
+      cancelled.record,
     );
-    return this.project(
-      actor,
-      await this.update(actor, entry, {
-        handoff: { ...summary, state: "cancelled" },
-        lastOutcome: "handoff.cancelled",
-        lifecycle:
-          entry.record.lifecycle === "human-required"
-            ? "authorization-required"
-            : entry.record.lifecycle,
-        ...abandoned,
-      }),
-    );
+    return this.project(actor, cancelled);
   }
 
   // -------------------------------------------------------------- disconnect
