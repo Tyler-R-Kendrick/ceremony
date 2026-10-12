@@ -64,6 +64,15 @@ test("a token about to lapse costs one refresh, and each refresh token is used o
   const held = await setup.heldMaterial(connectionRef);
   assert.equal(held["access_token"], setup.fixture.issued.accessTokens[1]);
   assert.equal(held["refresh_token"], setup.fixture.issued.refreshTokens[1]);
+  // The connection's state follows the token it now holds.
+  assert.equal(
+    (
+      (await setup.record(connectionRef)).state["vercelAccount"] as {
+        expiresAt?: number;
+      }
+    ).expiresAt,
+    setup.clock() + 60 * MINUTE,
+  );
   assert.equal(held["client_id"], CLIENT_ID);
   setup.advance(59 * MINUTE);
   assert.equal((await verify(setup, connectionRef)).lifecycle, "active");

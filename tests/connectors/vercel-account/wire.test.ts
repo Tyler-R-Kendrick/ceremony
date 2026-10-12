@@ -454,6 +454,7 @@ test("a bearer is sent once per request, to the approved origin, and a team list
   assert.equal(server.requests.length, 5);
   for (const request of server.requests) {
     assert.equal(request.headers["authorization"], "Bearer vca_dummy_bearer");
+    assert.equal(request.headers["accept"], "application/json");
     assert.equal(request.url.pathname, "/v2/teams");
     assert.equal(request.url.searchParams.get("limit"), "100");
   }
@@ -547,7 +548,10 @@ test("an operation on a connection with no credential, or with the wrong input, 
       input: { extra: 1 },
       commandId: "c",
     }),
-    (error: unknown) => detailOf(error) === "vercel-account.input.invalid",
+    (error: unknown) =>
+      error instanceof ConnectorError &&
+      error.code === "invalid-request" &&
+      error.detail === "vercel-account.input.invalid",
   );
   assert.equal(setup.fixture.apiRequests.length, before);
 });

@@ -19,8 +19,10 @@ import {
 } from "../../../src/server/connectors/providers/vercel-account/client.js";
 import {
   accountSwitchRequested,
+  boundAccount,
   claimsFor,
   priorUserId,
+  storedScopes,
 } from "../../../src/server/connectors/providers/vercel-account/evidence.js";
 import { ensureFresh } from "../../../src/server/connectors/providers/vercel-account/session.js";
 import { resolveCredential } from "../../../src/server/connectors/providers/vercel/index.js";
@@ -868,6 +870,29 @@ test("a lookup that finds nothing gives no lease, a connection that is another's
 });
 
 // ------------------------------------------------ what the adapter answers
+
+test("the scopes kept in state are bounded and never empty, so one odd answer cannot make the state unreadable", () => {
+  assert.deepEqual(storedScopes(["openid", "offline_access"]), [
+    "openid",
+    "offline_access",
+  ]);
+  assert.deepEqual(storedScopes(["openid", "", "email"]), ["openid", "email"]);
+  const longest = "s".repeat(200);
+  assert.deepEqual(storedScopes([longest, `${longest}x`]), [longest]);
+  const many = Array.from({ length: 20 }, (_, index) => `scope-${index}`);
+  assert.deepEqual(storedScopes(many), many.slice(0, 16));
+  assert.deepEqual(storedScopes([]), []);
+});
+
+test("a call context with no connection at all has no account bound", () => {
+  assert.throws(
+    () => boundAccount({} as AdapterCallContext),
+    (error: unknown) =>
+      error instanceof ConnectorError &&
+      error.code === "conflict" &&
+      error.detail === "vercel-account.team.not-bound",
+  );
+});
 
 test("a claim carries an expiry only when the token has one still to come", async (t) => {
   const setup = await accountSetup(t);

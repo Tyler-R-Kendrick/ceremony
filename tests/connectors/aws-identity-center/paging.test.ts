@@ -107,7 +107,10 @@ test("a permitted account beyond the pages that were read is asked about, not re
     "human-required",
     "a person is asked, nothing is denied",
   );
-  assert.match(view.presentation!.instructions!, /more are available/);
+  assert.equal(
+    view.presentation!.instructions,
+    "Enter the account id and the role name to use: more are available.",
+  );
   assert.equal(setup.fixture.counts.roleCredentials, 0);
   // Typing what the binding permits works: the portal, not the cut-off list, decides.
   const done = (await setup.service.provideInput(

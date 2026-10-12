@@ -119,6 +119,32 @@ test("an invocation that meets a refresh token that may have been spent stops fo
   assert.equal(setup.fixture.counts.token, sent, "no second presentation");
 });
 
+test("a refresh whose answer was lost may have been spent and is never presented again", async (t) => {
+  const setup = await awsSetup(t, {
+    double: { accessTokenLifetimeSeconds: 1200, roleLifetimeMs: 30 * 60_000 },
+  });
+  const { connectionRef } = await connectAndChoose(setup);
+  setup.advance(26 * 60_000);
+  setup.fixture.dropNextTokenResponse();
+  await assert.rejects(
+    setup.service.verify(setup.person, connectionRef),
+    (error: unknown) => error instanceof ConnectorError,
+  );
+  assert.equal(setup.fixture.counts.refresh, 1, "AWS acted on the request");
+  assert.ok(
+    setup.journal.some(
+      (entry) =>
+        "status" in entry &&
+        entry.status === "indeterminate" &&
+        entry.code === "aws-identity-center.refresh.indeterminate",
+    ),
+    "the journal says the refresh may have been spent",
+  );
+  const view = asView(await setup.service.verify(setup.person, connectionRef));
+  assert.equal(view.lifecycle, "expired");
+  assert.equal(setup.fixture.counts.refresh, 1, "no second presentation");
+});
+
 test("a refresh request that never left is not spent", async (t) => {
   const setup = await awsSetup(t, {
     double: { accessTokenLifetimeSeconds: 1200, roleLifetimeMs: 30 * 60_000 },
