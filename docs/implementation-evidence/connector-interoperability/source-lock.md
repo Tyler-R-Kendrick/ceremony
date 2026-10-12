@@ -14,9 +14,9 @@ One record per external specification, standards draft or vendor document that a
 
 ## Coverage
 
-- Records: 80, pinned 2026-09-18.
-- Ledgers this lock claims to cover completely: AGENT-SURFACES, CATALOGS, CLOUD, COMMAND, COMPOSIO, CONTRACT, DATA, EVENT, HTTP, IMPORT, INT, MCP, MICROSOFT, NANGO, OAUTH, PIPEDREAM, REGISTRY, STATE, SUPABASE, VERCEL, WORKFLOW.
-- Source profile identifiers cited by the ledgers on disk: 112.
+- Records: 90, pinned 2026-09-18.
+- Ledgers this lock claims to cover completely: ACCOUNTS, AGENT-SURFACES, CATALOGS, CLOUD, COMMAND, COMPOSIO, CONTRACT, DATA, EVENT, HTTP, IMPORT, INT, MCP, MICROSOFT, NANGO, OAUTH, PIPEDREAM, REGISTRY, STATE, SUPABASE, VERCEL, WORKFLOW.
+- Source profile identifiers cited by the ledgers on disk: 122.
 - Cited identifiers with no lock record: 32 (`auth0-myaccount-api-1.0`, `auth0-token-vault-2026-09-18`, `camel-kamelet-v1@4.22.0`, `ceremony-connector-v1`, `ceremony-connectors-http-v1`, `ceremony-external-runtime/1`, `dapr-bindings-http-v1.0`, `dapr-component-v1alpha1`, `mcp-registry-v0.1`, `n8n-node`, `n8n-node-description/1`, `n8n-node-source-static/1`, `n8n-static-node/1`, `nango-webhooks-2026-09`, `openapi-overlay-1.1.0`, `osb-2.17`, `rfc-6749-refresh`, `rfc-7591`, `rfc-7636`, `rfc-8414`, `rfc-8693`, `rfc-9207`, `rfc-9728`, `rfc6749-rfc7636-rfc8414-rfc9207-authorization-server`, `workato-connector-ruby-static/1`, `workato-sdk`, `workato-static-profile/1`, `workos-pipes-rest-2026-09-18`, `zapier-app-definition/19`, `zapier-app-source-static/1`, `zapier-cli`, `zapier-static-app/1`).
 - Of those, from a ledger this lock claims to cover: 0.
 - Lock records no ledger currently cites: 0.
@@ -1338,3 +1338,163 @@ Ledgers landed while this lock was being written. `coversLedgers` names the ledg
 - Modules: `src/server/connectors/formats/microsoft/`
 - Recorded by: MICROSOFT
 - Notes: No claim is made to run Power Platform policies or custom code: imported policies and automation code are inert and execution-blocked while their useful metadata is preserved. A testConnection returning 200 with no account or permission evidence records demonstrated connectivity only, never account identity.
+
+### `aws-identity-center-oidc-2026-10` — AWS IAM Identity Center OIDC API Reference (RegisterClient, StartDeviceAuthorization, CreateToken)
+
+- Kind: vendor-api
+- URL: <https://docs.aws.amazon.com/singlesignon/latest/OIDCAPIReference/>
+- Retrieved at: 2026-10-12
+- Upstream version: OIDC API Reference, page footer 'last published on October 9, 2026'
+- Revision: read 2026-10-12
+- Digest: `sha256:b1cc3c6cfdd303885b3afd108e749b42ca78dbe4eb5c475b30066c02a96f929f`
+- Licence: proprietary vendor documentation. AWS documentation is the vendor's copyrighted publication; no open licence is offered and none is assumed. No AWS SDK is used and no AWS source is vendored. (Established: not-read-here.)
+- Reuse: Request and response members, error codes and HTTP statuses of the three operations the device authorization grant uses. The reference says the service implements only the portions of RFC 8628 needed for the AWS CLI; nothing beyond that is assumed. No text or example is copied into this repository.
+- Dependent adapters: `aws-identity-center`
+- Dependent profile identifiers: `aws-identity-center-device-2026-10`
+- Modules: `src/server/connectors/providers/aws-identity-center/`
+- Recorded by: ACCOUNTS
+- Notes: Not stated by the pages and therefore assumed, each marked in the loopback double: how slow_down grows the interval, which error answers a wrong or already-used deviceCode, that clientSecretExpiresAt is epoch seconds, and when a refresh token is issued.
+
+### `aws-identity-center-portal-2026-10` — AWS IAM Identity Center Portal API Reference (ListAccounts, ListAccountRoles, GetRoleCredentials, Logout)
+
+- Kind: vendor-api
+- URL: <https://docs.aws.amazon.com/singlesignon/latest/PortalAPIReference/>
+- Retrieved at: 2026-10-12
+- Upstream version: Portal API Reference, page footer 'last published on October 9, 2026'
+- Revision: read 2026-10-12
+- Digest: `sha256:35548e5728c4816c734e50fb2733a30c230c089aec7d5fc4af543302a1cc74fb`
+- Licence: proprietary vendor documentation. AWS documentation is the vendor's copyrighted publication; no open licence is offered and none is assumed. No AWS SDK is used and no AWS source is vendored. (Established: not-read-here.)
+- Reuse: Paths, query names, the x-amz-sso_bearer_token header, response members and documented statuses of the four operations. RoleCredentials.expiration is typed only as Long, so epoch milliseconds is an assumption and an implausible value is refused.
+- Dependent adapters: `aws-identity-center`
+- Dependent profile identifiers: `aws-identity-center-device-2026-10`
+- Modules: `src/server/connectors/providers/aws-identity-center/`
+- Recorded by: ACCOUNTS
+- Notes: The Portal API host (portal.sso.<region>.amazonaws.com) appears on none of the pages read, and the General Reference endpoint table lists the sso and oidc hosts only; the adapter pins a public destination to that name by assumption and a loopback or approved-private destination is the host's own decision. Logout is documented to leave IAM role sessions already issued running until their own duration.
+
+### `aws-identity-center-endpoints-2026-10` — AWS General Reference: IAM Identity Center endpoints and quotas
+
+- Kind: vendor-doc
+- URL: <https://docs.aws.amazon.com/general/latest/gr/sso.html>
+- Retrieved at: 2026-10-12
+- Upstream version: read 2026-10-12
+- Revision: IAM Identity Center OpenID Connect (OIDC) table
+- Digest: `sha256:b61f8e83335ede4e51a773e2c542a6949d1823cbd93d614d5ac1c376119e1b4b`
+- Licence: proprietary vendor documentation. AWS documentation is the vendor's copyrighted publication; no open licence is offered and none is assumed. No AWS SDK is used and no AWS source is vendored. (Established: not-read-here.)
+- Reuse: The oidc.<region>.amazonaws.com host form, used to pin a public OIDC destination to the reviewed Region.
+- Dependent adapters: `aws-identity-center`
+- Dependent profile identifiers: `aws-identity-center-device-2026-10`
+- Modules: `src/server/connectors/providers/aws-identity-center/`
+- Recorded by: ACCOUNTS
+- Notes: The page lists oidc.<region>.amazonaws.com. It does not list a Portal API host.
+
+### `aws-identity-center-user-guides-2026-10` — AWS IAM Identity Center and AWS CLI user guides: getting credentials, token provider and sso-session configuration
+
+- Kind: vendor-doc
+- URL: <https://docs.aws.amazon.com/singlesignon/latest/userguide/howtogetcredentials.html>
+- Retrieved at: 2026-10-12
+- Upstream version: read 2026-10-12
+- Revision: howtogetcredentials, plus the AWS CLI user guide page sso-configure-profile-token
+- Digest: `sha256:5982d4f985bfca4c39276b8909cffd01f7f5a3e646a8f5a45b4579b687e1b6b4`
+- Licence: proprietary vendor documentation. AWS documentation is the vendor's copyrighted publication; no open licence is offered and none is assumed. No AWS SDK is used and no AWS source is vendored. (Established: not-read-here.)
+- Reuse: Role session duration of one to twelve hours (one hour by default), the sso:account:access registration scope the CLI names for refreshable sessions, and the device authorization URL form.
+- Dependent adapters: `aws-identity-center`
+- Dependent profile identifiers: `aws-identity-center-device-2026-10`
+- Modules: `src/server/connectors/providers/aws-identity-center/`
+- Recorded by: ACCOUNTS
+- Notes: The CLI guide ties token refresh to a registration scope; that a refresh token is issued only to a client that registered one is an inference, not a published statement.
+
+### `aws-identity-center-device-2026-10` — Profile of the AWS IAM Identity Center sign-in adapter (alias of its OIDC and Portal records)
+
+- Kind: alias
+- URL: <https://docs.aws.amazon.com/singlesignon/latest/OIDCAPIReference/>
+- Retrieved at: 2026-10-12
+- Upstream version: 2026-10
+- Revision: alias record so the adapter's profile name resolves
+- Digest: none captured
+- Licence: proprietary vendor documentation. See aws-identity-center-oidc-2026-10. (Established: see aws-identity-center-oidc-2026-10.)
+- Reuse: See aws-identity-center-oidc-2026-10 and aws-identity-center-portal-2026-10.
+- Dependent adapters: `aws-identity-center`
+- Dependent profile identifiers: `aws-identity-center-device-2026-10`
+- Modules: `src/server/connectors/providers/aws-identity-center/`
+- Recorded by: ACCOUNTS
+- Notes: Alias only. The profile covers the device authorization grant against the OIDC service and the access portal operations that turn its access token into role credentials.
+
+### `vercel-oidc-discovery-2026-10` — Vercel OpenID Connect discovery document
+
+- Kind: vendor-api
+- URL: <https://vercel.com/.well-known/openid-configuration>
+- Retrieved at: 2026-10-12
+- Upstream version: served 2026-10-12; carries no version
+- Revision: read 2026-10-12
+- Digest: `sha256:6c856723f1336f7d3a3a9db8be33350af7b5f538065a9b4802663351da53024d`
+- Licence: proprietary vendor documentation. Vercel's documentation is the vendor's copyrighted publication; no open licence is offered for it and none is assumed. No Vercel SDK or CLI source is a dependency of this repository or was vendored. (Established: not-read-here.)
+- Reuse: The issuer, the device, token, revocation and registration endpoints on api.vercel.com, the grant types (including the device code grant and refresh_token), the token endpoint authentication methods and the scopes. The document is machine-readable metadata; it is reproduced as a test fixture so a test can prove the host's issuer policy resolves it.
+- Dependent adapters: `vercel-account`
+- Dependent profile identifiers: `vercel-account-device-2026-10`
+- Modules: `src/server/connectors/providers/vercel-account/`
+- Recorded by: ACCOUNTS
+- Notes: token_endpoint_auth_methods_supported lists no `none` method although the Sign in with Vercel dashboard page offers `none` per application, so the generic client resolution refuses RFC 7591 registration of a `none` client against this document; the host's client is pre-registered. No page describes the device authorization endpoint's request or response, so those are assumptions listed in VERCEL_ACCOUNT_ASSUMPTIONS.
+
+### `vercel-cli-login-changelog-2026-10` — Vercel changelog: New Vercel CLI login flow (September 12, 2025) and the vercel login reference
+
+- Kind: vendor-doc
+- URL: <https://vercel.com/changelog/new-vercel-cli-login-flow>
+- Retrieved at: 2026-10-12
+- Upstream version: published September 12, 2025
+- Revision: read 2026-10-12, with https://vercel.com/docs/cli/login (last_updated 2026-04-10)
+- Digest: `sha256:10ad3a06e8cb222e9f0ca0b62151ea8e1be8c2723a5141e1613ebb6cf7e32a96`
+- Licence: proprietary vendor documentation. Vercel's documentation is the vendor's copyrighted publication; no open licence is offered for it and none is assumed. No Vercel SDK or CLI source is a dependency of this repository or was vendored. (Established: not-read-here.)
+- Reuse: The statement that vercel login uses the OAuth 2.0 Device Flow (RFC 8628) and that approving a login should check the location, IP and request time. Nothing else is taken from either page.
+- Dependent adapters: `vercel-account`
+- Dependent profile identifiers: `vercel-account-device-2026-10`
+- Modules: `src/server/connectors/providers/vercel-account/`
+- Recorded by: ACCOUNTS
+- Notes: The pages name no endpoint, client id or scope, and do not say whether an application made on the Sign in with Vercel dashboard page may use the device grant.
+
+### `vercel-sign-in-docs-2026-10` — Sign in with Vercel: overview, tokens, scopes and permissions, authorization server API and managing an application
+
+- Kind: vendor-doc
+- URL: <https://vercel.com/docs/sign-in-with-vercel>
+- Retrieved at: 2026-10-12
+- Upstream version: read 2026-10-12
+- Revision: pages sign-in-with-vercel, /tokens, /manage-from-dashboard, /scopes-and-permissions, /authorization-server-api
+- Digest: `sha256:64f189edb5aeb66da67deec4370d000095c9eff1eeda67c4af02524ada88e249`
+- Licence: proprietary vendor documentation. Vercel's documentation is the vendor's copyrighted publication; no open licence is offered for it and none is assumed. No Vercel SDK or CLI source is a dependency of this repository or was vendored. (Established: not-read-here.)
+- Reuse: The access token (vca_, one hour) and refresh token (vcr_, thirty days, single use, rotated on exchange, issued with offline_access); the scopes openid, email, profile and offline_access; client authentication `none` for CLIs and public clients; the authorization-code grant with PKCE, recorded as a documented non-goal here because the generic authorization-code family already runs it under any issuer policy.
+- Dependent adapters: `vercel-account`
+- Dependent profile identifiers: `vercel-account-device-2026-10`
+- Modules: `src/server/connectors/providers/vercel-account/`
+- Recorded by: ACCOUNTS
+- Notes: API permissions behind a sign-in token are described as a private beta, so whether Vercel Connect accepts a sign-in token is unverified.
+
+### `vercel-rest-user-teams-2026-10` — Vercel REST API reference: Get the User (GET /v2/user), List all teams (GET /v2/teams) and the REST authentication overview
+
+- Kind: vendor-api
+- URL: <https://vercel.com/docs/rest-api/teams/list-all-teams>
+- Retrieved at: 2026-10-12
+- Upstream version: last_updated 2026-10-11
+- Revision: read 2026-10-12, with /docs/rest-api/user/get-the-user and /docs/rest-api/authentication
+- Digest: `sha256:caa61b767e168ede4c173f4b81ebe036700a2dc74a95c9c79cf95e7e62617cbd`
+- Licence: proprietary vendor documentation. Vercel's documentation is the vendor's copyrighted publication; no open licence is offered for it and none is assumed. No Vercel SDK or CLI source is a dependency of this repository or was vendored. (Established: not-read-here.)
+- Reuse: Bearer authentication, the response members user.id, username, name, email and defaultTeamId, and teams[].id, slug, name with pagination and the limit, since and until query names.
+- Dependent adapters: `vercel-account`
+- Dependent profile identifiers: `vercel-account-device-2026-10`
+- Modules: `src/server/connectors/providers/vercel-account/`
+- Recorded by: ACCOUNTS
+- Notes: The example responses on the pages stringify numbers, so the adapter reads pagination.next as a number and the double serves one. That teams page by `until` set to pagination.next is an assumption.
+
+### `vercel-account-device-2026-10` — Profile of the Vercel account sign-in adapter (alias of its discovery, sign-in, changelog and REST records)
+
+- Kind: alias
+- URL: <https://vercel.com/.well-known/openid-configuration>
+- Retrieved at: 2026-10-12
+- Upstream version: 2026-10
+- Revision: alias record so the adapter's profile name resolves
+- Digest: none captured
+- Licence: proprietary vendor documentation. See vercel-sign-in-docs-2026-10. (Established: see vercel-sign-in-docs-2026-10.)
+- Reuse: See vercel-oidc-discovery-2026-10, vercel-cli-login-changelog-2026-10, vercel-sign-in-docs-2026-10 and vercel-rest-user-teams-2026-10.
+- Dependent adapters: `vercel-account`
+- Dependent profile identifiers: `vercel-account-device-2026-10`
+- Modules: `src/server/connectors/providers/vercel-account/`
+- Recorded by: ACCOUNTS
+- Notes: Alias only. The profile covers the device authorization grant at the issuer vercel.com, the refresh grant, revocation and the two REST reads that name the user and the teams.

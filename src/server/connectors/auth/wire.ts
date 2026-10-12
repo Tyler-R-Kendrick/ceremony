@@ -91,6 +91,27 @@ export function tokenErrorDetail(error: string): string {
 }
 
 /**
+ * The cause to keep for a failure raised while reading a token response. For
+ * the oauth4webapi errors that may carry the parsed answer (`cause.body`, which
+ * for a token response is the whole answer, tokens included) that is the
+ * failure's class and code with the library's own fixed message and nothing the
+ * response held; a cause prints with its error wherever one is inspected or
+ * logged. Any other failure is kept as it is, for the people who debug it.
+ */
+export function safeCause(failure: unknown): unknown {
+  if (
+    !(failure instanceof oauth.OperationProcessingError) &&
+    !(failure instanceof oauth.UnsupportedOperationError)
+  )
+    return failure;
+  const kept = new Error(failure.message);
+  kept.name = failure.name;
+  const code = (failure as { code?: unknown }).code;
+  if (typeof code === "string") Object.assign(kept, { code });
+  return kept;
+}
+
+/**
  * Translates transport and protocol failures into connector codes. A response
  * body error names the provider's registered error code only when it is one
  * of the known vocabulary; nothing free-form from the provider survives.
@@ -121,7 +142,7 @@ export function wireError(error: unknown, operation: string): ConnectorError {
   )
     return new ConnectorError("upstream-rejected", {
       detail: `${operation}.invalid-response`,
-      cause: error,
+      cause: safeCause(error),
     });
   if (error instanceof DOMException || error instanceof Error) {
     const name = (error as { name?: string }).name;

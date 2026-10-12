@@ -1,10 +1,18 @@
 import { test, expect } from "../fixtures/browser-test.js";
 import { teachingHostedFixture } from "../fixtures/teaching-hosted.js";
+/**
+ * What a page that has never been loaded may take: each case starts its own
+ * development server, so the first load of a page transforms and runs its
+ * modules cold, and in Firefox and WebKit on a shared runner that outlasts
+ * the five seconds an assertion waits by default. An action already waits this
+ * long, which is why only an assertion that is first to see a page needs it.
+ */
+const coldLoad = 15000;
 test.use({
   trace: "off",
   video: "off",
   screenshot: "off",
-  actionTimeout: 15000,
+  actionTimeout: coldLoad,
 });
 test("AC-19 AC-42: hosted sign-in uses signed OIDC and restores the subject across browser contexts", async ({
   page,
@@ -138,17 +146,29 @@ test("a host that needs an account says so on the directory, before any setup", 
     await page.goto(fixture.origin);
     await expect(
       page.getByRole("heading", { name: "Connections" }),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: coldLoad });
     const notice = page
       .getByRole("status")
       .filter({ hasText: "needs an account" });
-    await expect(notice).toBeVisible();
-    await notice
-      .getByRole("button", { name: "Sign in to this workspace", exact: true })
-      .click();
+    await expect(notice).toBeVisible({ timeout: coldLoad });
 
     // Signing in returns to the same page it was asked from, which is the
-    // whole point of asking here: the round trip costs nothing drafted.
+    // whole point of asking here: the round trip costs nothing drafted. It
+    // also means the heading is on screen before the click as well as after
+    // it, and the notice is absent both while the returned page is still
+    // loading and once the host has said that somebody is signed in. Only the
+    // host answering the returned page tells those apart, so wait for that
+    // answer and for the page to settle on it before asserting anything about
+    // the notice.
+    await Promise.all([
+      page.waitForResponse(
+        (response) => new URL(response.url()).pathname === "/api/config",
+      ),
+      notice
+        .getByRole("button", { name: "Sign in to this workspace", exact: true })
+        .click(),
+    ]);
+    await page.waitForLoadState("networkidle");
     await expect(
       page.getByRole("heading", { name: "Connections" }),
     ).toBeVisible();
@@ -158,7 +178,7 @@ test("a host that needs an account says so on the directory, before any setup", 
     await page.goto(`${fixture.origin}/?connector=github`);
     await expect(
       page.getByRole("button", { name: "Connect GitHub", exact: true }),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: coldLoad });
     await expect(
       page.getByRole("button", { name: "Sign in", exact: true }),
     ).toHaveCount(0);

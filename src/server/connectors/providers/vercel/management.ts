@@ -39,6 +39,7 @@ import {
   configuredTeamId,
   resolveCredential,
   type ManagementCredential,
+  type ManagementTokenSource,
 } from "./credentials.js";
 
 /*
@@ -69,7 +70,11 @@ export const defaultAdminPolicy: VercelAdminPolicy = async (ctx) => {
   }
 };
 
-export type ManagementOptions = { policy: VercelAdminPolicy };
+export type ManagementOptions = {
+  policy: VercelAdminPolicy;
+  /** Where a signed-in person's Vercel token is held, when the host has one; else the configured token. */
+  managementToken?: ManagementTokenSource;
+};
 
 const managementIds = new Set<string>(Object.keys(vercelInvokeInputSchemas));
 
@@ -300,9 +305,15 @@ type Session = {
 async function session(
   ctx: AdapterCallContext,
   settings: VercelSettings,
+  options: ManagementOptions,
 ): Promise<Session> {
   const teamId = await configuredTeamId(ctx);
-  const credential = await resolveCredential(ctx, "management", settings);
+  const credential = await resolveCredential(
+    ctx,
+    "management",
+    settings,
+    options,
+  );
   return { ctx, credential, teamId };
 }
 
@@ -662,7 +673,7 @@ export async function invokeManagement(
   enforceTargets(ctx, id, input, settings);
   const operation = vercelConnectOperationTable[id];
   if (operation.admin) await options.policy(ctx, { id, effect: "write" });
-  const live = await session(ctx, settings);
+  const live = await session(ctx, settings, options);
 
   if (operation.effect === "read")
     return result(bound, "complete", {
@@ -776,6 +787,7 @@ export async function invokeManagement(
 export async function discoverConnectors(
   ctx: AdapterCallContext,
   input: DiscoverInput,
+  options: ManagementOptions,
 ): Promise<DiscoverResult> {
   const settings = vercelSettings(ctx.binding);
   for (const key of Object.keys(input.scope ?? {}))
@@ -797,7 +809,7 @@ export async function discoverConnectors(
     ...(projectId !== undefined ? { projectId } : {}),
     ...(input.query !== undefined ? { search: input.query } : {}),
   });
-  const live = await session(ctx, settings);
+  const live = await session(ctx, settings, options);
   const reply = await callVercel(ctx, {
     operation: "connect.connectors.list",
     credential: live.credential,
@@ -884,7 +896,7 @@ export async function unlinkOwnProject(
     "vercel.project.not-permitted",
   );
   await options.policy(ctx, { id: "connect.projects.unlink", effect: "write" });
-  const live = await session(ctx, settings);
+  const live = await session(ctx, settings, options);
   const others = (await linkedProjects(live, connector)).filter(
     (projectId) => projectId !== settings.project.id,
   );
@@ -921,7 +933,7 @@ export async function deleteUnsharedConnector(
     id: "connect.connectors.delete",
     effect: "write",
   });
-  const live = await session(ctx, settings);
+  const live = await session(ctx, settings, options);
   const others = (await linkedProjects(live, connector)).filter(
     (projectId) => projectId !== settings.project.id,
   );

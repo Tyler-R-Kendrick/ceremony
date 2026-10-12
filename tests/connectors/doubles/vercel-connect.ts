@@ -77,6 +77,12 @@ export type VercelConnectFixtureOptions = {
   teamId?: string;
   connectors?: ConnectorSeed[];
   credentials?: CredentialSeed[];
+  /**
+   * Credentials this double does not hold itself, asked for by token: Vercel
+   * is one backend, so a token another test double issued is known to it.
+   * modelled: the docs do not say that a sign-in token reaches Connect.
+   */
+  authenticate?: (token: string) => CredentialSeed | undefined;
   now?: () => number;
   /** Page size the list endpoints use when the caller names no limit. */
   pageSize?: number;
@@ -345,7 +351,8 @@ export async function startVercelConnect(
       }
     }
     if (!bearer) return failure(401, "forbidden", "Not authorized");
-    const credential = credentials.get(bearer);
+    const credential =
+      credentials.get(bearer) ?? options.authenticate?.(bearer);
     if (!credential || credential.teamId !== teamId)
       return failure(401, "forbidden", "Not authorized");
 

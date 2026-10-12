@@ -302,8 +302,12 @@ export function memoryPorts(options: { now?: () => number } = {}) {
       const entry = connections.get(connectionRef);
       if (!entry || !owned(actor, entry.record)) throw new Error("denied");
       if (entry.revision !== expectedRevision) throw new Error("conflict");
+      // As the persistent store: the summary of the handoff being left goes
+      // with its generation.
+      const { handoff: _superseded, ...kept } = entry.record;
+      void _superseded;
       entry.record = {
-        ...entry.record,
+        ...kept,
         generation: entry.record.generation + 1,
       };
       entry.revision++;

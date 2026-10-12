@@ -23,7 +23,10 @@ import {
   VERCEL_SOURCE_PROFILE,
   type VercelManagementOperationId,
 } from "./contracts.js";
-import type { WorkloadTokenSource } from "./credentials.js";
+import type {
+  ManagementTokenSource,
+  WorkloadTokenSource,
+} from "./credentials.js";
 import { createVercelTriggerEvents } from "./events.js";
 import {
   defaultAdminPolicy,
@@ -39,6 +42,8 @@ export {
   resolveCredential,
   withBearer,
   type ManagementCredential,
+  type ManagementLease,
+  type ManagementTokenSource,
   type RoleCredential,
   type WorkloadCredential,
   type WorkloadTokenSource,
@@ -88,6 +93,12 @@ export type VercelConnectAdapterOptions = {
   administer?: VercelAdminPolicy;
   /** Host-supplied workload identity (for example the deployment OIDC token); configuration is the fallback. */
   workloadToken?: WorkloadTokenSource;
+  /**
+   * Finds the calling person's signed-in Vercel account (the `vercel-account`
+   * adapter), whose token then serves the management leg in place of a pasted
+   * one. The workload leg never uses it.
+   */
+  managementToken?: ManagementTokenSource;
 };
 
 const configuration: readonly ConfigurationRequirement[] = [
@@ -156,6 +167,9 @@ export function createVercelConnectAdapter(
   const authorization: AuthorizationOptions = {
     policy: options.administer ?? defaultAdminPolicy,
     ...(options.workloadToken ? { workloadToken: options.workloadToken } : {}),
+    ...(options.managementToken
+      ? { managementToken: options.managementToken }
+      : {}),
     verifierVersion: VERCEL_CONNECT_ADAPTER_VERSION,
   };
   const adapter: ConnectorAdapter = {
@@ -179,7 +193,8 @@ export function createVercelConnectAdapter(
           : "missing";
       const management =
         present.has(vercelConfigurationNames.teamId) &&
-        present.has(vercelConfigurationNames.managementToken)
+        (options.managementToken ||
+          present.has(vercelConfigurationNames.managementToken))
           ? "ready"
           : "missing";
       const status = (
@@ -214,6 +229,11 @@ export function createVercelConnectAdapter(
         ]),
         status("invoke", management, [
           "Management operations use the documented per-operation versions; provider calls use the custody token.",
+          ...(options.managementToken
+            ? [
+                "A person who signed in to a Vercel account (the vercel-account adapter) administers with that session for the team it was bound to, and is refused, not served by the configured token, while it cannot serve. A person with no sign-in uses the configured management token, or is refused when none is configured. Whether Connect accepts that session is not verified.",
+              ]
+            : []),
         ]),
         status("events", workload, [
           "Forwarded triggers are authenticated by Vercel's OIDC bearer token, which does not bind the body bytes.",
@@ -229,7 +249,7 @@ export function createVercelConnectAdapter(
         status("delegate", "not-applicable", [], "unsupported"),
       ];
     },
-    discover: (ctx, input) => discoverConnectors(ctx, input),
+    discover: (ctx, input) => discoverConnectors(ctx, input, authorization),
     authorize: (ctx, intent) =>
       authorizeStart(ctx, intent, authorization, "authorize"),
     complete: (ctx, input) => completeAuthorization(ctx, input, authorization),

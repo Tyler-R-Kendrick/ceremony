@@ -10,7 +10,7 @@
 import type { SupportEvidence } from "../../core/connectors/index.js";
 
 /** The newest day any entry below was recorded. */
-export const recordedEvidenceAsOf = "2026-09-23";
+export const recordedEvidenceAsOf = "2026-10-12";
 
 export const recordedSupportEvidence: readonly SupportEvidence[] = [
   {
@@ -144,6 +144,36 @@ export const recordedSupportEvidence: readonly SupportEvidence[] = [
     target: "in-process-fixture",
     recordedAt: "2026-09-23",
     notes: "SigV4 request signing against published test vectors, in process.",
+  },
+  {
+    adapterId: "aws-identity-center",
+    check: "ledger:ACCOUNTS/ACCT-01",
+    target: "in-process-fixture",
+    recordedAt: "2026-10-12",
+  },
+  {
+    adapterId: "aws-identity-center",
+    check: "tests/connectors/aws-identity-center/ceremony.test.ts",
+    target: "local-double",
+    recordedAt: "2026-10-12",
+    notes:
+      "Connect, approve, choose an account and role, invoke and the refusals, through the real command service over the persistent state ports against the loopback IAM Identity Center double (tests/connectors/doubles/aws-identity-center.ts), which checks each request independently.",
+  },
+  {
+    adapterId: "aws-identity-center",
+    check: "tests/connectors/aws-identity-center/custody.test.ts",
+    target: "local-double",
+    recordedAt: "2026-10-12",
+    notes:
+      "A sweep of every surface a caller can read for the secrets the double issued, with a positive control that finds them in custody.",
+  },
+  {
+    adapterId: "aws-identity-center",
+    check: "tests/connectors/aws-identity-center/renewal.test.ts",
+    target: "local-double",
+    recordedAt: "2026-10-12",
+    notes:
+      "Role credential renewal, access token refresh, session end, reconnect, and local and upstream disconnect against the same loopback double.",
   },
   {
     adapterId: "camel-kamelet",
@@ -967,6 +997,50 @@ export const recordedSupportEvidence: readonly SupportEvidence[] = [
     recordedAt: "2026-09-23",
     notes:
       "Wrapper descriptors read from catalog metadata and migration text, and reads through a fake approved query port; nothing executes SQL.",
+  },
+  {
+    adapterId: "vercel-account",
+    check: "ledger:ACCOUNTS/ACCT-02",
+    target: "in-process-fixture",
+    recordedAt: "2026-10-12",
+  },
+  {
+    adapterId: "vercel-account",
+    check: "tests/connectors/vercel-account/ceremony.test.ts",
+    target: "local-double",
+    recordedAt: "2026-10-12",
+    notes:
+      "Connect, approve, choose a team, invoke and the refusals, through the real command service over the persistent state ports against the loopback Vercel account double (tests/connectors/doubles/vercel-account.ts), which checks each request independently.",
+  },
+  {
+    adapterId: "vercel-account",
+    check: "tests/connectors/vercel-account/custody.test.ts",
+    target: "local-double",
+    recordedAt: "2026-10-12",
+    notes:
+      "A sweep of every surface a caller can read for the secrets and the email address the double issued, with a positive control that finds the secrets in custody.",
+  },
+  {
+    adapterId: "vercel-account",
+    check: "tests/connectors/vercel-account/management.test.ts",
+    target: "local-double",
+    recordedAt: "2026-10-12",
+    notes:
+      "The Vercel Connect management leg administering with a signed-in account's token against the loopback Connect double, which asks the account double whether a token is live; Connect's acceptance of such a token is modelled, not observed.",
+  },
+  {
+    adapterId: "vercel-account",
+    check: "tests/connectors/vercel-account/renewal.test.ts",
+    target: "local-double",
+    recordedAt: "2026-10-12",
+    notes:
+      "Refresh with a rotating single-use refresh token, session end, reconnect, a different person on reconnect, and local and upstream disconnect against the same loopback double.",
+  },
+  {
+    adapterId: "vercel-connect",
+    check: "ledger:ACCOUNTS/ACCT-02",
+    target: "in-process-fixture",
+    recordedAt: "2026-10-12",
   },
   {
     adapterId: "vercel-connect",

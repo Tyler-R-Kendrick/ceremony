@@ -375,3 +375,62 @@ test("STATE-01: a host ownership policy can own connections for an organization"
     await store.close();
   }
 });
+
+/*
+ * A connection that went through a handoff carries its summary. Advancing the
+ * generation (a reconnect, a disconnect) supersedes that handoff, and the
+ * record has to stay readable afterwards: its schema refuses a summary that
+ * names an earlier generation, so the persistent store once made every such
+ * connection unreadable the moment it was disconnected or reconnected.
+ */
+async function supersededHandoffScenario(ports: {
+  connections: ConnectionStorePort;
+}) {
+  const actor = actorFor("tenant-a");
+  const record = connectionRecord({
+    tenantId: "tenant-a",
+    ownerId: actor.subjectId,
+    sessionId: actor.sessionId,
+    generation: 0,
+    handoff: {
+      handoffRef: "handoff:finished",
+      kind: "device-code",
+      state: "completed",
+      presentation: "second-device",
+      expiresAt: "2030-01-01T00:00:00.000Z",
+      generation: 0,
+    },
+  });
+  const created = await ports.connections.create(record);
+  const advanced = await ports.connections.advanceGeneration(
+    actor,
+    record.connectionRef,
+    created.revision,
+  );
+  const read = await ports.connections.get(actor, record.connectionRef);
+  assert.equal(read?.record.generation, advanced.generation);
+  assert.equal(read?.record.handoff, undefined);
+  // And it can be written again, which is what a disconnect does next.
+  await ports.connections.update(
+    actor,
+    record.connectionRef,
+    advanced.revision,
+    {
+      lifecycle: "locally-disconnected",
+      lastOutcome: "disconnect.local",
+    },
+  );
+}
+
+test("STATE-01: a record keeps its handoff summary no longer than its generation (persistent ports)", async () => {
+  const store = new SQLiteCeremonyStore(":memory:", stateKeyring());
+  try {
+    await supersededHandoffScenario(createConnectorPorts(store));
+  } finally {
+    await store.close();
+  }
+});
+
+test("STATE-01: a record keeps its handoff summary no longer than its generation (in-memory double)", async () => {
+  await supersededHandoffScenario(memoryPorts());
+});

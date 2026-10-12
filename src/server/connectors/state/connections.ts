@@ -676,8 +676,14 @@ export function createConnectionStore(
             detail: "connection.revision",
           });
         const at = await time(tx);
+        // The handoff the record summarised belonged to the generation being
+        // left. It is superseded below, and a summary that names an earlier
+        // generation is a record this module's own schema refuses to read, so
+        // it goes with the generation rather than outliving it.
+        const { handoff: _superseded, ...kept } = current.value.record;
+        void _superseded;
         const record: ConnectionRecord = {
-          ...current.value.record,
+          ...kept,
           generation: current.value.record.generation + 1,
           updatedAt: isoAt(at),
         };

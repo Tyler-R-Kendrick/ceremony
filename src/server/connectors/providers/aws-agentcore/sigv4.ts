@@ -1,4 +1,5 @@
 import { createHash, createHmac } from "node:crypto";
+import type { AwsCredentials } from "../../aws-credentials.js";
 import { ConnectorError } from "../../errors.js";
 
 /*
@@ -32,14 +33,7 @@ export const AWS_SIGV4_ALGORITHM = "AWS4-HMAC-SHA256";
 export const EMPTY_PAYLOAD_SHA256 =
   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
-export type AwsCredentials = {
-  accessKeyId: string;
-  secretAccessKey: string;
-  /** Temporary credentials only; signed as `x-amz-security-token`. */
-  sessionToken?: string;
-  /** Epoch milliseconds at which temporary credentials stop being valid, when the host knows it. */
-  expiresAt?: number;
-};
+export type { AwsCredentials };
 
 export type SigV4Request = {
   method: "GET" | "HEAD" | "POST";
