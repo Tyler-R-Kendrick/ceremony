@@ -1,7 +1,18 @@
 import * as oauth from "oauth4webapi";
 import { importJWK, type CryptoKey } from "jose";
 import { z } from "zod";
+import { boundResponse } from "./connectors/auth/response-bound.js";
 import { publicAuthFetch } from "./public-auth-fetch.js";
+
+/**
+ * The transport oauth4webapi reads from: the given fetch, with its answer read
+ * under the OAuth ceiling before the library sees a byte of it, as everywhere
+ * an OAuth answer is read (`connectors/auth/wire.ts`).
+ */
+const boundedAuthFetch =
+  (fetcher: typeof fetch): typeof fetch =>
+  async (input, init) =>
+    boundResponse(await fetcher(input, init));
 
 export const dpopJwkSchema = z.object({
   kty: z.literal("EC"),
@@ -237,7 +248,7 @@ export async function dpopUserinfoRequest(
       {
         DPoP,
         [oauth.customFetch]: (url, { body: _body, ...init }) =>
-          fetcher(url, init),
+          boundedAuthFetch(fetcher)(url, init),
         signal: AbortSignal.timeout(15_000),
       },
     );
@@ -307,7 +318,7 @@ export async function pushedAuthorizationLocation(input: {
   const execute = () =>
     oauth.pushedAuthorizationRequest(as, client, clientAuth, parameters, {
       ...(DPoP ? { DPoP } : {}),
-      [oauth.customFetch]: input.fetch ?? publicAuthFetch,
+      [oauth.customFetch]: boundedAuthFetch(input.fetch ?? publicAuthFetch),
     });
   let response = await execute();
   try {
@@ -453,7 +464,7 @@ export async function exchangeAuthorizationCode(input: {
       input.verifier,
       {
         ...(DPoP ? { DPoP } : {}),
-        [oauth.customFetch]: input.fetch ?? publicAuthFetch,
+        [oauth.customFetch]: boundedAuthFetch(input.fetch ?? publicAuthFetch),
       },
     );
   let response = await execute();
