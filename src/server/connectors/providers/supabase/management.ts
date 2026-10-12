@@ -29,6 +29,7 @@ import {
   destinationUrl,
   type ApprovedDestination,
 } from "../../binding.js";
+import { boundResponse } from "../../auth/response-bound.js";
 import { ConnectorError } from "../../errors.js";
 import type { CredentialMaterial, HandoffRecord } from "../../ports.js";
 import {
@@ -325,7 +326,11 @@ export function createSupabaseManagementAdapter(
     return { as, client };
   };
 
-  /** Every token-endpoint request goes through the environment fetch, never follows redirects and stays on the pinned origin. */
+  /**
+   * Every token-endpoint request goes through the environment fetch, never
+   * follows redirects, stays on the pinned origin and has its answer read under
+   * the OAuth ceiling like every other token answer here.
+   */
   const tokenRequestOptions = (
     ctx: AdapterCallContext,
     destination: ApprovedDestination,
@@ -344,13 +349,15 @@ export function createSupabaseManagementAdapter(
         throw new ConnectorError("network-policy", {
           detail: "supabase.management.destination-not-pinned",
         });
-      return ctx.environment.fetch(url, {
-        method: init.method,
-        headers: init.headers,
-        ...(init.body === undefined ? {} : { body: init.body }),
-        redirect: "error",
-        signal: boundedSignal(ctx, requestTimeoutMs),
-      });
+      return boundResponse(
+        await ctx.environment.fetch(url, {
+          method: init.method,
+          headers: init.headers,
+          ...(init.body === undefined ? {} : { body: init.body }),
+          redirect: "error",
+          signal: boundedSignal(ctx, requestTimeoutMs),
+        }),
+      );
     },
     signal: boundedSignal(ctx, requestTimeoutMs),
   });
