@@ -267,8 +267,11 @@ export async function startVercelAccount(options: VercelAccountOptions = {}) {
         .setIssuer(issuer.origin)
         .setAudience(clientId)
         .setSubject(personId)
-        .setIssuedAt(Math.floor(now() / 1000))
-        .setExpirationTime(Math.floor(now() / 1000) + accessLifetime)
+        // The ID token is checked by the client library against the wall clock,
+        // which the tests' own clock does not move: dating it by that clock
+        // makes every test that signs in fail an hour after the clock's origin.
+        .setIssuedAt(Math.floor(Date.now() / 1000))
+        .setExpirationTime(Math.floor(Date.now() / 1000) + accessLifetime)
         .sign(signing.privateKey);
       issued.idTokens.push(idToken);
       body["id_token"] = idToken;
