@@ -438,10 +438,7 @@ test("the journal says what each refresh did: applied once exchanged, failed onc
 });
 
 test("a refresh token the journal already holds is never presented again, whichever way that attempt ended", async (t) => {
-  for (const [status, code] of [
-    ["applied", "conflict"],
-    ["indeterminate", "indeterminate"],
-  ] as const) {
+  for (const status of ["applied", "indeterminate"] as const) {
     const setup = await awsSetup(t, {
       double: { accessTokenLifetimeSeconds: 1200, roleLifetimeMs: 30 * MINUTE },
     });
@@ -464,12 +461,15 @@ test("a refresh token the journal already holds is never presented again, whiche
       at: setup.clock(),
     });
     setup.advance(26 * MINUTE);
-    await assert.rejects(
-      setup.service.verify(setup.person, connectionRef),
-      (error: unknown) =>
-        error instanceof ConnectorError &&
-        error.code === code &&
-        error.detail === "aws-identity-center.refresh.already-used",
+    // Either way the token may be spent: the session ends for a person to start again.
+    const view = (await setup.service.verify(setup.person, connectionRef)) as {
+      lifecycle: string;
+      lastOutcome?: string;
+    };
+    assert.equal(view.lifecycle, "expired", status);
+    assert.equal(
+      view.lastOutcome,
+      "aws-identity-center.session.refresh-unknown",
       status,
     );
     assert.equal(setup.fixture.counts.refresh, 0, "nothing was sent");

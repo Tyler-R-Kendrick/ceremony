@@ -89,11 +89,10 @@ export async function currentAccessToken(
     },
     { mode: "until-applied", random: ctx.environment.random },
   );
-  if (begun.prior)
-    throw new ConnectorError(
-      begun.prior.status === "applied" ? "conflict" : "indeterminate",
-      { detail: code("refresh.already-used") },
-    );
+  // This refresh token was presented before, or may have been: it is never
+  // presented again, so the session ends for a person to start again (the
+  // same answer as the Vercel sign-in's).
+  if (begun.prior) throw sessionEnded("session.refresh-unknown");
   const settle = (
     status: "applied" | "not-applied" | "failed" | "indeterminate",
     outcome: string,

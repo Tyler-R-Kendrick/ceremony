@@ -21,6 +21,8 @@ import {
 
 type View = { lifecycle: string; lastOutcome?: string };
 const asView = (value: unknown) => value as View;
+const unavailable = (error: unknown) =>
+  error instanceof ConnectorError && error.code === "upstream-unavailable";
 
 test("a token endpoint that answers 5xx leaves the exchange indeterminate and the code unspent by us", async (t) => {
   const setup = await awsSetup(t);
@@ -77,11 +79,34 @@ test("a refresh answered 5xx is never presented again", async (t) => {
   );
   const sent = setup.fixture.counts.token;
   setup.fixture.failTokens(null);
+  // The token may have been spent, so the session ends for a person to start
+  // again: the same answer as Vercel's, not an error the person cannot act on.
+  const view = asView(await setup.service.verify(setup.person, connectionRef));
+  assert.equal(view.lifecycle, "expired");
+  assert.equal(view.lastOutcome, "aws-identity-center.session.refresh-unknown");
+  assert.equal(setup.fixture.counts.token, sent, "no second presentation");
+});
+
+test("an invocation that meets a refresh token that may have been spent stops for a person", async (t) => {
+  const setup = await awsSetup(t, {
+    double: { accessTokenLifetimeSeconds: 1200, roleLifetimeMs: 30 * 60_000 },
+  });
+  const { connectionRef } = await connectAndChoose(setup);
+  setup.advance(26 * 60_000);
+  setup.fixture.failTokens(500);
   await assert.rejects(
     setup.service.verify(setup.person, connectionRef),
-    (error: unknown) =>
-      error instanceof ConnectorError && error.code === "indeterminate",
+    unavailable,
   );
+  setup.fixture.failTokens(null);
+  const sent = setup.fixture.counts.token;
+  const result = await setup.service.invoke(setup.person, connectionRef, {
+    operationRef: "aws-identity-center.list-accounts",
+    input: {},
+    commandId: "after-unknown-refresh",
+  });
+  assert.equal(result.state, "human-required");
+  assert.equal(result.code, "aws-identity-center.session.expired");
   assert.equal(setup.fixture.counts.token, sent, "no second presentation");
 });
 
