@@ -306,8 +306,11 @@ export async function startVercelAccount(options: VercelAccountOptions = {}) {
     );
   };
 
+  /** Set by `refuseRefreshesWith`: every refresh grant is answered with this OAuth error. */
+  let refreshRefusal: string | undefined;
   const refreshGrant = async (clientId: string, values: URLSearchParams) => {
     counts.refresh++;
+    if (refreshRefusal !== undefined) return oauthError(400, refreshRefusal);
     const held = refreshTokens.get(values.get("refresh_token") ?? "");
     if (!held) return oauthError(400, "invalid_grant");
     // assumed: a refresh token presented by another client is invalid_grant
@@ -536,6 +539,10 @@ export async function startVercelAccount(options: VercelAccountOptions = {}) {
     deny,
     userCodes: () => [...devicesByUserCode.keys()],
     /** The token endpoint answers this status (a 5xx) without acting on the request; null restores it. */
+    /** Every refresh grant is answered with this OAuth error from now on (documented for a team-restricted application); null restores it. */
+    refuseRefreshesWith(error: string | null) {
+      refreshRefusal = error ?? undefined;
+    },
     /** The token endpoint reports this token_type from now on (a type the client does not support, to prove its answer is not echoed). */
     answerTokensAs(type: string) {
       tokenType = type;

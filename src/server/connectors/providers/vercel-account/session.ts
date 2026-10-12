@@ -134,7 +134,14 @@ export async function ensureFresh(
     if (error instanceof ConnectorError) {
       if (error.detail === "oauth.refresh.no-refresh-token")
         throw sessionEnded("session.expired", error);
-      if (error.detail === "oauth.token.invalid-grant")
+      // invalid_grant is a refresh token Vercel no longer honours; access_denied
+      // is what the dashboard page documents for an application restricted to a
+      // team the person is no longer in, at authorization, device approval and
+      // refresh alike. Neither can be retried.
+      if (
+        error.detail === "oauth.token.invalid-grant" ||
+        error.detail === "oauth.token.access-denied"
+      )
         throw sessionEnded("session.refresh-rejected", error);
       // A refresh token that may have been spent is never presented again,
       // so no later attempt can succeed: the person signs in again.

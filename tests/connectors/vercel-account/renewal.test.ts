@@ -112,6 +112,28 @@ test("a refresh Vercel refuses ends the session", async (t) => {
   assert.equal(setup.fixture.counts.replayedRefreshTokens, 1);
 });
 
+test("an application restricted to a team the person left is refused at refresh, which ends the session", async (t) => {
+  const setup = await accountSetup(t);
+  const { connectionRef } = await connectAndChoose(setup);
+  // Vercel's dashboard page: a team-restricted application is refused with
+  // access_denied when the user authorizes, completes the device flow or refreshes.
+  setup.fixture.refuseRefreshesWith("access_denied");
+  setup.advance(59 * MINUTE);
+  const view = await verify(setup, connectionRef);
+  assert.equal(view.lifecycle, "expired");
+  assert.equal(view.lastOutcome, "vercel-account.session.refresh-rejected");
+  assert.equal(setup.fixture.counts.refresh, 1);
+  // And it is not tried again.
+  setup.fixture.refuseRefreshesWith(null);
+  const again = await verify(setup, connectionRef);
+  assert.equal(again.lifecycle, "expired");
+  assert.equal(
+    setup.fixture.counts.refresh,
+    1,
+    "the refresh token is not presented again",
+  );
+});
+
 test("a person who removes the app in their dashboard ends the session, even with the token in date", async (t) => {
   const setup = await accountSetup(t);
   const { connectionRef } = await connectAndChoose(setup);
