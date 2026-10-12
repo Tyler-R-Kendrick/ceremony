@@ -1,0 +1,142 @@
+{
+  "swarm": "ACCOUNTS",
+  "recordedAt": "2026-10-12",
+  "adapters": [
+    {
+      "factory": "createAwsIdentityCenterAdapter()",
+      "module": "src/server/connectors/providers/aws-identity-center/index.ts",
+      "id": "aws-identity-center",
+      "ecosystem": "aws-identity-center",
+      "service": "aws",
+      "adapterVersion": "1.0.0",
+      "runtime": "hosted-server",
+      "support": "provider-backed",
+      "custody": ["host-owned"],
+      "profiles": ["aws-identity-center-device-2026-10"]
+    }
+  ],
+  "sourceProfiles": [
+    {
+      "id": "aws-identity-center-device-2026-10",
+      "retrievedAt": "2026-10-12",
+      "sources": [
+        "https://docs.aws.amazon.com/singlesignon/latest/OIDCAPIReference/ (API_RegisterClient, API_StartDeviceAuthorization, API_CreateToken, Welcome; last published October 9, 2026)",
+        "https://docs.aws.amazon.com/singlesignon/latest/PortalAPIReference/ (API_ListAccounts, API_ListAccountRoles, API_GetRoleCredentials, API_Logout, API_RoleCredentials, API_AccountInfo, API_RoleInfo, Welcome, CommonErrors)",
+        "https://docs.aws.amazon.com/general/latest/gr/sso.html (IAM Identity Center endpoints and quotas)",
+        "https://docs.aws.amazon.com/singlesignon/latest/userguide/howtogetcredentials.html",
+        "https://docs.aws.amazon.com/cli/latest/userguide/sso-configure-profile-token.html"
+      ],
+      "notInstalled": "No AWS SDK is a dependency. The adapter speaks the documented JSON wire format directly with fetch and zod."
+    }
+  ],
+  "workItems": [
+    {
+      "id": "ACCT-01",
+      "status": "implemented",
+      "files": [
+        "src/server/connectors/providers/aws-identity-center/contracts.ts",
+        "src/server/connectors/providers/aws-identity-center/client.ts",
+        "src/server/connectors/providers/aws-identity-center/material.ts",
+        "src/server/connectors/providers/aws-identity-center/device.ts",
+        "src/server/connectors/providers/aws-identity-center/selection.ts",
+        "src/server/connectors/providers/aws-identity-center/refresh.ts",
+        "src/server/connectors/providers/aws-identity-center/portal.ts",
+        "src/server/connectors/providers/aws-identity-center/invoke.ts",
+        "src/server/connectors/providers/aws-identity-center/evidence.ts",
+        "src/server/connectors/providers/aws-identity-center/index.ts"
+      ],
+      "tests": [
+        "tests/connectors/aws-identity-center/ceremony.test.ts",
+        "tests/connectors/aws-identity-center/renewal.test.ts",
+        "tests/connectors/aws-identity-center/custody.test.ts",
+        "tests/connectors/aws-identity-center/faults.test.ts",
+        "tests/connectors/aws-identity-center/wire.test.ts",
+        "tests/connectors/aws-identity-center/double.test.ts"
+      ],
+      "acceptanceIds": ["AC-ACCT-01", "AC-ACCT-02", "AC-ACCT-03", "AC-ACCT-04"],
+      "evidenceLevel": "protocol-fixture",
+      "sourceProfileIds": [
+        "aws-identity-center-device-2026-10",
+        "aws-identity-center-oidc-2026-10",
+        "aws-identity-center-portal-2026-10",
+        "aws-identity-center-endpoints-2026-10",
+        "aws-identity-center-user-guides-2026-10",
+        "rfc8628",
+        "rfc7591"
+      ],
+      "limitations": [
+        "Live account evidence blocked: no authorized AWS account or IAM Identity Center instance exists in this environment, so the sign-in has never run against AWS",
+        "The Portal API host (portal.sso.<region>.amazonaws.com), the unit of RoleCredentials.expiration, how slow_down grows the interval, which error answers a wrong or used deviceCode, and when a refresh token is issued are assumptions listed in AWS_ASSUMPTIONS; the double serves them as written there",
+        "Identity is the portal's report for the sign-in; STS GetCallerIdentity is not called, so the account the credentials act in is not independently observed",
+        "Logout ends the sign-in session; role sessions already issued continue until their own expiry, so an upstream disconnect never claims to end them",
+        "Authorization-code with PKCE for IAM Identity Center is not implemented: RegisterClient supports it, but a second browser leg adds nothing the device grant does not for a host that has no redirect origin of its own"
+      ],
+      "notes": "The person signs in on the AWS access portal's own page; the adapter registers a public client per sign-in, shows the verification URI and user code through the same device-code handoff every device grant here issues, polls CreateToken (pending, slow_down, access_denied, expired_token, a lost response) with each poll journaled before it is sent, then lists the accounts the binding permits and either binds the one account and role there is or asks the person. GetRoleCredentials issues the role's credentials, which go into custody with the sign-in tokens as one record so a local disconnect releases all of it. Role credentials are renewed with a new GetRoleCredentials call while the access token holds; only a lapsed access token costs a refresh grant, which is presented once."
+    }
+  ],
+  "supportEvidence": [
+    {
+      "adapterId": "aws-identity-center",
+      "check": "tests/connectors/aws-identity-center/ceremony.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-10-12",
+      "notes": "Connect, approve, choose an account and role, invoke and the refusals, through the real command service over the persistent state ports against the loopback IAM Identity Center double (tests/connectors/doubles/aws-identity-center.ts), which checks each request independently."
+    },
+    {
+      "adapterId": "aws-identity-center",
+      "check": "tests/connectors/aws-identity-center/renewal.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-10-12",
+      "notes": "Role credential renewal, access token refresh, session end, reconnect, and local and upstream disconnect against the same loopback double."
+    },
+    {
+      "adapterId": "aws-identity-center",
+      "check": "tests/connectors/aws-identity-center/custody.test.ts",
+      "target": "local-double",
+      "recordedAt": "2026-10-12",
+      "notes": "A sweep of every surface a caller can read for the secrets the double issued, with a positive control that finds them in custody."
+    }
+  ],
+  "acceptanceOracles": {
+    "AC-ACCT-01": "tests/connectors/aws-identity-center/ceremony.test.ts - the person approves on the provider's page, picks an account and role, and the connection is active with the account, role and expiry visible",
+    "AC-ACCT-02": "tests/connectors/aws-identity-center/double.test.ts and ceremony.test.ts - a wrong deviceCode, a replayed deviceCode, polling faster than the interval, an expired code, a denied approval, another client's code and a role the person does not hold are each refused",
+    "AC-ACCT-03": "tests/connectors/aws-identity-center/renewal.test.ts - role credentials renewed by a new GetRoleCredentials call, a refresh token presented once, a revoked role a reconnect",
+    "AC-ACCT-04": "tests/connectors/aws-identity-center/custody.test.ts - no issued secret on any surface a caller, a model, a log or the journal can read"
+  },
+  "verifiedFields": {
+    "verified": [
+      "RegisterClient: POST /client/register with clientName, clientType (public only), grantTypes, scopes; response clientId, clientSecret, clientIdIssuedAt, clientSecretExpiresAt, authorizationEndpoint, tokenEndpoint",
+      "StartDeviceAuthorization: POST /device_authorization with clientId, clientSecret, startUrl; response deviceCode, userCode, verificationUri, verificationUriComplete, expiresIn, interval",
+      "CreateToken: POST /token with clientId, clientSecret, grantType (device_code, refresh_token, authorization_code), deviceCode, refreshToken; response accessToken, tokenType, expiresIn, refreshToken",
+      "OIDC errors: JSON {error, error_description}; authorization_pending, slow_down, expired_token, access_denied, invalid_grant and invalid_request are HTTP 400, invalid_client is 401, server_error is 500",
+      "Portal operations: GET /assignment/accounts, GET /assignment/roles?account_id, GET /federation/credentials?account_id&role_name and POST /logout, each with the x-amz-sso_bearer_token header; max_result 1 to 100 with next_token paging; 400, 401, 404 and 429 documented",
+      "RoleCredentials members accessKeyId, secretAccessKey, sessionToken, expiration; AccountInfo accountId, accountName, emailAddress; RoleInfo accountId, roleName",
+      "Logout leaves IAM role sessions created from the permission set running for their configured duration",
+      "Role session duration is one to twelve hours with a one hour default",
+      "oidc.<region>.amazonaws.com is the OIDC host"
+    ],
+    "unverified": [
+      "The Portal API host name",
+      "The unit of RoleCredentials.expiration (the adapter reads epoch milliseconds and refuses a value that is not a role session)",
+      "The unit of clientSecretExpiresAt (read as epoch seconds)",
+      "That slow_down grows the interval by five seconds",
+      "Which error answers a wrong, foreign or already-used deviceCode (read as invalid_grant)",
+      "That an unassigned role or account is answered 404",
+      "That a refresh token is issued only to a client registered with the refresh_token grant and a scope, and whether it rotates",
+      "That a portal call with another client's token or a lapsed token is answered 401"
+    ]
+  },
+  "evidence": {
+    "command": "node --no-experimental-webstorage --import tsx --test tests/connectors/aws-identity-center/*.test.ts",
+    "result": "see the generated evidence summary",
+    "notLive": "Every result is protocol-fixture evidence over loopback. No AWS account, IAM Identity Center instance, client registration or credential was used, and no request left the machine except the documentation reads listed in externalEffectsPerformed.",
+    "independence": "tests/connectors/doubles/aws-identity-center.ts imports nothing from src/server/connectors/providers/aws-identity-center. It checks the method, path, content type, body members and token header of every request and records a wire deviation in `violations`; the ceremony tests assert it empty."
+  },
+  "unmet": [
+    "Live-authorized evidence for every dimension (no authorized AWS account or IAM Identity Center instance is available in this environment)",
+    "The abandoned-attempt sweep: a registration record whose person never completes the account and role choice stays in custody until its access token expires"
+  ],
+  "externalEffectsPerformed": [
+    "Read-only documentation fetches from docs.aws.amazon.com (OIDC and Portal API references, the General Reference endpoint table, and the IAM Identity Center and AWS CLI user guides)"
+  ]
+}

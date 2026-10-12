@@ -30,6 +30,7 @@ import { createAirbyteAdapter } from "./providers/airbyte/adapter.js";
 import { createHasuraNdcAdapter } from "./providers/hasura-ndc/adapter.js";
 import { createMergeAdapter } from "./providers/merge/adapter.js";
 import { createAgentCoreGatewayAdapter } from "./providers/aws-agentcore/adapter.js";
+import { createAwsIdentityCenterAdapter } from "./providers/aws-identity-center/index.js";
 import { createGoogleConnectorsAdapter } from "./providers/google-integration-connectors/adapter.js";
 import { createDaprAdapter } from "./providers/dapr/adapter.js";
 import { createOpenServiceBrokerAdapter } from "./providers/open-service-broker/adapter.js";
@@ -136,6 +137,7 @@ const standardAdapters: readonly ((
 
   // Configured cloud resources; absent credentials yield configuration-required.
   () => createAgentCoreGatewayAdapter(),
+  () => createAwsIdentityCenterAdapter(),
   () => createGoogleConnectorsAdapter(),
 
   // Bindings and agent surfaces.

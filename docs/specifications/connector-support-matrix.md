@@ -8,11 +8,11 @@ Read it with three rules in mind.
 - **Evidence is not certification.** Every level below is `unit`, `protocol-fixture` or `local-integration`. No live vendor credential exists in this environment, so no row anywhere claims live or vendor-certified behaviour. A loopback double proving wire correctness is not a provider's endorsement.
 - **Rows are measured with no configuration present.** `capabilities(new Set())` is what a fresh deployment sees. A dimension shown as `requires-configuration` becomes usable once the named configuration is supplied and the host approves a binding, not before.
 
-Generated from 28 constructible adapters and 29 ledgers.
+Generated from 29 constructible adapters and 30 ledgers.
 
 ## Support labels
 
-A support label is computed from dated evidence entries, never from the adapter family (`computeSupportLabel` in `src/core/connectors/support-labels.ts`). The label is the strongest one any fresh, admissible entry earns. An entry older than its window has expired and earns nothing. Live and certified entries count only where the configuration they were measured with is present. The labels below are evaluated as of 2026-09-23, the newest day any entry was recorded; a running deployment evaluates the same entries against its own clock, so they can only lapse there, never strengthen.
+A support label is computed from dated evidence entries, never from the adapter family (`computeSupportLabel` in `src/core/connectors/support-labels.ts`). The label is the strongest one any fresh, admissible entry earns. An entry older than its window has expired and earns nothing. Live and certified entries count only where the configuration they were measured with is present. The labels below are evaluated as of 2026-10-12, the newest day any entry was recorded; a running deployment evaluates the same entries against its own clock, so they can only lapse there, never strengthen.
 
 | Label        | Earned by at least one entry against | Fresh for | Needs configuration |
 | ------------ | ------------------------------------ | --------- | ------------------- |
@@ -40,6 +40,7 @@ No recorded entry has expired.
 | `airbyte`                       | airbyte                       | hosted-server | provider-backed | local             | host-owned                                            | implemented / protocol-fixture           | implemented / missing / protocol-fixture | unsupported                              | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported                              | unsupported                    |
 | `auth0-token-vault`             | auth0-token-vault             | hosted-server | provider-backed | local             | external-credential-broker                            | unsupported                              | implemented / missing / unit             | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported                              | unsupported                    |
 | `aws-agentcore-gateway`         | aws-agentcore                 | hosted-server | provider-backed | local             | host-owned, external-execution-broker                 | implemented / protocol-fixture           | unsupported                              | unsupported                              | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported                              | unsupported                    |
+| `aws-identity-center`           | aws                           | hosted-server | provider-backed | local             | host-owned                                            | unsupported                              | unsupported                              | implemented / protocol-fixture           | implemented / protocol-fixture           | implemented / protocol-fixture           | unsupported                              | unsupported                    |
 | `camel-kamelet`                 | camel-kamelet                 | hosted-server | provider-backed | local             | no-credential, external-execution-broker              | implemented / protocol-fixture           | unsupported                              | unsupported                              | unsupported                              | unsupported                              | unsupported                              | implemented / protocol-fixture |
 | `catalog-http`                  | provider-catalog              | hosted-server | fixture         | local (code path) | host-owned, no-credential                             | implemented / protocol-fixture           | implemented / protocol-fixture           | implemented / protocol-fixture           | implemented / protocol-fixture           | implemented / protocol-fixture           | unsupported                              | unsupported                    |
 | `composio`                      | composio                      | hosted-server | provider-backed | local             | external-credential-broker, external-execution-broker | unsupported                              | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | unsupported                              | unsupported                    |
@@ -75,6 +76,7 @@ Lifecycle is not one dimension. Local disconnect, broker deletion and upstream r
 | `airbyte`                       | implemented / missing / protocol-fixture | implemented / missing / protocol-fixture | reconnect: unsupported; disconnect: implemented; revoke: unsupported    |
 | `auth0-token-vault`             | implemented / missing / protocol-fixture | unsupported                              | reconnect: implemented; disconnect: implemented; revoke: unsupported    |
 | `aws-agentcore-gateway`         | implemented / missing / protocol-fixture | unsupported                              | reconnect: unsupported; disconnect: implemented; revoke: unsupported    |
+| `aws-identity-center`           | unsupported                              | unsupported                              | reconnect: implemented; disconnect: implemented; revoke: implemented    |
 | `camel-kamelet`                 | unsupported                              | unsupported                              | reconnect: unsupported; disconnect: unsupported; revoke: unsupported    |
 | `catalog-http`                  | unsupported                              | unsupported                              | reconnect: implemented; disconnect: implemented; revoke: unsupported    |
 | `composio`                      | implemented / missing / protocol-fixture | unsupported                              | reconnect: implemented; disconnect: implemented; revoke: implemented    |
@@ -110,6 +112,7 @@ A `provider-backed` adapter missing required configuration is shown in the direc
 | `airbyte`                       | 2026.09.18      | `AIRBYTE_API_URL` (public), `AIRBYTE_API_KEY` (secret)                                                                                | protocol-fixture | `tests/connectors/airbyte/adapter.test.ts` (local-double, 2026-09-23)                       | DATA               | `http-bearer`                                                                                           |
 | `auth0-token-vault`             | 2026.09.18      | `AUTH0_DOMAIN` (public), `AUTH0_CLIENT_ID` (public), `AUTH0_CLIENT_SECRET` (secret)                                                   | protocol-fixture | `tests/connectors/auth0/exchange.test.ts` (local-double, 2026-09-23)                        | IDENTITY-BROKERS   | `external-broker`, `auth0-token-vault-exchange`                                                         |
 | `aws-agentcore-gateway`         | 1.0.0           | `AWS_AGENTCORE_ACCESS_KEY_ID` (secret), `AWS_AGENTCORE_SECRET_ACCESS_KEY` (secret)                                                    | protocol-fixture | `tests/connectors/aws-agentcore/adapter.test.ts` (local-double, 2026-09-23)                 | CLOUD              | `aws-agentcore-control-2023-06-05`, `aws-agentcore-gateway-mcp-2026-07-28`                              |
+| `aws-identity-center`           | 1.0.0           | none                                                                                                                                  | protocol-fixture | `tests/connectors/aws-identity-center/ceremony.test.ts` (local-double, 2026-10-12)          | ACCOUNTS           | `aws-identity-center-device-2026-10`                                                                    |
 | `camel-kamelet`                 | 1.0.0           | none                                                                                                                                  | protocol-fixture | `tests/connectors/camel-kamelet/runner.test.ts` (local-double, 2026-09-23)                  | BINDINGS           | `camel-kamelet-v1`                                                                                      |
 | `catalog-http`                  | 1.0.0           | none                                                                                                                                  | protocol-fixture | `tests/connectors/provider-catalog/credentials.test.ts` (local-double, 2026-09-23)          | PROVIDER-CATALOG   | `oauth-authorization-code`, `oauth-client-credentials`, `api-key`, `http-basic`, `http-bearer`, `none`  |
 | `composio`                      | 1.0.0           | `COMPOSIO_API_KEY` (secret)                                                                                                           | protocol-fixture | `tests/connectors/composio/authorize.test.ts` (local-double, 2026-09-23)                    | COMPOSIO           | `composio-hosted-authorization`, `external-broker`                                                      |
@@ -194,6 +197,20 @@ Module: `src/server/connectors/providers/aws-agentcore/index.ts` (`createAgentCo
 - revoke: Upstream revocation belongs to IAM or the gateway's identity provider
 - export: A gateway binding is account-specific and is not exportable metadata
 - delegate: The gateway exposes tools, not delegated tasks
+
+### `aws-identity-center` — AWS IAM Identity Center sign-in
+
+Module: `src/server/connectors/providers/aws-identity-center/index.ts` (`createAwsIdentityCenterAdapter`).
+
+- authorize: The person signs in and approves on the AWS access portal's own page; this adapter never sees the sign-in.
+- authorize: One client is registered per sign-in (RegisterClient); its secret, every token and the role credentials stay in custody.
+- authorize: Written from the OIDC and Portal API references and run only against a loopback double; the portal host, the credential expiration unit and several error mappings are assumptions listed in contracts.ts.
+- verify: Renews role credentials with a new GetRoleCredentials call; the refresh grant is presented only when the access token has lapsed.
+- verify: Identity is the portal's report for this sign-in; STS is not asked.
+- invoke: Read-only: ListAccounts and ListAccountRoles for the accounts the binding permits. Role credentials are never an output.
+- reconnect: Reconnecting is a new sign-in; a different account or role needs an explicit account switch.
+- disconnect: Local release revokes the held tokens and role credentials; the upstream scope calls the portal's Logout.
+- revoke: Logout ends the sign-in session; role sessions already issued run to their own expiry.
 
 ### `camel-kamelet` — Apache Camel Kamelets
 

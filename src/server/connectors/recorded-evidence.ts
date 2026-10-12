@@ -10,7 +10,7 @@
 import type { SupportEvidence } from "../../core/connectors/index.js";
 
 /** The newest day any entry below was recorded. */
-export const recordedEvidenceAsOf = "2026-09-23";
+export const recordedEvidenceAsOf = "2026-10-12";
 
 export const recordedSupportEvidence: readonly SupportEvidence[] = [
   {
@@ -144,6 +144,36 @@ export const recordedSupportEvidence: readonly SupportEvidence[] = [
     target: "in-process-fixture",
     recordedAt: "2026-09-23",
     notes: "SigV4 request signing against published test vectors, in process.",
+  },
+  {
+    adapterId: "aws-identity-center",
+    check: "ledger:ACCOUNTS/ACCT-01",
+    target: "in-process-fixture",
+    recordedAt: "2026-10-12",
+  },
+  {
+    adapterId: "aws-identity-center",
+    check: "tests/connectors/aws-identity-center/ceremony.test.ts",
+    target: "local-double",
+    recordedAt: "2026-10-12",
+    notes:
+      "Connect, approve, choose an account and role, invoke and the refusals, through the real command service over the persistent state ports against the loopback IAM Identity Center double (tests/connectors/doubles/aws-identity-center.ts), which checks each request independently.",
+  },
+  {
+    adapterId: "aws-identity-center",
+    check: "tests/connectors/aws-identity-center/custody.test.ts",
+    target: "local-double",
+    recordedAt: "2026-10-12",
+    notes:
+      "A sweep of every surface a caller can read for the secrets the double issued, with a positive control that finds them in custody.",
+  },
+  {
+    adapterId: "aws-identity-center",
+    check: "tests/connectors/aws-identity-center/renewal.test.ts",
+    target: "local-double",
+    recordedAt: "2026-10-12",
+    notes:
+      "Role credential renewal, access token refresh, session end, reconnect, and local and upstream disconnect against the same loopback double.",
   },
   {
     adapterId: "camel-kamelet",

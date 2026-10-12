@@ -106,6 +106,7 @@ export const knownEcosystems = [
   "hasura-ndc",
   "merge",
   "aws-agentcore",
+  "aws-identity-center",
   "google-integration-connectors",
   "camel-kamelet",
   "dapr",

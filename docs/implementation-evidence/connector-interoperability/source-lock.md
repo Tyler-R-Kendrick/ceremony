@@ -14,9 +14,9 @@ One record per external specification, standards draft or vendor document that a
 
 ## Coverage
 
-- Records: 80, pinned 2026-09-18.
-- Ledgers this lock claims to cover completely: AGENT-SURFACES, CATALOGS, CLOUD, COMMAND, COMPOSIO, CONTRACT, DATA, EVENT, HTTP, IMPORT, INT, MCP, MICROSOFT, NANGO, OAUTH, PIPEDREAM, REGISTRY, STATE, SUPABASE, VERCEL, WORKFLOW.
-- Source profile identifiers cited by the ledgers on disk: 112.
+- Records: 85, pinned 2026-09-18.
+- Ledgers this lock claims to cover completely: ACCOUNTS, AGENT-SURFACES, CATALOGS, CLOUD, COMMAND, COMPOSIO, CONTRACT, DATA, EVENT, HTTP, IMPORT, INT, MCP, MICROSOFT, NANGO, OAUTH, PIPEDREAM, REGISTRY, STATE, SUPABASE, VERCEL, WORKFLOW.
+- Source profile identifiers cited by the ledgers on disk: 117.
 - Cited identifiers with no lock record: 32 (`auth0-myaccount-api-1.0`, `auth0-token-vault-2026-09-18`, `camel-kamelet-v1@4.22.0`, `ceremony-connector-v1`, `ceremony-connectors-http-v1`, `ceremony-external-runtime/1`, `dapr-bindings-http-v1.0`, `dapr-component-v1alpha1`, `mcp-registry-v0.1`, `n8n-node`, `n8n-node-description/1`, `n8n-node-source-static/1`, `n8n-static-node/1`, `nango-webhooks-2026-09`, `openapi-overlay-1.1.0`, `osb-2.17`, `rfc-6749-refresh`, `rfc-7591`, `rfc-7636`, `rfc-8414`, `rfc-8693`, `rfc-9207`, `rfc-9728`, `rfc6749-rfc7636-rfc8414-rfc9207-authorization-server`, `workato-connector-ruby-static/1`, `workato-sdk`, `workato-static-profile/1`, `workos-pipes-rest-2026-09-18`, `zapier-app-definition/19`, `zapier-app-source-static/1`, `zapier-cli`, `zapier-static-app/1`).
 - Of those, from a ledger this lock claims to cover: 0.
 - Lock records no ledger currently cites: 0.
@@ -1338,3 +1338,83 @@ Ledgers landed while this lock was being written. `coversLedgers` names the ledg
 - Modules: `src/server/connectors/formats/microsoft/`
 - Recorded by: MICROSOFT
 - Notes: No claim is made to run Power Platform policies or custom code: imported policies and automation code are inert and execution-blocked while their useful metadata is preserved. A testConnection returning 200 with no account or permission evidence records demonstrated connectivity only, never account identity.
+
+### `aws-identity-center-oidc-2026-10` — AWS IAM Identity Center OIDC API Reference (RegisterClient, StartDeviceAuthorization, CreateToken)
+
+- Kind: vendor-api
+- URL: <https://docs.aws.amazon.com/singlesignon/latest/OIDCAPIReference/>
+- Retrieved at: 2026-10-12
+- Upstream version: OIDC API Reference, page footer 'last published on October 9, 2026'
+- Revision: read 2026-10-12
+- Digest: `sha256:b1cc3c6cfdd303885b3afd108e749b42ca78dbe4eb5c475b30066c02a96f929f`
+- Licence: proprietary vendor documentation. AWS documentation is the vendor's copyrighted publication; no open licence is offered and none is assumed. No AWS SDK is used and no AWS source is vendored. (Established: not-read-here.)
+- Reuse: Request and response members, error codes and HTTP statuses of the three operations the device authorization grant uses. The reference says the service implements only the portions of RFC 8628 needed for the AWS CLI; nothing beyond that is assumed. No text or example is copied into this repository.
+- Dependent adapters: `aws-identity-center`
+- Dependent profile identifiers: `aws-identity-center-device-2026-10`
+- Modules: `src/server/connectors/providers/aws-identity-center/`
+- Recorded by: ACCOUNTS
+- Notes: Not stated by the pages and therefore assumed, each marked in the loopback double: how slow_down grows the interval, which error answers a wrong or already-used deviceCode, that clientSecretExpiresAt is epoch seconds, and when a refresh token is issued.
+
+### `aws-identity-center-portal-2026-10` — AWS IAM Identity Center Portal API Reference (ListAccounts, ListAccountRoles, GetRoleCredentials, Logout)
+
+- Kind: vendor-api
+- URL: <https://docs.aws.amazon.com/singlesignon/latest/PortalAPIReference/>
+- Retrieved at: 2026-10-12
+- Upstream version: Portal API Reference, page footer 'last published on October 9, 2026'
+- Revision: read 2026-10-12
+- Digest: `sha256:35548e5728c4816c734e50fb2733a30c230c089aec7d5fc4af543302a1cc74fb`
+- Licence: proprietary vendor documentation. AWS documentation is the vendor's copyrighted publication; no open licence is offered and none is assumed. No AWS SDK is used and no AWS source is vendored. (Established: not-read-here.)
+- Reuse: Paths, query names, the x-amz-sso_bearer_token header, response members and documented statuses of the four operations. RoleCredentials.expiration is typed only as Long, so epoch milliseconds is an assumption and an implausible value is refused.
+- Dependent adapters: `aws-identity-center`
+- Dependent profile identifiers: `aws-identity-center-device-2026-10`
+- Modules: `src/server/connectors/providers/aws-identity-center/`
+- Recorded by: ACCOUNTS
+- Notes: The Portal API host (portal.sso.<region>.amazonaws.com) appears on none of the pages read, and the General Reference endpoint table lists the sso and oidc hosts only; the adapter pins a public destination to that name by assumption and a loopback or approved-private destination is the host's own decision. Logout is documented to leave IAM role sessions already issued running until their own duration.
+
+### `aws-identity-center-endpoints-2026-10` — AWS General Reference: IAM Identity Center endpoints and quotas
+
+- Kind: vendor-doc
+- URL: <https://docs.aws.amazon.com/general/latest/gr/sso.html>
+- Retrieved at: 2026-10-12
+- Upstream version: read 2026-10-12
+- Revision: IAM Identity Center OpenID Connect (OIDC) table
+- Digest: `sha256:b61f8e83335ede4e51a773e2c542a6949d1823cbd93d614d5ac1c376119e1b4b`
+- Licence: proprietary vendor documentation. AWS documentation is the vendor's copyrighted publication; no open licence is offered and none is assumed. No AWS SDK is used and no AWS source is vendored. (Established: not-read-here.)
+- Reuse: The oidc.<region>.amazonaws.com host form, used to pin a public OIDC destination to the reviewed Region.
+- Dependent adapters: `aws-identity-center`
+- Dependent profile identifiers: `aws-identity-center-device-2026-10`
+- Modules: `src/server/connectors/providers/aws-identity-center/`
+- Recorded by: ACCOUNTS
+- Notes: The page lists oidc.<region>.amazonaws.com. It does not list a Portal API host.
+
+### `aws-identity-center-user-guides-2026-10` — AWS IAM Identity Center and AWS CLI user guides: getting credentials, token provider and sso-session configuration
+
+- Kind: vendor-doc
+- URL: <https://docs.aws.amazon.com/singlesignon/latest/userguide/howtogetcredentials.html>
+- Retrieved at: 2026-10-12
+- Upstream version: read 2026-10-12
+- Revision: howtogetcredentials, plus the AWS CLI user guide page sso-configure-profile-token
+- Digest: `sha256:5982d4f985bfca4c39276b8909cffd01f7f5a3e646a8f5a45b4579b687e1b6b4`
+- Licence: proprietary vendor documentation. AWS documentation is the vendor's copyrighted publication; no open licence is offered and none is assumed. No AWS SDK is used and no AWS source is vendored. (Established: not-read-here.)
+- Reuse: Role session duration of one to twelve hours (one hour by default), the sso:account:access registration scope the CLI names for refreshable sessions, and the device authorization URL form.
+- Dependent adapters: `aws-identity-center`
+- Dependent profile identifiers: `aws-identity-center-device-2026-10`
+- Modules: `src/server/connectors/providers/aws-identity-center/`
+- Recorded by: ACCOUNTS
+- Notes: The CLI guide ties token refresh to a registration scope; that a refresh token is issued only to a client that registered one is an inference, not a published statement.
+
+### `aws-identity-center-device-2026-10` — Profile of the AWS IAM Identity Center sign-in adapter (alias of its OIDC and Portal records)
+
+- Kind: alias
+- URL: <https://docs.aws.amazon.com/singlesignon/latest/OIDCAPIReference/>
+- Retrieved at: 2026-10-12
+- Upstream version: 2026-10
+- Revision: alias record so the adapter's profile name resolves
+- Digest: none captured
+- Licence: proprietary vendor documentation. See aws-identity-center-oidc-2026-10. (Established: see aws-identity-center-oidc-2026-10.)
+- Reuse: See aws-identity-center-oidc-2026-10 and aws-identity-center-portal-2026-10.
+- Dependent adapters: `aws-identity-center`
+- Dependent profile identifiers: `aws-identity-center-device-2026-10`
+- Modules: `src/server/connectors/providers/aws-identity-center/`
+- Recorded by: ACCOUNTS
+- Notes: Alias only. The profile covers the device authorization grant against the OIDC service and the access portal operations that turn its access token into role credentials.
