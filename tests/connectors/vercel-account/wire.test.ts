@@ -83,11 +83,7 @@ test("the recorded discovery document resolves under the policy a host pins for 
   // Without the host naming api.vercel.com, Vercel's own metadata cannot move the endpoints there.
   await assert.rejects(
     resolveAuthorizationServer(
-      issuerPolicy({
-        ...vercelAccountIssuerPolicy(),
-        trustedOrigins: [],
-        acceptIssuerDeclaredOrigins: false,
-      }),
+      issuerPolicy({ ...vercelAccountIssuerPolicy(), trustedOrigins: [] }),
       { fetch: recordedVercel },
     ),
     (error: unknown) =>

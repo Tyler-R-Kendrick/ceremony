@@ -112,13 +112,19 @@ export function vercelAccountSettings(
 
 /**
  * The issuer policy a host pins under `settings.oauth` for the real Vercel:
- * the issuer is vercel.com, whose metadata places the device, token,
- * revocation and registration endpoints on api.vercel.com, so that origin is
- * trusted explicitly. The client is pre-registered: an application made on
- * the Sign in with Vercel dashboard page with client authentication `none`,
- * its id in configuration. RFC 7591 registration is not offered, because the
- * generic client resolution only registers a method the issuer's metadata
- * lists, and Vercel's lists no `none`.
+ * the issuer is vercel.com, whose metadata places the device, token and
+ * revocation endpoints on api.vercel.com, so that origin is trusted
+ * explicitly and is the only one besides the issuer's own. An origin the
+ * issuer's metadata declares for itself is not accepted
+ * (`acceptIssuerDeclaredOrigins: false`): with the default, a substituted
+ * discovery document could send the device code and the refresh token to any
+ * HTTPS origin, and the explicit one would be decorative.
+ *
+ * The client is pre-registered: an application made on the Sign in with
+ * Vercel dashboard page with client authentication `none`, its id in
+ * configuration. RFC 7591 registration is not offered, because the generic
+ * client resolution only registers a method the issuer's metadata lists, and
+ * Vercel's lists no `none`.
  */
 export function vercelAccountIssuerPolicy(
   options: { revoke?: boolean } = {},
@@ -126,6 +132,7 @@ export function vercelAccountIssuerPolicy(
   return {
     issuer: VERCEL_ISSUER,
     trustedOrigins: [VERCEL_API_ORIGIN],
+    acceptIssuerDeclaredOrigins: false,
     registration: {
       allowed: ["pre-registered"],
       clientIdConfiguration: vercelAccountConfigurationNames.clientId,
