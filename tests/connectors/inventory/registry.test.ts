@@ -138,3 +138,22 @@ test("INT-INV-06: catalog rows report a real runtime and custody, never a guess"
         assert.equal(status.implementation, "unsupported", entry.id);
   }
 });
+
+test("INT-INV-07: the account sign-ins are registered, and the Vercel management leg takes a sign-in only when the host supplies the lookup", () => {
+  const bare = createConnectorRegistry();
+  const ids = bare.list().map((adapter) => adapter.id);
+  assert.ok(ids.includes("aws-identity-center"));
+  assert.ok(ids.includes("vercel-account"));
+  const managementReady = (registry: typeof bare) =>
+    registry
+      .require("vercel-connect")
+      .capabilities(new Set(["VERCEL_TEAM_ID"]))
+      .find((row) => row.dimension === "invoke")!.configuration;
+  assert.equal(managementReady(bare), "missing");
+  const supplied = createConnectorRegistry({
+    ports: { vercelManagementToken: async () => undefined },
+  });
+  assert.equal(managementReady(supplied), "ready");
+  // The lookup is a seam on an adapter that is always there: it adds no row.
+  assert.equal(supplied.list().length, bare.list().length);
+});
