@@ -1,18 +1,7 @@
 import * as oauth from "oauth4webapi";
 import { importJWK, type CryptoKey } from "jose";
 import { z } from "zod";
-import { boundResponse } from "./connectors/auth/response-bound.js";
-import { publicAuthFetch } from "./public-auth-fetch.js";
-
-/**
- * The transport oauth4webapi reads from: the given fetch, with its answer read
- * under the OAuth ceiling before the library sees a byte of it, as everywhere
- * an OAuth answer is read (`connectors/auth/wire.ts`).
- */
-const boundedAuthFetch =
-  (fetcher: typeof fetch): typeof fetch =>
-  async (input, init) =>
-    boundResponse(await fetcher(input, init));
+import { boundedAuthFetch, publicAuthFetch } from "./public-auth-fetch.js";
 
 export const dpopJwkSchema = z.object({
   kty: z.literal("EC"),

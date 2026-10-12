@@ -2,6 +2,7 @@ import { lookup } from "node:dns/promises";
 import type { LookupAddress } from "node:dns";
 import { BlockList, isIP, type LookupFunction } from "node:net";
 import { Agent } from "undici";
+import { boundResponse } from "./connectors/auth/response-bound.js";
 
 const excluded = new BlockList();
 for (const [address, prefix] of [
@@ -123,3 +124,14 @@ export const publicAuthFetch = createPublicAuthFetch();
 export const loopbackAuthFetch = createPublicAuthFetch({
   allowLoopbackHttp: true,
 });
+
+/**
+ * The transport oauth4webapi reads an author's provider through: the given
+ * fetch, with its answer read under the OAuth ceiling before the library sees
+ * a byte of it, as everywhere an OAuth answer is read
+ * (`connectors/auth/wire.ts`).
+ */
+export const boundedAuthFetch =
+  (fetcher: typeof fetch): typeof fetch =>
+  async (input, init) =>
+    boundResponse(await fetcher(input, init));

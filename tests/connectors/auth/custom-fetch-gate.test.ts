@@ -30,7 +30,7 @@ const WRAPPERS: Record<string, { file: string; builtOn: string }> = {
     builtOn: "wireFetch(",
   },
   "boundedAuthFetch(": {
-    file: "src/server/authored-oauth.ts",
+    file: "src/server/public-auth-fetch.ts",
     builtOn: "boundResponse(",
   },
 };
