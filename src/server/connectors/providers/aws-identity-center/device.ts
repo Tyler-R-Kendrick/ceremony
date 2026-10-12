@@ -243,6 +243,11 @@ function pollContext(ctx: AdapterCallContext): PollContext {
     1,
     Math.floor(Number(handoff.private["interval"]) || 5),
   );
+  // The first poll is not held back: the interval spaces polls that follow one
+  // another (RFC 8628 §3.5; CreateToken says "the number of seconds the client
+  // must wait between attempts"), and an early first poll costs one request
+  // that is answered authorization_pending. The shared device-grant family
+  // starts the same way; every later poll waits `interval` from the last.
   return {
     deviceCode,
     registrationRef,

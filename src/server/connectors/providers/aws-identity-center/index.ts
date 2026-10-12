@@ -10,7 +10,7 @@ import type {
 import { capabilityStatus } from "../../adapter.js";
 import type { BoundOperation } from "../../binding.js";
 import { ConnectorError } from "../../errors.js";
-import type { AwsCredentials } from "../aws-agentcore/sigv4.js";
+import type { AwsCredentials } from "../../aws-credentials.js";
 import { beginSignIn, pollSignIn } from "./device.js";
 import { roleClaims, roleTarget } from "./evidence.js";
 import { endSignIn, invokeAws } from "./invoke.js";
@@ -28,7 +28,6 @@ import { boundIdentity, ensureCurrent } from "./refresh.js";
 import { completeSelection } from "./selection.js";
 
 export * from "./contracts.js";
-export { callAws, awsDestination } from "./client.js";
 export { SELECT_ROLE_INTENT } from "./selection.js";
 export { AWS_DEVICE_EXCHANGE_OPERATION } from "./device.js";
 export { AWS_TOKEN_REFRESH_OPERATION } from "./refresh.js";

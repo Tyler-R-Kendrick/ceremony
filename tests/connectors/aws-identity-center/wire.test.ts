@@ -4,15 +4,17 @@ import type { AdapterCallContext } from "../../../src/server/connectors/adapter.
 import { runtimeBindingSchema } from "../../../src/server/connectors/binding.js";
 import { ConnectorError } from "../../../src/server/connectors/errors.js";
 import {
-  awsDestination,
   awsSettings,
-  callAws,
   createAwsIdentityCenterAdapter,
   oidcErrorCode,
   portalFailure,
   registerClientResponseSchema,
 } from "../../../src/server/connectors/providers/aws-identity-center/index.js";
-import { readBounded } from "../../../src/server/connectors/providers/aws-identity-center/client.js";
+import {
+  awsDestination,
+  callAws,
+  readBounded,
+} from "../../../src/server/connectors/providers/aws-identity-center/client.js";
 import {
   parseMaterial,
   serializeMaterial,
