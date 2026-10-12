@@ -106,6 +106,7 @@ test("a sign-in for one team never administers another", async (t) => {
     list(rigged),
     (error: unknown) =>
       error instanceof ConnectorError &&
+      error.code === "denied" &&
       error.detail === "vercel.management.team-mismatch",
   );
   assert.equal(
@@ -125,6 +126,7 @@ test("another person's sign-in is refused, whatever the host's lookup returned",
     list(rigged, impostor),
     (error: unknown) =>
       error instanceof ConnectorError &&
+      error.code === "denied" &&
       error.detail === "vercel-account.management.not-owner",
   );
   const otherTenant = {
@@ -135,6 +137,7 @@ test("another person's sign-in is refused, whatever the host's lookup returned",
     list(rigged, otherTenant),
     (error: unknown) =>
       error instanceof ConnectorError &&
+      error.code === "denied" &&
       error.detail === "vercel-account.management.not-owner",
   );
   assert.equal(rigged.connect.calls.length, 0);

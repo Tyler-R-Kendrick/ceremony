@@ -77,6 +77,15 @@ test("a refresh answered 5xx is never presented again", async (t) => {
     (error: unknown) =>
       error instanceof ConnectorError && error.code === "upstream-unavailable",
   );
+  assert.ok(
+    setup.journal.some(
+      (entry) =>
+        "status" in entry &&
+        entry.status === "indeterminate" &&
+        entry.code === "aws-identity-center.refresh.indeterminate",
+    ),
+    "the journal says the refresh may have been spent",
+  );
   const sent = setup.fixture.counts.token;
   setup.fixture.failTokens(null);
   // The token may have been spent, so the session ends for a person to start
@@ -108,6 +117,29 @@ test("an invocation that meets a refresh token that may have been spent stops fo
   assert.equal(result.state, "human-required");
   assert.equal(result.code, "aws-identity-center.session.expired");
   assert.equal(setup.fixture.counts.token, sent, "no second presentation");
+});
+
+test("a refresh request that never left is not spent", async (t) => {
+  const setup = await awsSetup(t, {
+    double: { accessTokenLifetimeSeconds: 1200, roleLifetimeMs: 30 * 60_000 },
+  });
+  const { connectionRef } = await connectAndChoose(setup);
+  await setup.fixture.stopOidc();
+  setup.advance(26 * 60_000);
+  await assert.rejects(
+    setup.service.verify(setup.person, connectionRef),
+    unavailable,
+  );
+  assert.ok(
+    setup.journal.some(
+      (entry) =>
+        "status" in entry &&
+        entry.status === "not-applied" &&
+        entry.code === "aws-identity-center.refresh.unreachable",
+    ),
+    "the journal says the request did not leave, so the token is still good",
+  );
+  assert.equal(setup.fixture.counts.refresh, 0);
 });
 
 test("a portal that is down after the person approved leaves no tokens in custody", async (t) => {

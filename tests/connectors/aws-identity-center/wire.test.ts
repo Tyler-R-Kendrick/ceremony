@@ -309,7 +309,9 @@ test("stored material that is not a whole sign-in is refused, and a whole one ro
     assert.throws(
       () => parseMaterial(material),
       (error: unknown) =>
-        detailOf(error) === "aws-identity-center.credential.malformed",
+        error instanceof ConnectorError &&
+        error.code === "conflict" &&
+        error.detail === "aws-identity-center.credential.malformed",
     );
 });
 
@@ -327,7 +329,10 @@ test("a token that is not a bearer token is refused, and an over-long lifetime i
         { accessToken: "t", tokenType: "MAC", expiresIn: 60 },
         1000,
       ),
-    (error: unknown) => detailOf(error) === "aws-identity-center.token.type",
+    (error: unknown) =>
+      error instanceof ConnectorError &&
+      error.code === "upstream-rejected" &&
+      error.detail === "aws-identity-center.token.type",
   );
   const ok = signedIn(
     registered,

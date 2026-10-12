@@ -42,6 +42,11 @@ import {
 const detailOf = (error: unknown) =>
   error instanceof ConnectorError ? error.detail : undefined;
 
+const refusedAs = (code: string, detail: string) => (error: unknown) =>
+  error instanceof ConnectorError &&
+  error.code === code &&
+  error.detail === detail;
+
 const recordedDiscovery = readFileSync(
   new URL("../fixtures/vercel/openid-configuration.json", import.meta.url),
   "utf8",
@@ -185,7 +190,10 @@ test("a public destination is accepted only at api.vercel.com", async (t) => {
     assert.throws(
       () => accountApiDestination(withDestinations(binding, [api(origin)])),
       (error: unknown) =>
-        detailOf(error) === "vercel-account.destination.api-host",
+        refusedAs(
+          "network-policy",
+          "vercel-account.destination.api-host",
+        )(error),
       origin,
     );
   // A public destination is HTTPS before this rule is asked.
@@ -200,12 +208,15 @@ test("a public destination is accepted only at api.vercel.com", async (t) => {
         ]),
       ),
     (error: unknown) =>
-      detailOf(error) === "vercel-account.destination.api-host",
+      refusedAs("network-policy", "vercel-account.destination.api-host")(error),
   );
   assert.throws(
     () => accountApiDestination(withDestinations(binding, [])),
     (error: unknown) =>
-      detailOf(error) === "vercel-account.destination.api-missing",
+      refusedAs(
+        "network-policy",
+        "vercel-account.destination.api-missing",
+      )(error),
   );
 });
 
@@ -220,7 +231,7 @@ test("a binding that points the account calls somewhere else is refused before t
       intent: {},
     }),
     (error: unknown) =>
-      detailOf(error) === "vercel-account.destination.api-host",
+      refusedAs("network-policy", "vercel-account.destination.api-host")(error),
   );
   assert.equal(setup.fixture.counts.device, 0, "no device request was made");
 });
@@ -384,14 +395,28 @@ test("a response over the byte ceiling, a redirect, a malformed body and a body 
     try {
       await readUser(ctx, "vca_dummy_bearer");
     } catch (error) {
-      return detailOf(error);
+      return error instanceof ConnectorError
+        ? `${error.code}/${error.detail}`
+        : undefined;
     }
     return "ok";
   };
-  assert.equal(await outcome("large"), "vercel-account.response.too-large");
-  assert.equal(await outcome("redirect"), "vercel-account.network");
-  assert.equal(await outcome("garbage"), "vercel-account.api.invalid-response");
-  assert.equal(await outcome("shape"), "vercel-account.api.invalid-response");
+  assert.equal(
+    await outcome("large"),
+    "upstream-rejected/vercel-account.response.too-large",
+  );
+  assert.equal(
+    await outcome("redirect"),
+    "upstream-unavailable/vercel-account.network",
+  );
+  assert.equal(
+    await outcome("garbage"),
+    "upstream-rejected/vercel-account.api.invalid-response",
+  );
+  assert.equal(
+    await outcome("shape"),
+    "upstream-rejected/vercel-account.api.invalid-response",
+  );
   assert.equal(await outcome("fine"), "ok");
   mode = "teams-shape";
   await assert.rejects(

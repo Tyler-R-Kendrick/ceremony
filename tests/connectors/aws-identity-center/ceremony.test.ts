@@ -206,6 +206,7 @@ test("a role the binding does not list is neither offered nor accepted", async (
     ),
     (error: unknown) =>
       error instanceof ConnectorError &&
+      error.code === "denied" &&
       error.detail === "aws-identity-center.role.not-permitted",
   );
   assert.equal(restricted.fixture.counts.roleCredentials, 0);
@@ -223,6 +224,7 @@ test("an account the binding does not permit is refused even when typed", async 
     ),
     (error: unknown) =>
       error instanceof ConnectorError &&
+      error.code === "denied" &&
       error.detail === "aws-identity-center.account.not-permitted",
   );
   assert.equal(setup.fixture.counts.roleCredentials, 0);
@@ -240,6 +242,7 @@ test("a role the account does not hold is refused, the choice stays open, and a 
     }),
     (error: unknown) =>
       error instanceof ConnectorError &&
+      error.code === "invalid-request" &&
       error.detail === "aws-identity-center.role.unassigned",
   );
   assert.equal(

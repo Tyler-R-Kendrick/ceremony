@@ -270,7 +270,9 @@ test("a completion for a handoff of another kind, or one missing its session, is
   const ctx = await setup.adapterContext(connectionRefOf(connected));
   const values = { team: "acme" };
   const refusal = (detail: string) => (error: unknown) =>
-    detailOf(error) === detail;
+    error instanceof ConnectorError &&
+    error.code === "invalid-request" &&
+    error.detail === detail;
   await assert.rejects(
     adapter.complete!({ ...ctx, handoff: choice }, { kind: "poll" }),
     refusal("oauth.handoff.kind"),
@@ -423,7 +425,9 @@ test("an operation is run only if it is bound to the account API over HTTP, and 
       }),
     }) as AdapterCallContext;
   const unbound = (error: unknown) =>
-    detailOf(error) === "vercel-account.operation.unbound";
+    error instanceof ConnectorError &&
+    error.code === "denied" &&
+    error.detail === "vercel-account.operation.unbound";
   await assert.rejects(
     adapter.invoke!(
       rebound((operation) => ({ ...operation, destinationId: "elsewhere" })),
@@ -460,7 +464,10 @@ test("an operation is run only if it is bound to the account API over HTTP, and 
   const unbindable = { ...ctx, connection: { ...ctx.connection!, state: {} } };
   await assert.rejects(
     adapter.invoke!(unbindable, request),
-    (error: unknown) => detailOf(error) === "vercel-account.team.not-bound",
+    (error: unknown) =>
+      error instanceof ConnectorError &&
+      error.code === "conflict" &&
+      error.detail === "vercel-account.team.not-bound",
   );
 });
 
@@ -675,7 +682,10 @@ test("a request is bounded by the reviewed timeout and by the caller's signal", 
       contextFor(binding, hung.origin, { requestTimeoutMs: 150 }),
       "vca_dummy",
     ),
-    (error: unknown) => detailOf(error) === "vercel-account.network",
+    (error: unknown) =>
+      error instanceof ConnectorError &&
+      error.code === "upstream-unavailable" &&
+      error.detail === "vercel-account.network",
   );
   assert.ok(
     Date.now() - started < 5_000,
@@ -731,7 +741,9 @@ test("a listing with no pagination member is one page, and the destination may n
   assert.throws(
     () => accountApiDestination(withPrefix("/v2")),
     (error: unknown) =>
-      detailOf(error) === "vercel-account.destination.api-host",
+      error instanceof ConnectorError &&
+      error.code === "network-policy" &&
+      error.detail === "vercel-account.destination.api-host",
   );
   // The destination is found by its id, not by being first.
   const other = {
@@ -961,7 +973,9 @@ test("a poll answers a choice with no claim, a nothing-to-choose with a denial, 
       { kind: "input", values: { team } },
     );
   const refused = (detail: string) => (error: unknown) =>
-    detailOf(error) === detail;
+    error instanceof ConnectorError &&
+    error.code === "invalid-request" &&
+    error.detail === detail;
   await assert.rejects(
     ask("x".repeat(256)),
     refused("vercel-account.team.unknown"),

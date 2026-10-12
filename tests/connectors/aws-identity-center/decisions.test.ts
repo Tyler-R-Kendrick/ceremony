@@ -53,6 +53,11 @@ const account = (index: number, name?: string) => ({
   roles: ["ReadOnlyAccess"],
 });
 
+const refusedAs = (code: string, detail: string) => (error: unknown) =>
+  error instanceof ConnectorError &&
+  error.code === code &&
+  error.detail === detail;
+
 function personWith(accounts: PersonSeed["accounts"]): PersonSeed {
   return { id: "alice", accounts };
 }
@@ -110,6 +115,67 @@ test("a binding whose role list leaves nothing in the only account permits nothi
 /** The line a person reads is `lead` plus each part and a two-character separator, within 440. */
 const LEAD = "Enter the account id and the role name to use: ";
 const LIMIT = 440;
+
+test("the line a person reads is the accounts as the portal named them, a bare id for one it did not name, and nothing more when nothing was cut off", async (t) => {
+  const two = personWith([account(0, "Prod"), account(1)]);
+  const setup = await awsSetup(t, {
+    people: [two],
+    accounts: two.accounts.map((item) => item.accountId),
+  });
+  const { polled } = await connectAndApprove(setup);
+  assert.equal(
+    asView(polled).presentation!.instructions,
+    "Enter the account id and the role name to use: 100000000000 Prod; 100000000001.",
+  );
+});
+
+test("an intent naming a role holds a typed role of the same name in another account to that account", async (t) => {
+  const twin = personWith([
+    { ...account(0, "Prod"), roles: ["ReadOnlyAccess", "Admin"] },
+    { ...account(1, "Dev"), roles: ["ReadOnlyAccess"] },
+  ]);
+  const setup = await awsSetup(t, {
+    people: [twin],
+    accounts: twin.accounts.map((item) => item.accountId),
+  });
+  const adapter = createAwsIdentityCenterAdapter();
+  const first = await connectAndApprove(setup);
+  const choice = await setup.ports.handoffs.present(
+    setup.person,
+    handoffRefOf(first.polled),
+  );
+  assert.ok(choice);
+  const ctx = await setup.adapterContext(first.connectionRef);
+  const intended = {
+    ...ctx,
+    handoff: choice,
+    connection: {
+      ...ctx.connection!,
+      state: {
+        ...ctx.connection!.state,
+        intent: {
+          target: { kind: "aws-role", id: "100000000000:ReadOnlyAccess" },
+        },
+      },
+    },
+  } as AdapterCallContext;
+  // The role the intent named, in the account it named, is the only one.
+  await assert.rejects(
+    adapter.complete!(intended, {
+      kind: "input",
+      values: { accountId: "100000000001", roleName: "ReadOnlyAccess" },
+    }),
+    refusedAs("denied", "aws-identity-center.role.not-permitted"),
+  );
+  await assert.rejects(
+    adapter.complete!(intended, {
+      kind: "input",
+      values: { accountId: "100000000000", roleName: "Admin" },
+    }),
+    refusedAs("denied", "aws-identity-center.role.not-permitted"),
+  );
+  assert.equal(setup.fixture.counts.roleCredentials, 0);
+});
 
 test("the line a person reads is cleaned of control characters and capped, saying when there is more", async (t) => {
   const many = personWith(
@@ -185,11 +251,11 @@ test("a completion for a handoff of another kind, or one missing its session, is
       { ...ctx, handoff: { ...choice, intent: "oauth.device-code" } },
       { kind: "input", values },
     ),
-    (error: unknown) => detailOf(error) === "oauth.handoff.kind",
+    refusedAs("invalid-request", "oauth.handoff.kind"),
   );
   await assert.rejects(
     adapter.complete!({ ...ctx }, { kind: "input", values }),
-    (error: unknown) => detailOf(error) === "oauth.handoff.kind",
+    refusedAs("invalid-request", "oauth.handoff.kind"),
   );
   await assert.rejects(
     adapter.complete!(
@@ -199,7 +265,7 @@ test("a completion for a handoff of another kind, or one missing its session, is
       },
       { kind: "input", values },
     ),
-    (error: unknown) => detailOf(error) === "oauth.handoff.private-missing",
+    refusedAs("invalid-request", "oauth.handoff.private-missing"),
   );
   const { sessionRef: _dropped, ...rest } = choice.private;
   void _dropped;
@@ -208,7 +274,7 @@ test("a completion for a handoff of another kind, or one missing its session, is
       { ...ctx, handoff: { ...choice, private: rest } },
       { kind: "input", values },
     ),
-    (error: unknown) => detailOf(error) === "oauth.handoff.private-missing",
+    refusedAs("invalid-request", "oauth.handoff.private-missing"),
   );
   // An input completion is the person's: the handoff stays theirs to settle.
   const done = await adapter.complete!(
@@ -476,6 +542,41 @@ test("a refresh token the journal already holds is never presented again, whiche
   }
 });
 
+test("the renewal refuses what it cannot renew: no bound role, a record that is not a bound sign-in, a reference custody does not hold", async (t) => {
+  const setup = await awsSetup(t);
+  const { connectionRef } = await connectAndChoose(setup);
+  const ctx = await setup.adapterContext(connectionRef);
+  const refusal = (code: string, detail: string) => (error: unknown) =>
+    error instanceof ConnectorError &&
+    error.code === code &&
+    error.detail === detail;
+  assert.deepEqual(boundIdentity(ctx), {
+    accountId: "111122223333",
+    roleName: "ReadOnlyAccess",
+  });
+  assert.throws(
+    () =>
+      boundIdentity({ ...ctx, connection: { ...ctx.connection!, state: {} } }),
+    refusal("conflict", "aws-identity-center.role.not-bound"),
+  );
+  const held = await setup.heldMaterial(connectionRef);
+  const signedInOnly = parseMaterial({
+    client_id: held["client_id"]!,
+    client_secret: held["client_secret"]!,
+    client_secret_expires_at: held["client_secret_expires_at"]!,
+    sso_access_token: held["sso_access_token"]!,
+    sso_access_token_expires_at: held["sso_access_token_expires_at"]!,
+  });
+  await assert.rejects(
+    renewRole(ctx, signedInOnly, boundIdentity(ctx)),
+    refusal("conflict", "aws-identity-center.role.not-bound"),
+  );
+  await assert.rejects(
+    ensureCurrent(ctx, "cred:00000000-0000-0000-0000-000000000000"),
+    refusal("not-found", "aws-identity-center.credential.unknown"),
+  );
+});
+
 // ------------------------------------------------------------------ material
 
 test("stored material is whole or refused: lifetimes are positive integers and a bound role carries all four members", () => {
@@ -519,7 +620,9 @@ test("stored material is whole or refused: lifetimes are positive integers and a
     assert.throws(
       () => parseMaterial(next),
       (error: unknown) =>
-        detailOf(error) === "aws-identity-center.credential.malformed",
+        error instanceof ConnectorError &&
+        error.code === "conflict" &&
+        error.detail === "aws-identity-center.credential.malformed",
       JSON.stringify(change),
     );
   };
@@ -534,6 +637,19 @@ test("stored material is whole or refused: lifetimes are positive integers and a
   refused({ session_token: undefined });
   refused({ role_expires_at: undefined });
   refused({ role_expires_at: "0" });
+  // Any one role member alone, whichever it is, is not a whole record.
+  for (const only of [
+    "access_key_id",
+    "secret_access_key",
+    "session_token",
+    "role_expires_at",
+  ])
+    refused({
+      access_key_id: only === "access_key_id" ? "k" : undefined,
+      secret_access_key: only === "secret_access_key" ? "x" : undefined,
+      session_token: only === "session_token" ? "t" : undefined,
+      role_expires_at: only === "role_expires_at" ? "7" : undefined,
+    });
   // Role credentials with no sign-in behind them are not a whole record.
   refused({
     sso_access_token: undefined,
@@ -638,8 +754,7 @@ test("a poll answers a choice with no claim, a nothing-to-choose with a denial, 
   const inputCtx = await other.adapterContext(first.connectionRef);
   const ask = (values: Record<string, string>) =>
     adapter.complete!({ ...inputCtx, handoff }, { kind: "input", values });
-  const refused = (detail: string) => (error: unknown) =>
-    detailOf(error) === detail;
+  const refused = (detail: string) => refusedAs("invalid-request", detail);
   await assert.rejects(
     ask({ accountId: "111122223333" }),
     refused("aws-identity-center.selection.fields"),

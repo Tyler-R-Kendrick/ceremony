@@ -145,7 +145,9 @@ test("callers that share a renewal whose portal call failed are not told the cre
     double: { accessTokenLifetimeSeconds: 1200, roleLifetimeMs: 30 * MINUTE },
   });
   const { connectionRef } = await connectAndChoose(setup);
-  setup.advance(26 * MINUTE);
+  // Exactly five minutes of the role are left, the renewal buffer, and the
+  // access token lapsed five minutes ago.
+  setup.advance(25 * MINUTE);
   setup.fixture.failPortal(503);
   // One caller leads the renewal and meets the portal's failure; the others
   // join its rotation, which wrote the refreshed tokens and left the role as it was.
@@ -154,12 +156,19 @@ test("callers that share a renewal whose portal call failed are not told the cre
     setup.service.verify(setup.person, connectionRef),
     setup.service.verify(setup.person, connectionRef),
   ]);
-  for (const result of results)
-    assert.ok(
-      result.status === "rejected" ||
-        (result.value as View).lifecycle !== "active",
-      "no caller is told the role credentials are current",
-    );
+  assert.deepEqual(
+    results.map((result) =>
+      result.status === "rejected" && result.reason instanceof ConnectorError
+        ? `${result.reason.code}/${result.reason.detail}`
+        : result.status,
+    ),
+    [
+      "upstream-unavailable/aws-identity-center.portal.unavailable",
+      "upstream-unavailable/aws-identity-center.renewal.unavailable",
+      "upstream-unavailable/aws-identity-center.renewal.unavailable",
+    ],
+    "the leader meets the portal; no joiner is told the role is current",
+  );
   assert.equal(setup.fixture.counts.refresh, 1);
   // The refreshed tokens were kept, so once the portal is back the next call renews.
   setup.fixture.failPortal(null);
@@ -192,7 +201,18 @@ test("a choice made twice at once while the portal fails stays open for a retry"
       choice,
     ),
   ]);
-  for (const result of results) assert.equal(result.status, "rejected");
+  assert.deepEqual(
+    results.map((result) =>
+      result.status === "rejected" && result.reason instanceof ConnectorError
+        ? `${result.reason.code}/${result.reason.detail}`
+        : result.status,
+    ),
+    [
+      "upstream-unavailable/aws-identity-center.portal.unavailable",
+      "upstream-unavailable/aws-identity-center.portal.unavailable",
+    ],
+    "the joined choice is refused as the leader's was",
+  );
   assert.equal(setup.fixture.counts.roleCredentials, 0);
   setup.fixture.failPortal(null);
   const done = asView(

@@ -157,6 +157,7 @@ test("a team the binding does not permit is refused even when typed", async (t) 
       attempt(typed),
       (error: unknown) =>
         error instanceof ConnectorError &&
+        error.code === "denied" &&
         error.detail === "vercel-account.team.not-permitted",
     );
   const record = await setup.record(first.connectionRef);

@@ -130,6 +130,24 @@ test("the one permitted account that was found is not bound while the listing wa
   assert.equal(setup.fixture.counts.roleCredentials, 0);
 });
 
+test("several permitted accounts on the pages that were read are offered, and the person is told more are available", async (t) => {
+  const person: PersonSeed = { id: "alice", accounts: many(600) };
+  const permitted = [person.accounts[0]!, person.accounts[1]!].map(
+    (account) => account.accountId,
+  );
+  const setup = await awsSetup(t, { people: [person], accounts: permitted });
+  const { polled } = await connectAndApprove(setup);
+  const view = polled as {
+    lifecycle: string;
+    presentation?: { instructions?: string };
+  };
+  assert.equal(view.lifecycle, "human-required");
+  assert.equal(
+    view.presentation!.instructions,
+    `Enter the account id and the role name to use: ${permitted[0]} Account 0; ${permitted[1]} Account 1; more are available.`,
+  );
+});
+
 test("a listing that was read whole still binds the one permitted account without asking", async (t) => {
   const person: PersonSeed = { id: "alice", accounts: many(3) };
   const setup = await awsSetup(t, {
