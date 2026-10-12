@@ -20,6 +20,7 @@ import {
   roleTargetId,
   type AwsPortalOperation,
 } from "./contracts.js";
+import { sentNothing } from "./client.js";
 import { rotateSession, sessionScope, withSession } from "./material.js";
 import { listAccountRoles, listAccounts, logout } from "./portal.js";
 import { ensureCurrent } from "./refresh.js";
@@ -252,8 +253,18 @@ export async function releaseSignIn(
           release = (await logout(ctx, current.accessToken))
             ? { revoked: true, reason: code("release.session-ended") }
             : { revoked: false, reason: code("release.refused") };
-        } catch {
-          release = { revoked: false, reason: code("release.unreachable") };
+        } catch (error) {
+          // Nothing listening is `unreachable`; a request that went out and
+          // did not come back as an answer (a timeout, an abort, a body too
+          // large or of the wrong shape) is unknown.
+          release = {
+            revoked: false,
+            reason: code(
+              sentNothing(error)
+                ? "release.unreachable"
+                : "release.indeterminate",
+            ),
+          };
         }
         return current;
       });
