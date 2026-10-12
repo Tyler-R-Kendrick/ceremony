@@ -139,3 +139,69 @@ test("a role choice that needs a refresh and meets a failing portal can be made 
   assert.equal(setup.fixture.counts.refresh, 1);
   assert.equal(setup.fixture.counts.replayedRefreshTokens, 0);
 });
+
+test("callers that share a renewal whose portal call failed are not told the credentials are current", async (t) => {
+  const setup = await awsSetup(t, {
+    double: { accessTokenLifetimeSeconds: 1200, roleLifetimeMs: 30 * MINUTE },
+  });
+  const { connectionRef } = await connectAndChoose(setup);
+  setup.advance(26 * MINUTE);
+  setup.fixture.failPortal(503);
+  // One caller leads the renewal and meets the portal's failure; the others
+  // join its rotation, which wrote the refreshed tokens and left the role as it was.
+  const results = await Promise.allSettled([
+    setup.service.verify(setup.person, connectionRef),
+    setup.service.verify(setup.person, connectionRef),
+    setup.service.verify(setup.person, connectionRef),
+  ]);
+  for (const result of results)
+    assert.ok(
+      result.status === "rejected" ||
+        (result.value as View).lifecycle !== "active",
+      "no caller is told the role credentials are current",
+    );
+  assert.equal(setup.fixture.counts.refresh, 1);
+  // The refreshed tokens were kept, so once the portal is back the next call renews.
+  setup.fixture.failPortal(null);
+  const view = asView(await setup.service.verify(setup.person, connectionRef));
+  assert.equal(view.lifecycle, "active");
+  assert.equal(setup.fixture.counts.refresh, 1);
+  assert.equal(setup.fixture.counts.roleCredentials, 2);
+});
+
+test("a choice made twice at once while the portal fails stays open for a retry", async (t) => {
+  const setup = await awsSetup(t, {
+    double: { accessTokenLifetimeSeconds: 300, roleLifetimeMs: 30 * MINUTE },
+  });
+  const first = await connectAndApprove(setup);
+  const handoffRef = handoffRefOf(first.polled);
+  setup.advance(6 * MINUTE);
+  setup.fixture.failPortal(503);
+  const choice = { accountId: "111122223333", roleName: "ReadOnlyAccess" };
+  const results = await Promise.allSettled([
+    setup.service.provideInput(
+      setup.person,
+      first.connectionRef,
+      handoffRef,
+      choice,
+    ),
+    setup.service.provideInput(
+      setup.person,
+      first.connectionRef,
+      handoffRef,
+      choice,
+    ),
+  ]);
+  for (const result of results) assert.equal(result.status, "rejected");
+  assert.equal(setup.fixture.counts.roleCredentials, 0);
+  setup.fixture.failPortal(null);
+  const done = asView(
+    await setup.service.provideInput(
+      setup.person,
+      first.connectionRef,
+      handoffRef,
+      choice,
+    ),
+  );
+  assert.equal(done.lifecycle, "active");
+});

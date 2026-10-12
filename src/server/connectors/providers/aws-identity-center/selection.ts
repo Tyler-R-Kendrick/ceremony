@@ -332,6 +332,18 @@ export async function bindRole(
       return bound;
     });
   });
+  // A caller that joined another's rotation never ran its own work. If that
+  // rotation kept refreshed tokens and no role (the portal failed after the
+  // refresh), nothing was bound, and the choice is not made.
+  const bound = await withSession(
+    ctx,
+    ref,
+    async (held) => held.phase === "role-bound",
+  );
+  if (!bound)
+    throw new ConnectorError("upstream-unavailable", {
+      detail: code("portal.unavailable"),
+    });
   const role = { accountId, roleName, expiresAt: next.expiresAt };
   return {
     state: "complete",

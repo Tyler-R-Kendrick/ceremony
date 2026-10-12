@@ -232,5 +232,16 @@ export async function ensureCurrent(
   const result = await rotateSession(ctx, ref, (current) =>
     renewRole(ctx, current, bound),
   );
+  // A caller that joined another's rotation never ran its own work. If the
+  // rotation it joined kept refreshed tokens and left the role as it was (the
+  // portal failed after the refresh), the role is still about to lapse, and
+  // that is not "current".
+  if (
+    result.expiresAt <=
+    ctx.environment.now() + ROLE_CREDENTIAL_RENEW_BUFFER_MS
+  )
+    throw new ConnectorError("upstream-unavailable", {
+      detail: code("renewal.unavailable"),
+    });
   return { expiresAt: result.expiresAt };
 }
