@@ -1,7 +1,11 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import * as oauth from "oauth4webapi";
 import { ConnectorError } from "../errors.js";
-import { boundResponse, MAX_RESPONSE_BYTES } from "./response-bound.js";
+import {
+  boundResponse,
+  MAX_RESPONSE_BYTES,
+  ResponseTooLargeError,
+} from "./response-bound.js";
 
 /*
  * Everything this module sends leaves through the fetch the call context
@@ -170,6 +174,19 @@ export function wireError(error: unknown, operation: string): ConnectorError {
     detail: `${operation}.unreachable`,
     cause: error,
   });
+}
+
+/**
+ * Whether this engine refused the request itself, before sending one (an input
+ * it will not use, a destination it will not reach). An answer too large to read
+ * is also a `ConnectorError`, but it is the opposite: the request went out and
+ * what it did is unknown, so it is not refused.
+ */
+export function refusedBeforeSend(failure: unknown): failure is ConnectorError {
+  return (
+    failure instanceof ConnectorError &&
+    !(failure instanceof ResponseTooLargeError)
+  );
 }
 
 /** Whether a failure happened before any request bytes could have reached the provider. */

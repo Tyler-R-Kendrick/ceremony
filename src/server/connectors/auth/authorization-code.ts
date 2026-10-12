@@ -27,12 +27,12 @@ import {
   type PermissionRecord,
   type ScopeEnforcement,
 } from "./permissions.js";
+import { failRefresh } from "./refresh-failure.js";
 import {
   joinScope,
   neverSent,
   requestOptions,
   sameSecret,
-  safeCause,
   sha256Hex,
   splitScope,
   tokenErrorDetail,
@@ -925,32 +925,7 @@ export async function refreshAccessToken(
             ...(expiresAt !== undefined ? { expiresAt } : {}),
           };
         } catch (failure) {
-          if (failure instanceof ConnectorError) throw failure;
-          if (neverSent(failure)) {
-            await ctx.environment.effects.complete(begun.effectRef, {
-              status: "not-applied",
-              code: "oauth.refresh.unreachable",
-              at: now(),
-            });
-            throw wireError(failure, "oauth.refresh");
-          }
-          if (failure instanceof oauth.ResponseBodyError) {
-            await ctx.environment.effects.complete(begun.effectRef, {
-              status: "failed",
-              code: tokenErrorDetail(failure.error),
-              at: now(),
-            });
-            throw wireError(failure, "oauth.refresh");
-          }
-          await ctx.environment.effects.complete(begun.effectRef, {
-            status: "indeterminate",
-            code: "oauth.refresh.indeterminate",
-            at: now(),
-          });
-          throw new ConnectorError("indeterminate", {
-            detail: "oauth.refresh.indeterminate",
-            cause: safeCause(failure),
-          });
+          return failRefresh(ctx, begun.effectRef, failure);
         }
       },
     );
