@@ -27,7 +27,7 @@ const many = (count: number): PersonSeed["accounts"] =>
 
 async function portalAt(
   t: Parameters<typeof awsSetup>[0],
-  serve: () => unknown,
+  serve: () => Record<string, unknown>,
 ) {
   const setup = await awsSetup(t);
   const server = await startHttpFixture(() => ({
