@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { inspect } from "node:util";
+import { ConnectorError } from "../../../src/server/connectors/errors.js";
 import {
   awsSetup,
   connectAndApprove,
@@ -202,6 +203,40 @@ for (const scope of ["local", "upstream"] as const)
       "the tokens, the client secret and the refresh token are gone",
     );
   });
+
+test("a rotation custody refuses is reported as busy, not gone, and the sign-in held for the open choice is still discarded", async (t) => {
+  const setup = await awsSetup(t);
+  const { connectionRef, polled } = await connectAndApprove(setup);
+  assert.equal((await leftInCustody(setup, connectionRef)).length, 1);
+  // Custody cannot rotate the session just now (another worker holds the lease).
+  const real = setup.credentials.refresh;
+  let refused = 0;
+  setup.credentials.refresh = async (...args) => {
+    refused += 1;
+    throw new ConnectorError("conflict", { detail: "credential.refresh-busy" });
+  };
+  t.after(() => {
+    setup.credentials.refresh = real;
+  });
+
+  const result = await setup.service.disconnect(setup.person, connectionRef, {
+    expectedRevision: (polled as View).revision,
+    scope: "local",
+  });
+
+  assert.equal(result.result.local, "applied");
+  assert.ok(refused >= 1, "the release did ask custody");
+  assert.deepEqual(result.result.release, {
+    revoked: false,
+    reason: `${CODE}.busy`,
+  });
+  assert.equal(setup.fixture.counts.logout, 0, "no Logout could be made");
+  assert.deepEqual(
+    await leftInCustody(setup, connectionRef),
+    [],
+    "the sign-in is discarded all the same",
+  );
+});
 
 test("no token, role credential or provider word is in anything the disconnect leaves behind", async (t) => {
   const printed: string[] = [];

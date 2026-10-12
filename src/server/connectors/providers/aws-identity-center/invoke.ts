@@ -250,11 +250,24 @@ export async function releaseSignIn(
       }
       return current;
     });
-  } catch {
-    // Custody refused (the credential is gone); report a logout that was made.
-    if (release.revoked === "unavailable")
-      return { revoked: false, reason: code("release.credential-gone") };
+  } catch (error) {
+    // Custody would not rotate the session: say why, unless a Logout was made.
+    if (release.revoked === "unavailable") release = rotationFailure(error);
+  } finally {
+    // The sign-in held for an open choice is the connection's to drop only
+    // if this adapter does it, whatever became of the Logout.
+    await discardOrphan(ctx, held);
   }
-  await discardOrphan(ctx, held);
   return release;
+}
+
+/** Why custody would not hand over the session: it is gone, it is busy, or something else failed. */
+function rotationFailure(error: unknown): SessionRelease {
+  const detail =
+    error instanceof ConnectorError && error.code === "not-found"
+      ? "credential-gone"
+      : error instanceof ConnectorError && error.code === "conflict"
+        ? "busy"
+        : "failed";
+  return { revoked: false, reason: code(`release.${detail}`) };
 }

@@ -333,6 +333,8 @@ export async function awsSetup(t: TestContext, options: AwsSetupOptions = {}) {
     agent: delegate_,
     journal,
     stored,
+    /** The custody port the service holds, for a test that makes it fail. */
+    credentials,
     record,
     heldMaterial,
     adapterContext,
