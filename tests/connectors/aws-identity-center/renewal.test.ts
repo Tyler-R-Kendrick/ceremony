@@ -121,6 +121,32 @@ test("with no refresh token a lapsed access token ends the session for a person 
   );
 });
 
+test("a refresh answered without a refresh token leaves none to present, and the next lapse ends the session cleanly", async (t) => {
+  const setup = await awsSetup(t, {
+    double: {
+      accessTokenLifetimeSeconds: 1200,
+      roleLifetimeMs: 30 * MINUTE,
+      refreshAnswersWithoutRefreshToken: true,
+    },
+  });
+  const { connectionRef } = await connectAndChoose(setup);
+  setup.advance(26 * MINUTE);
+  assert.equal((await verify(setup, connectionRef)).lifecycle, "active");
+  assert.equal(setup.fixture.counts.refresh, 1);
+  const held = await setup.heldMaterial(connectionRef);
+  assert.equal(
+    held["sso_refresh_token"],
+    undefined,
+    "the token just presented is spent, so it is not kept",
+  );
+  setup.advance(26 * MINUTE);
+  const view = await verify(setup, connectionRef);
+  assert.equal(view.lifecycle, "expired");
+  assert.equal(view.lastOutcome, "aws-identity-center.session.expired");
+  assert.equal(setup.fixture.counts.refresh, 1, "nothing was presented again");
+  assert.equal(setup.fixture.counts.replayedRefreshTokens, 0);
+});
+
 test("a refresh the issuer refuses ends the session and is not tried again", async (t) => {
   const setup = await awsSetup(t, {
     double: { accessTokenLifetimeSeconds: 1200, roleLifetimeMs: 30 * MINUTE },

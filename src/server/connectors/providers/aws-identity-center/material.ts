@@ -244,7 +244,11 @@ export function signedIn(
     accessToken: tokens.accessToken,
     accessTokenExpiresAt: now + lifetime,
   };
-  const refreshToken = tokens.refreshToken ?? current.refreshToken;
-  if (refreshToken !== undefined) next.refreshToken = refreshToken;
+  // Only what the answer carries. A refresh token that was presented has been
+  // spent, so one the answer does not replace is dropped rather than kept to
+  // be refused later (botocore's SSO token provider does the same).
+  delete next.refreshToken;
+  if (tokens.refreshToken !== undefined)
+    next.refreshToken = tokens.refreshToken;
   return next;
 }

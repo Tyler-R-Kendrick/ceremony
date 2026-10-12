@@ -523,11 +523,12 @@ test("stored material is whole or refused: lifetimes are positive integers and a
   refused({ phase: "signed-in", sso_access_token: undefined });
 });
 
-test("signing in again keeps the refresh token the issuer did not replace", () => {
-  const current = material({ refreshToken: "kept" });
+test("signing in again holds the refresh token the answer carries, and none when it carries none", () => {
+  const current = material({ refreshToken: "spent" });
+  // The token that was presented is spent; an answer without a new one leaves none.
   assert.equal(
-    signedIn(current, { accessToken: "n", expiresIn: 60 }, 0).refreshToken,
-    "kept",
+    "refreshToken" in signedIn(current, { accessToken: "n", expiresIn: 60 }, 0),
+    false,
   );
   assert.equal(
     signedIn(

@@ -335,13 +335,13 @@ test("a token that is not a bearer token is refused, and an over-long lifetime i
   );
   assert.equal(ok.accessTokenExpiresAt, 1000 + 30 * 86_400_000);
   assert.equal(ok.phase, "signed-in");
-  // A refresh keeps the refresh token the issuer did not rotate.
+  // A refresh answered without a refresh token leaves none: the one presented is spent.
   const again = signedIn(
-    { ...ok, refreshToken: "kept" },
+    { ...ok, refreshToken: "spent" },
     { accessToken: "u", expiresIn: 60 },
     2000,
   );
-  assert.equal(again.refreshToken, "kept");
+  assert.equal("refreshToken" in again, false);
 });
 
 test("the adapter refuses completions it has no meaning for, and operations it was not bound to", async (t) => {

@@ -79,6 +79,8 @@ export type AwsIdentityCenterOptions = {
   enforcedIntervalSeconds?: number;
   /** Rotate refresh tokens on use (assumed; default true). */
   rotateRefreshTokens?: boolean;
+  /** Answer a refresh grant without a new refresh token, as the CreateToken page allows ("if present"). */
+  refreshAnswersWithoutRefreshToken?: boolean;
   /** Page size when a request names none. */
   pageSize?: number;
   /** Put this text in every error description and portal message, to prove none of it travels. */
@@ -302,7 +304,11 @@ export async function startAwsIdentityCenter(
     });
   };
 
-  const mintTokens = (client: Client, personId: string) => {
+  const mintTokens = (
+    client: Client,
+    personId: string,
+    options_: { refreshToken?: boolean } = {},
+  ) => {
     const accessToken = `aws_dummy_sso_access_${hex(24)}`;
     accessTokens.set(accessToken, {
       clientId: client.clientId,
@@ -317,7 +323,11 @@ export async function startAwsIdentityCenter(
       expiresIn: accessLifetime,
     };
     // assumed: refresh tokens only for a client that registered the grant and a scope
-    if (client.grants.includes("refresh_token") && client.scopes.length) {
+    if (
+      options_.refreshToken !== false &&
+      client.grants.includes("refresh_token") &&
+      client.scopes.length
+    ) {
       const refreshToken = `aws_dummy_sso_refresh_${hex(24)}`;
       refreshTokens.set(refreshToken, {
         clientId: client.clientId,
@@ -368,7 +378,12 @@ export async function startAwsIdentityCenter(
       return oidcError(400, "invalid_grant");
     }
     if (rotate) held.used = true;
-    return reply(200, mintTokens(client, held.personId));
+    return reply(
+      200,
+      mintTokens(client, held.personId, {
+        refreshToken: !options.refreshAnswersWithoutRefreshToken,
+      }),
+    );
   };
 
   /** Set by `dropNextTokenResponse`: the server acts on the request, then the connection dies. */
