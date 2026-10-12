@@ -31,6 +31,7 @@ import {
   sha256Hex,
   splitScope,
   wireError,
+  wireErrorAfterSend,
 } from "./wire.js";
 
 /*
@@ -426,7 +427,7 @@ export async function exchangeToken(
     else if (error instanceof oauth.ResponseBodyError)
       await settle("failed", "oauth.exchange.rejected");
     else await settle("indeterminate", "oauth.exchange.indeterminate");
-    throw wireError(error, "oauth.exchange");
+    throw wireErrorAfterSend(error, "oauth.exchange");
   }
   const issuedTokenType = tokens["issued_token_type"];
   if (typeof issuedTokenType !== "string") {

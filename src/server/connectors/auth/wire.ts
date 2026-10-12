@@ -177,6 +177,22 @@ export function wireError(error: unknown, operation: string): ConnectorError {
 }
 
 /**
+ * `wireError`, except that an answer too large to read is the typed unknown the
+ * other legs report: the request was sent, so what it did is not known.
+ */
+export function wireErrorAfterSend(
+  error: unknown,
+  operation: string,
+): ConnectorError {
+  return error instanceof ResponseTooLargeError
+    ? new ConnectorError("indeterminate", {
+        detail: `${operation}.indeterminate`,
+        cause: error,
+      })
+    : wireError(error, operation);
+}
+
+/**
  * Whether this engine refused the request itself, before sending one (an input
  * it will not use, a destination it will not reach). An answer too large to read
  * is also a `ConnectorError`, but it is the opposite: the request went out and

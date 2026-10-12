@@ -225,3 +225,54 @@ test("a choice made twice at once while the portal fails stays open for a retry"
   );
   assert.equal(done.lifecycle, "active");
 });
+
+test("a refresh answer too large to read is journaled and reported as unknown, and the refresh token is not presented again", async (t) => {
+  const setup = await awsSetup(t, {
+    double: { accessTokenLifetimeSeconds: 1200, roleLifetimeMs: 30 * MINUTE },
+  });
+  const { connectionRef } = await connectAndChoose(setup);
+  setup.advance(26 * MINUTE);
+  const real = globalThis.fetch;
+  t.mock.method(
+    globalThis,
+    "fetch",
+    async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      return new URL(url).pathname === "/token"
+        ? new Response(new Uint8Array(1_100_000), { status: 200 })
+        : real(input, init);
+    },
+  );
+
+  await assert.rejects(
+    setup.service.verify(setup.person, connectionRef),
+    (error: unknown) =>
+      error instanceof ConnectorError &&
+      error.code === "indeterminate" &&
+      error.detail === "aws-identity-center.refresh.indeterminate",
+  );
+  assert.deepEqual(
+    setup.journal
+      .filter(
+        (entry) =>
+          "status" in entry &&
+          entry.code === "aws-identity-center.refresh.indeterminate",
+      )
+      .map((entry) => ("status" in entry ? entry.status : undefined)),
+    ["indeterminate"],
+  );
+  // The token that may have been spent is never presented again: the session ends.
+  t.mock.restoreAll();
+  const after = asView(await setup.service.verify(setup.person, connectionRef));
+  assert.equal(after.lifecycle, "expired");
+  assert.equal(
+    after.lastOutcome,
+    "aws-identity-center.session.refresh-unknown",
+  );
+  assert.equal(setup.fixture.counts.refresh, 0, "no second grant was sent");
+});

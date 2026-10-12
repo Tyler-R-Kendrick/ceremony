@@ -5,12 +5,18 @@ import {
   beginAuthorizationCode,
   completeAuthorizationCode,
   credentialScopeFor,
+  exchangeToken,
+  hostAuthorizedTokenExchange,
   issueHandoff,
+  issuerPolicy,
   MAX_RESPONSE_BYTES,
   OAUTH_CLIENT_CREDENTIALS_OPERATION,
   OAUTH_REFRESH_OPERATION,
   refreshAccessToken,
+  resolveAuthorizationServer,
+  resolveClientRegistration,
   ResponseTooLargeError,
+  tokenTypeIdentifiers,
 } from "../../../src/server/connectors/auth/index.js";
 import { ConnectorError } from "../../../src/server/connectors/errors.js";
 import type {
@@ -18,7 +24,15 @@ import type {
   HandoffRecord,
 } from "../../../src/server/connectors/index.js";
 import type { CredentialScope } from "../../../src/server/connectors/ports.js";
-import { authHarness, type AuthHarness } from "./harness.js";
+import { startAuthorizationServer } from "../doubles/authorization-server.js";
+import { fixtureActor, memoryPorts } from "../doubles/ports.js";
+import {
+  authHarness,
+  CALLBACK_URI,
+  HOST_ORIGIN,
+  memoryRegistrationStore,
+  type AuthHarness,
+} from "./harness.js";
 
 /*
  * An answer too large to read is not a refusal: the request was sent, a
@@ -44,6 +58,7 @@ const DROPPED = () => {
 function answering(
   ctx: AdapterCallContext,
   answer: () => Response,
+  at: string = "/token",
 ): AdapterCallContext {
   return {
     ...ctx,
@@ -57,7 +72,7 @@ function answering(
               ? input.href
               : input.url,
         );
-        return url.pathname === "/token"
+        return url.pathname === at
           ? answer()
           : ctx.environment.fetch(input, init);
       },
@@ -240,4 +255,117 @@ test("a client-credentials answer too large to read is journaled and reported ex
     oversized.failure instanceof ConnectorError &&
       oversized.failure.cause instanceof ResponseTooLargeError,
   );
+});
+
+// ------------------------------------------- registration and token exchange
+
+test("a registration answer too large to read is journaled and reported as unknown, with the typed outcome", async (t) => {
+  const server = await startAuthorizationServer({
+    dynamicRegistration: true,
+    redirectUris: [CALLBACK_URI],
+  });
+  t.after(() => server.close());
+  const policy = issuerPolicy({
+    issuer: server.issuer,
+    allowLoopbackHttp: true,
+    registration: { allowed: ["dynamic"] },
+  });
+  const resolved = await resolveAuthorizationServer(policy, {
+    fetch: (input, init) => fetch(input, init),
+  });
+  const ports = memoryPorts();
+  const oversize: typeof fetch = async (input, init) => {
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url,
+    );
+    return url.pathname === "/register" ? OVERSIZED() : fetch(input, init);
+  };
+  const failure = await resolveClientRegistration({
+    actor: fixtureActor,
+    policy,
+    server: resolved,
+    redirectUri: CALLBACK_URI,
+    hostOrigin: HOST_ORIGIN,
+    configuration: ports.configuration,
+    fetch: oversize,
+    registrations: memoryRegistrationStore(),
+    effects: ports.effects,
+  }).then(
+    () => undefined,
+    (error: unknown) => error,
+  );
+
+  assert.deepEqual(describeFailure(failure), {
+    code: "indeterminate",
+    detail: "oauth.registration.indeterminate",
+  });
+  assert.ok(
+    failure instanceof ConnectorError &&
+      failure.cause instanceof ResponseTooLargeError,
+  );
+  assert.deepEqual(
+    ports.inspect
+      .effects()
+      .map((entry) => [entry.outcome?.status, entry.outcome?.code]),
+    [["indeterminate", "oauth.registration.indeterminate"]],
+  );
+});
+
+test("an RFC 8693 token answer too large to read is journaled and reported as unknown, with the typed outcome", async (t) => {
+  const RESOURCE = "https://downstream.example/api";
+  const harness = await authHarness(t, {
+    configuration: { OAUTH_CLIENT_ID: "fixture-client" },
+    server: {
+      tokenExchange: true,
+      jwtAccessTokens: true,
+      exchangeAudiences: [RESOURCE],
+    },
+    policy: {
+      tokenExchange: {
+        enabled: true,
+        audiences: [RESOURCE],
+        resources: [RESOURCE],
+      },
+    },
+  });
+  const port = hostAuthorizedTokenExchange(
+    harness.policy,
+    harness.resolved,
+    harness.client,
+  );
+  const subjectToken = await harness.server.mintToken({
+    subject: "user-1",
+    audience: harness.client.client.client_id,
+  });
+  const ctx = answering(harness.ctx(), OVERSIZED);
+  const failure = await exchangeToken(ctx, port, {
+    subjectToken,
+    subjectTokenType: tokenTypeIdentifiers.accessToken,
+    resource: RESOURCE,
+    scope: credentialScopeFor(ctx, {
+      connectionRef: harness.connection.connectionRef,
+      bindingRef: harness.connection.bindingRef,
+    }),
+  }).then(
+    () => undefined,
+    (error: unknown) => error,
+  );
+
+  assert.deepEqual(describeFailure(failure), {
+    code: "indeterminate",
+    detail: "oauth.exchange.indeterminate",
+  });
+  assert.ok(
+    failure instanceof ConnectorError &&
+      failure.cause instanceof ResponseTooLargeError,
+  );
+  assert.deepEqual(
+    journalOf(harness, "oauth.token.exchange").map(([status]) => status),
+    ["indeterminate"],
+  );
+  assert.equal(harness.ports.inspect.credentialRefs().length, 0);
 });
