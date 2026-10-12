@@ -23,6 +23,19 @@ import type { HandoffPort, HandoffRecord } from "../ports.js";
 const POLL_MS = 25;
 
 /**
+ * One poll interval, ended early by the request's own signal: a client that
+ * has gone away stops being waited for, and what was being waited on is not
+ * answered to no one. Aborting is `cancelled`, as everywhere else here.
+ */
+async function nap(signal: AbortSignal | undefined): Promise<void> {
+  try {
+    await sleep(POLL_MS, undefined, signal ? { signal } : {});
+  } catch (error) {
+    throw new ConnectorError("cancelled", { cause: error });
+  }
+}
+
+/**
  * A digest of what was submitted, bound to this handoff and generation. The
  * values cannot be read back from it, and it is kept only inside the sealed
  * handoff record while the handoff is pending.
@@ -59,6 +72,7 @@ export async function claimHandoff(
   submission: string,
   attempt: string,
   leaseMs: number,
+  signal?: AbortSignal,
 ): Promise<"claimed" | "settled"> {
   const claim = () =>
     handoffs.claim(
@@ -72,7 +86,7 @@ export async function claimHandoff(
   for (let waited = 0; outcome === "shared"; waited += POLL_MS) {
     if (waited >= leaseMs)
       throw new ConnectorError("conflict", { detail: "handoff.claim-timeout" });
-    await sleep(POLL_MS);
+    await nap(signal);
     try {
       outcome = await claim();
     } catch (error) {
@@ -93,6 +107,8 @@ export type ClaimContext = {
   /** A fresh random token naming one attempt. */
   newAttempt(): string;
   leaseMs: number;
+  /** The request's own signal: every wait here ends when it does. */
+  signal?: AbortSignal | undefined;
   /**
    * Whether the connection no longer shows the handoff as pending. A run
    * settles the handoff before it writes the connection, so a waiter answers
@@ -105,11 +121,12 @@ export type ClaimContext = {
 async function pollUntil(
   check: () => Promise<boolean>,
   budgetMs: number,
+  signal: AbortSignal | undefined,
 ): Promise<boolean> {
   for (let waited = 0; ; waited += POLL_MS) {
     if (await check()) return true;
     if (waited >= budgetMs) return false;
-    await sleep(POLL_MS);
+    await nap(signal);
   }
 }
 
@@ -138,11 +155,12 @@ export async function withHandoffClaim<T>(
     submission,
     attempt,
     context.leaseMs,
+    context.signal,
   );
   if (claimed === "settled") {
     // The run that held the claim has settled the handoff; its write to the
     // connection may be a step behind. What is answered is what it wrote.
-    await pollUntil(context.landed, context.leaseMs);
+    await pollUntil(context.landed, context.leaseMs, context.signal);
     return answerSettled();
   }
   try {

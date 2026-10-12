@@ -270,3 +270,40 @@ test("a waiter is answered with the connection its winner wrote, not the one fro
   assert.equal(won.ok.lifecycle, "active");
   assert.deepEqual(waited.ok, won.ok, "the waiter's answer is the winner's");
 });
+
+test("a waiter whose request is aborted stops waiting, and its winner is not disturbed", async (t) => {
+  const setup = await awsSetup(t);
+  const first = await connectAndApprove(setup);
+  const handoffRef = handoffRefOf(first.polled);
+  const hold = holdFirstSettlement(setup);
+  t.after(hold.restore);
+
+  const winner = submit(setup, first.connectionRef, handoffRef, READ_ONLY);
+  await hold.reached;
+  const request = new AbortController();
+  const waiter = answer(
+    setup.service.provideInput(
+      setup.person,
+      first.connectionRef,
+      handoffRef,
+      READ_ONLY,
+      request.signal,
+    ),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const waiting = await Promise.race([
+    waiter,
+    new Promise<"waiting">((resolve) => setTimeout(resolve, 100, "waiting")),
+  ]);
+  assert.equal(waiting, "waiting", "the waiter is waiting on the held winner");
+  request.abort();
+  const gone = await waiter;
+  assert.ok("error" in gone);
+  assert.ok(gone.error instanceof ConnectorError);
+  assert.equal(gone.error.code, "cancelled");
+
+  hold.release();
+  const done = await winner;
+  assert.ok("ok" in done);
+  assert.equal(done.ok.lifecycle, "active");
+});

@@ -237,3 +237,53 @@ test("a claim is given back when the run ends, whichever way it ends", async () 
     assert.deepEqual(released, [["handoff:one", ATTEMPT]]);
   }
 });
+
+test("a waiter stops waiting when its request is aborted, long before the lease", async () => {
+  const forever = scripted(
+    ...Array.from({ length: 400 }, () => "shared" as const),
+  );
+  const request = new AbortController();
+  setTimeout(() => request.abort(), 60);
+  const started = Date.now();
+  await assert.rejects(
+    withHandoffClaim(
+      {
+        handoffs: forever.handoffs,
+        newAttempt: () => ATTEMPT,
+        leaseMs: 60_000,
+        signal: request.signal,
+        landed: async () => true,
+      },
+      handoff,
+      submitted,
+      async () => "ran",
+      async () => "answered",
+    ),
+    (error: unknown) =>
+      error instanceof ConnectorError && error.code === "cancelled",
+  );
+  assert.ok(Date.now() - started < 2_000, "it did not wait out the 60 s lease");
+  assert.ok(forever.calls.length < 20, `${forever.calls.length} looks`);
+});
+
+test("a waiter whose winner has settled also stops waiting for the write when aborted", async () => {
+  const request = new AbortController();
+  setTimeout(() => request.abort(), 60);
+  await assert.rejects(
+    withHandoffClaim(
+      {
+        handoffs: joined().handoffs,
+        newAttempt: () => ATTEMPT,
+        leaseMs: 60_000,
+        signal: request.signal,
+        landed: async () => false,
+      },
+      handoff,
+      submitted,
+      async () => "ran",
+      async () => "answered",
+    ),
+    (error: unknown) =>
+      error instanceof ConnectorError && error.code === "cancelled",
+  );
+});

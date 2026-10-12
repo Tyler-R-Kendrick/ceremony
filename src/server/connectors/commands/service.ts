@@ -2061,6 +2061,7 @@ export class ConnectorCommandService {
     actor: ActorContext,
     handoff: HandoffRecord,
     input: Parameters<NonNullable<ConnectorAdapter["complete"]>>[1],
+    signal?: AbortSignal,
   ): Promise<ConnectionView> {
     if (handoff.state !== "issued" && handoff.state !== "waiting")
       throw new ConnectorError("conflict", { detail: "handoff.consumed" });
@@ -2113,10 +2114,10 @@ export class ConnectorCommandService {
         handoffs: this.ports.handoffs,
         newAttempt: () => this.random.uuid(),
         leaseMs: this.callTimeoutMs * 2,
+        signal,
         landed: async () =>
-          pending(
-            (await this.connection(actor, handoff.connectionRef)).record,
-          )?.handoffRef !== handoff.handoffRef,
+          pending((await this.connection(actor, handoff.connectionRef)).record)
+            ?.handoffRef !== handoff.handoffRef,
       },
       handoff,
       input,
@@ -2265,6 +2266,7 @@ export class ConnectorCommandService {
     connectionRef: string,
     handoffRef: string,
     rawValues: unknown,
+    signal?: AbortSignal,
   ): Promise<ConnectionView> {
     requireCapability(actor, "executor");
     if (actor.actorKind !== "human")
@@ -2280,7 +2282,7 @@ export class ConnectorCommandService {
     )
       throw new ConnectorError("invalid-request", { detail: "handoff.kind" });
     void entry;
-    return this.complete(actor, handoff, { kind: "input", values });
+    return this.complete(actor, handoff, { kind: "input", values }, signal);
   }
 
   async poll(
