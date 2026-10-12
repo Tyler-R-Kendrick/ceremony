@@ -17,7 +17,10 @@ import {
   listTeams,
   readUser,
 } from "../../../src/server/connectors/providers/vercel-account/client.js";
-import { accountSwitchRequested } from "../../../src/server/connectors/providers/vercel-account/evidence.js";
+import {
+  accountSwitchRequested,
+  claimsFor,
+} from "../../../src/server/connectors/providers/vercel-account/evidence.js";
 import { ensureFresh } from "../../../src/server/connectors/providers/vercel-account/session.js";
 import { resolveCredential } from "../../../src/server/connectors/providers/vercel/index.js";
 import { startHttpFixture } from "../doubles/http-fixture.js";
@@ -52,7 +55,8 @@ const detailOf = (error: unknown) =>
 const stateOnly = (state: Record<string, unknown>) =>
   ({ connection: { state } }) as unknown as AdapterCallContext;
 
-test("the poll state is the interval and the next time, or it is nothing", () => {
+test("the poll state is the interval and the next time, or it is nothing", async () => {
+  await Promise.resolve();
   assert.deepEqual(
     devicePollState(
       stateOnly({ devicePoll: { interval: 10, nextPollAt: 99 } }),
@@ -98,7 +102,8 @@ const plan = (
     },
   );
 
-test("teams are planned from the binding first and the intent second", () => {
+test("teams are planned from the binding first and the intent second", async () => {
+  await Promise.resolve();
   const ids = (result: ReturnType<typeof plan>) =>
     result.kind === "choose"
       ? result.teams.map((team) => team.id)
@@ -137,7 +142,8 @@ test("teams are planned from the binding first and the intent second", () => {
   assert.equal(plan(["a", "b"], ["a", "b"], {}).kind, "choose");
 });
 
-test("asking for an account switch is exactly asking, in the intent the connection holds", () => {
+test("asking for an account switch is exactly asking, in the intent the connection holds", async () => {
+  await Promise.resolve();
   assert.equal(
     accountSwitchRequested(stateOnly({ intent: { accountSwitch: true } })),
     true,
@@ -825,4 +831,137 @@ test("a lookup that finds nothing usable gives no lease, one that finds another'
   });
   assert.equal(first, second);
   assert.equal(looked, 1);
+});
+
+// ------------------------------------------------ what the adapter answers
+
+test("a claim carries an expiry only when the token has one still to come", async (t) => {
+  const setup = await accountSetup(t);
+  const { connectionRef } = await connectAndChoose(setup);
+  const ctx = await setup.adapterContext(connectionRef);
+  const base = {
+    user: { id: alice.id },
+    team: { id: "team_dummy_acme" },
+    reported: [],
+  };
+  const validUntil = (given: number | undefined) =>
+    claimsFor(ctx, { ...base, validUntil: given }).map(
+      (claim) => claim.validUntil,
+    );
+  const now = setup.clock();
+  assert.deepEqual(validUntil(undefined), [undefined, undefined, undefined]);
+  assert.deepEqual(validUntil(now), [undefined, undefined, undefined]);
+  assert.deepEqual(validUntil(now - 1), [undefined, undefined, undefined]);
+  const later = new Date(now + 1).toISOString();
+  assert.deepEqual(validUntil(now + 1), [later, later, later]);
+});
+
+test("a poll answers a choice with no claim, a nothing-to-choose with a denial, a different user with a denial, and a typed pick of 256 characters is read but 257 is not", async (t) => {
+  const adapter = createVercelAccountAdapter();
+  const pollOf = async (options: Parameters<typeof accountSetup>[1]) => {
+    const setup = await accountSetup(t, options);
+    const connected = await setup.service.connect(setup.person, {
+      bindingRef: setup.binding.bindingRef,
+      intent: {},
+    });
+    setup.fixture.approve(userCodeOf(connected));
+    setup.advance(6_000);
+    const handoff = await setup.ports.handoffs.present(
+      setup.person,
+      handoffRefOf(connected),
+    );
+    assert.ok(handoff);
+    const ctx = await setup.adapterContext(connectionRefOf(connected));
+    return {
+      setup,
+      ctx,
+      result: await adapter.complete!({ ...ctx, handoff }, { kind: "poll" }),
+    };
+  };
+  const choose = await pollOf({});
+  assert.equal(choose.result.state, "human-required");
+  assert.equal(choose.result.code, "vercel-account.selection.required");
+  assert.deepEqual(choose.result.claims, []);
+  assert.equal(choose.result.handoffSettled, true);
+  assert.equal(choose.result.handoff?.intent, "vercel-account.select-team");
+  const none = await pollOf({ teams: ["team_dummy_unrelated"] });
+  assert.equal(none.result.state, "denied");
+  assert.equal(none.result.code, "vercel-account.selection.nothing-permitted");
+  assert.deepEqual(none.result.claims, []);
+  assert.equal(none.result.handoffSettled, true);
+
+  // A connection that already belongs to someone else's sign-in refuses this one.
+  const setup = await accountSetup(t, { teams: ["team_dummy_acme"] });
+  const connected = await setup.service.connect(setup.person, {
+    bindingRef: setup.binding.bindingRef,
+    intent: {},
+  });
+  setup.fixture.approve(userCodeOf(connected));
+  setup.advance(6_000);
+  const handoff = await setup.ports.handoffs.present(
+    setup.person,
+    handoffRefOf(connected),
+  );
+  const ctx = await setup.adapterContext(connectionRefOf(connected));
+  const taken = {
+    ...ctx,
+    handoff,
+    connection: {
+      ...ctx.connection!,
+      state: {
+        ...ctx.connection!.state,
+        vercelAccount: {
+          userId: "someone-else",
+          teamId: "team_dummy_acme",
+          slug: "acme",
+        },
+      },
+    },
+  } as AdapterCallContext;
+  const denied = await adapter.complete!(taken, { kind: "poll" });
+  assert.deepEqual(
+    [denied.state, denied.code, denied.claims, denied.handoffSettled],
+    ["denied", "vercel-account.user.changed", [], true],
+  );
+
+  // The pick: 256 characters are read (and found unknown), 257 are not read at all.
+  const picked = await accountSetup(t);
+  const first = await connectAndApprove(picked);
+  const choice = await picked.ports.handoffs.present(
+    picked.person,
+    handoffRefOf(first.polled),
+  );
+  assert.ok(choice);
+  const pickCtx = await picked.adapterContext(first.connectionRef);
+  const ask = (team: string) =>
+    adapter.complete!(
+      { ...pickCtx, handoff: choice },
+      { kind: "input", values: { team } },
+    );
+  const refused = (detail: string) => (error: unknown) =>
+    detailOf(error) === detail;
+  await assert.rejects(
+    ask("x".repeat(256)),
+    refused("vercel-account.team.unknown"),
+  );
+  await assert.rejects(
+    ask("x".repeat(257)),
+    refused("vercel-account.selection.fields"),
+  );
+  await assert.rejects(ask("  "), refused("vercel-account.selection.fields"));
+});
+
+test("an outage while reading an account is an outage, not a session that ended", async (t) => {
+  const setup = await accountSetup(t);
+  const { connectionRef } = await connectAndChoose(setup);
+  setup.fixture.failRest(503);
+  await assert.rejects(
+    setup.service.invoke(setup.agent, connectionRef, {
+      operationRef: "vercel-account.get-user",
+      input: {},
+      commandId: "outage",
+    }),
+    (error: unknown) =>
+      error instanceof ConnectorError && error.code === "upstream-unavailable",
+  );
 });

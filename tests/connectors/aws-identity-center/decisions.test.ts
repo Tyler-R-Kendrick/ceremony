@@ -545,3 +545,147 @@ test("signing in again keeps the refresh token the issuer did not replace", () =
   assert.equal("refreshToken" in bare, false);
   void alice;
 });
+
+// ------------------------------------------------ what the adapter answers
+
+test("an intent of another kind is ignored even when its id looks like a role, and names are cleaned at their edges", async (t) => {
+  const named = personWith([
+    account(0, "\u0007Prod\u0007"),
+    account(1, "  Dev  "),
+  ]);
+  const setup = await awsSetup(t, {
+    people: [named],
+    accounts: named.accounts.map((item) => item.accountId),
+  });
+  const { polled } = await connectAndApprove(setup, {
+    target: { kind: "aws-user", id: "100000000001:ReadOnlyAccess" },
+  });
+  const view = asView(polled);
+  assert.equal(view.lifecycle, "human-required");
+  assert.equal(
+    view.presentation!.instructions,
+    `${LEAD}100000000000 Prod; 100000000001 Dev.`,
+  );
+});
+
+test("a poll answers a choice with no claim, a nothing-to-choose with a denial, and the person's input only in the two fields it asked for", async (t) => {
+  const adapter = createAwsIdentityCenterAdapter();
+  const pollOf = async (options: Parameters<typeof awsSetup>[1]) => {
+    const setup = await awsSetup(t, options);
+    const connected = await setup.service.connect(setup.person, {
+      bindingRef: setup.binding.bindingRef,
+      intent: {},
+    });
+    setup.fixture.approve(userCodeOf(connected));
+    setup.advance(6_000);
+    const handoff = await setup.ports.handoffs.present(
+      setup.person,
+      handoffRefOf(connected),
+    );
+    assert.ok(handoff);
+    const ctx = await setup.adapterContext(connectionRefOf(connected));
+    return {
+      setup,
+      ctx,
+      result: await adapter.complete!({ ...ctx, handoff }, { kind: "poll" }),
+    };
+  };
+  const choose = await pollOf({});
+  assert.equal(choose.result.state, "human-required");
+  assert.equal(choose.result.code, "aws-identity-center.selection.required");
+  assert.deepEqual(choose.result.claims, []);
+  assert.equal(choose.result.handoffSettled, true);
+  assert.equal(
+    choose.result.handoff?.intent,
+    "aws-identity-center.select-role",
+  );
+  const none = await pollOf({ accounts: ["999900001111"] });
+  assert.equal(none.result.state, "denied");
+  assert.equal(
+    none.result.code,
+    "aws-identity-center.selection.nothing-permitted",
+  );
+  assert.deepEqual(none.result.claims, []);
+  assert.equal(none.result.handoffSettled, true);
+
+  // The choice itself: fields in any order, no more and no fewer, each well formed.
+  const other = await awsSetup(t);
+  const first = await connectAndApprove(other);
+  const handoff = await other.ports.handoffs.present(
+    other.person,
+    handoffRefOf(first.polled),
+  );
+  assert.ok(handoff);
+  const inputCtx = await other.adapterContext(first.connectionRef);
+  const ask = (values: Record<string, string>) =>
+    adapter.complete!({ ...inputCtx, handoff }, { kind: "input", values });
+  const refused = (detail: string) => (error: unknown) =>
+    detailOf(error) === detail;
+  await assert.rejects(
+    ask({ accountId: "111122223333" }),
+    refused("aws-identity-center.selection.fields"),
+  );
+  await assert.rejects(
+    ask({ accountId: "111122223333", roleName: "ReadOnlyAccess", extra: "x" }),
+    refused("aws-identity-center.selection.fields"),
+  );
+  await assert.rejects(
+    ask({ accountId: "11", roleName: "ReadOnlyAccess" }),
+    refused("aws-identity-center.selection.shape"),
+  );
+  await assert.rejects(
+    ask({ accountId: "111122223333", roleName: "../x" }),
+    refused("aws-identity-center.selection.shape"),
+  );
+  const reversed = await ask({
+    roleName: "ReadOnlyAccess",
+    accountId: "111122223333",
+  });
+  assert.equal(reversed.state, "complete");
+});
+
+test("a connection that holds no intent still completes a sign-in", async (t) => {
+  const setup = await awsSetup(t, { accounts: ["444455556666"] });
+  const adapter = createAwsIdentityCenterAdapter();
+  const connected = await setup.service.connect(setup.person, {
+    bindingRef: setup.binding.bindingRef,
+    intent: {},
+  });
+  setup.fixture.approve(userCodeOf(connected));
+  setup.advance(6_000);
+  const handoff = await setup.ports.handoffs.present(
+    setup.person,
+    handoffRefOf(connected),
+  );
+  assert.ok(handoff);
+  const ctx = await setup.adapterContext(connectionRefOf(connected));
+  const bare = { ...ctx, connection: { ...ctx.connection!, state: {} } };
+  const result = await adapter.complete!(
+    { ...bare, handoff },
+    { kind: "poll" },
+  );
+  assert.equal(result.state, "complete");
+});
+
+test("a refresh that never left is not spent, and the journal says so", async (t) => {
+  const setup = await awsSetup(t, {
+    double: { accessTokenLifetimeSeconds: 1200, roleLifetimeMs: 30 * MINUTE },
+  });
+  const { connectionRef } = await connectAndChoose(setup);
+  setup.advance(26 * MINUTE);
+  await setup.fixture.stopOidc();
+  await assert.rejects(
+    setup.service.verify(setup.person, connectionRef),
+    (error: unknown) =>
+      error instanceof ConnectorError && error.code === "upstream-unavailable",
+  );
+  assert.ok(
+    setup.journal.some(
+      (entry) =>
+        "status" in entry &&
+        entry.status === "not-applied" &&
+        entry.code === "aws-identity-center.refresh.unreachable",
+    ),
+  );
+  assert.equal(setup.fixture.counts.refresh, 0);
+});
