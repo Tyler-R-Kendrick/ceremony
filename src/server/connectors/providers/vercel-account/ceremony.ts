@@ -38,6 +38,7 @@ import {
   accountSwitchRequested,
   claimsFor,
   priorUserId,
+  storedScopes,
   teamTarget,
 } from "./evidence.js";
 import {
@@ -359,6 +360,7 @@ export async function bindTeam(
         userId: user.id,
         teamId: team.id,
         slug: team.slug,
+        reported: storedScopes(reported),
         ...(described?.expiresAt !== undefined
           ? { expiresAt: described.expiresAt }
           : {}),

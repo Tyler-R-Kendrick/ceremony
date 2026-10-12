@@ -8,7 +8,6 @@ import type {
 } from "../../adapter.js";
 import type { ConnectorOAuthOptions } from "../../auth/connector-oauth.js";
 import { revokeUpstreamGrant } from "../../auth/revocation.js";
-import { splitScope } from "../../auth/index.js";
 import { boundOperation } from "../../binding.js";
 import { ConnectorError } from "../../errors.js";
 import { listTeams, readUser } from "./client.js";
@@ -162,17 +161,12 @@ export async function verifyAccount(
       return { state: "denied", claims: [], code: code("user.changed") };
     const team = seen.listing.teams.find((item) => item.id === account.teamId);
     if (!team) return { state: "denied", claims: [], code: code("team.left") };
-    const reported = await ctx.environment.credentials.use(
-      sessionScope(ctx),
-      ref,
-      async (material) => splitScope(material["scope"]),
-    );
     return {
       state: "complete",
       claims: claimsFor(ctx, {
         user: seen.user,
         team,
-        reported,
+        reported: account.reported,
         validUntil: described?.expiresAt,
       }),
       credentialRef: ref,

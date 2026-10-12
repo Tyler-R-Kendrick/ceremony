@@ -119,6 +119,7 @@ test("a person signs in, picks a team, and the connection is active", async (t) 
     userId: alice.id,
     teamId: "team_dummy_acme",
     slug: "acme",
+    reported: ["openid", "offline_access"],
     expiresAt: START_TIME + 12_000 + 3_600_000,
   });
 });

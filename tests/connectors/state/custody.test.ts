@@ -110,6 +110,45 @@ test("STATE-02: material is stored once, used in a callback and never returned t
   }
 });
 
+test("STATE-02: a short secret is refused when returned whole, a long one when it appears inside a result, and a fact about either is not", async () => {
+  const store = new SQLiteCeremonyStore(":memory:", stateKeyring());
+  const ports = createConnectorPorts(store, { now: () => 1_700_000_000_000 });
+  try {
+    const scope = credentialScope("tenant-a");
+    const ref = await ports.credentials.store(scope, {
+      pin: "pin1234",
+      accessToken: CANARY,
+    });
+    const refused = (work: (m: Readonly<Record<string, string>>) => unknown) =>
+      assert.rejects(
+        ports.credentials.use(scope, ref, async (m) => work(m)),
+        (error: unknown) =>
+          error instanceof ConnectorError &&
+          error.code === "denied" &&
+          error.detail === "credential.material-in-result",
+      );
+    await refused(() => "pin1234");
+    await refused(() => ["pin1234"]);
+    await refused(() => ({ nested: { v: "pin1234" } }));
+    await refused(() => `prefix-${CANARY}-suffix`);
+    // A short value inside a longer string is not the value: only equality counts below eight characters.
+    assert.equal(
+      await ports.credentials.use(scope, ref, async () => "pin12345"),
+      "pin12345",
+    );
+    // What a callback may say is a fact computed from material, not material.
+    assert.deepEqual(
+      await ports.credentials.use(scope, ref, async (m) => ({
+        pinLength: m["pin"]!.length,
+        holdsToken: m["accessToken"] !== undefined,
+      })),
+      { pinLength: 7, holdsToken: true },
+    );
+  } finally {
+    await store.close();
+  }
+});
+
 test("STATE-02: the credential scope is checked on every access", async () => {
   const store = new SQLiteCeremonyStore(":memory:", stateKeyring());
   const ports = createConnectorPorts(store);

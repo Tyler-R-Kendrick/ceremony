@@ -366,6 +366,7 @@ test("a sign-in with one team to bind says it settled its own handoff, and the s
     userId: alice.id,
     teamId: "team_dummy_labs",
     slug: "labs",
+    reported: ["openid", "offline_access"],
     expiresAt: setup.clock() + 3_600_000,
   });
 });
@@ -1013,6 +1014,7 @@ test("a token with no stated lifetime leaves no expiry in the state or the claim
     userId: alice.id,
     teamId: "team_dummy_acme",
     slug: "acme",
+    reported: ["openid", "offline_access"],
   });
   assert.equal(record.verification?.validUntil, undefined);
   const adapter = createVercelAccountAdapter();
@@ -1023,6 +1025,7 @@ test("a token with no stated lifetime leaves no expiry in the state or the claim
     userId: alice.id,
     teamId: "team_dummy_acme",
     slug: "acme",
+    reported: ["openid", "offline_access"],
   });
   for (const claim of result.claims) assert.equal(claim.validUntil, undefined);
 });

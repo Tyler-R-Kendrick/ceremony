@@ -27,13 +27,37 @@ import {
 
 export const ACCOUNT_STATE_KEY = "vercelAccount";
 
+const REPORTED_SCOPE_LIMIT = 16;
+const REPORTED_SCOPE_LENGTH = 200;
+
 const accountStateSchema = z.object({
   userId: z.string().min(1).max(256),
   teamId: z.string().min(1).max(256),
   slug: z.string().min(1).max(256),
   expiresAt: z.number().int().nonnegative().optional(),
+  /**
+   * The scopes Vercel reported granting at sign-in. They are a permission
+   * list, not a credential, and live here rather than behind custody: a scope
+   * read back out of the credential record would be refused by custody's
+   * check that a callback's result holds nothing the record holds, which any
+   * single-scope grant trips. A refresh cannot widen a grant, so what the
+   * sign-in reported stays what the connection holds.
+   */
+  reported: z
+    .array(z.string().min(1).max(REPORTED_SCOPE_LENGTH))
+    .max(REPORTED_SCOPE_LIMIT)
+    .default([]),
 });
 export type BoundAccount = z.infer<typeof accountStateSchema>;
+
+/** Scopes as the state keeps them: bounded, so one odd answer cannot make the state unreadable. */
+export function storedScopes(reported: readonly string[]): string[] {
+  return reported
+    .filter(
+      (scope) => scope.length > 0 && scope.length <= REPORTED_SCOPE_LENGTH,
+    )
+    .slice(0, REPORTED_SCOPE_LIMIT);
+}
 
 /** The user and team this connection is bound to, from its own state. */
 export function boundAccount(ctx: AdapterCallContext): BoundAccount {
