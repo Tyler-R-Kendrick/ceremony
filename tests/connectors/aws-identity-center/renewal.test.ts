@@ -257,7 +257,7 @@ test("concurrent users of expiring credentials share one renewal", async (t) => 
   );
 });
 
-test("a local disconnect releases everything the sign-in held and tells the provider nothing", async (t) => {
+test("a local disconnect releases everything the sign-in held, after ending the portal session", async (t) => {
   const setup = await awsSetup(t);
   const { connectionRef, done } = await connectAndChoose(setup);
   const before = await setup.record(connectionRef);
@@ -270,7 +270,7 @@ test("a local disconnect releases everything the sign-in held and tells the prov
       .then((result) => result.connection),
   );
   assert.equal(view.lifecycle, "locally-disconnected");
-  assert.equal(setup.fixture.counts.logout, 0);
+  assert.equal(setup.fixture.counts.logout, 1, "see release.test.ts");
   const scope = {
     tenantId: before.tenantId,
     ownerKind: before.ownerKind,

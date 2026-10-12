@@ -292,9 +292,9 @@ async function signedIn(t: TestContext) {
   const device = await env.startDevice(client);
   env.fixture.approve(device.userCode);
   env.advance(6_000);
-  const accessToken = (await env.poll(client, device.deviceCode)).json![
-    "accessToken"
-  ] as string;
+  const tokens = (await env.poll(client, device.deviceCode)).json!;
+  const accessToken = tokens["accessToken"] as string;
+  const refreshToken = tokens["refreshToken"] as string | undefined;
   const portal = (
     path: string,
     token: string | null = accessToken,
@@ -304,8 +304,29 @@ async function signedIn(t: TestContext) {
       method,
       headers: token === null ? {} : { "x-amz-sso_bearer_token": token },
     });
-  return { ...env, client, accessToken, portal };
+  return { ...env, client, accessToken, refreshToken, portal };
 }
+
+test("Logout answers 401 for a session that is already over, and ends the access token only", async (t) => {
+  const { fixture, oidc, client, portal, accessToken, refreshToken } =
+    await signedIn(t);
+  assert.ok(refreshToken, "the sign-in issued a refresh token");
+  assert.equal((await portal("/logout", accessToken, "POST")).status, 200);
+  assert.equal((await portal("/logout", accessToken, "POST")).status, 401);
+  assert.equal(
+    (await portal("/logout", "aws_dummy_unknown", "POST")).status,
+    401,
+  );
+  assert.equal(fixture.counts.logout, 3);
+  // assumed: the Logout page speaks of the sign-in session and of role
+  // sessions, not of refresh tokens, so the double does not end one.
+  const refreshed = await oidc("/token", {
+    ...client,
+    grantType: "refresh_token",
+    refreshToken,
+  });
+  assert.equal(refreshed.status, 200);
+});
 
 test("the portal answers 401 without the documented header, with an unknown token and after the token lapsed", async (t) => {
   const { fixture, portal, accessToken } = await signedIn(t);

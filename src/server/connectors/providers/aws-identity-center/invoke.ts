@@ -4,6 +4,7 @@ import type {
   DisconnectResult,
   InvokeRequest,
   InvokeResult,
+  SessionRelease,
 } from "../../adapter.js";
 import { boundOperation } from "../../binding.js";
 import { ConnectorError } from "../../errors.js";
@@ -175,4 +176,44 @@ export async function endSignIn(
     return { ...result, upstream: "failed" };
   }
   return { ...result, upstream: ended ? "applied" : "failed" };
+}
+
+/**
+ * Ends the sign-in session at the portal (`Logout`) as part of a disconnect
+ * that did not ask for it. Best effort: what happened is the answer, with a
+ * stable code and no token, and nothing here stops the disconnect. The portal
+ * reference says Logout invalidates the sign-in session and that role sessions
+ * already issued continue until their own expiry, so `revoked: true` means the
+ * session was ended and never that the role credentials were. The OIDC API
+ * has no operation that revokes a refresh token; that token is dropped with
+ * custody and is not known to be ended.
+ */
+export async function releaseSignIn(
+  ctx: AdapterCallContext,
+): Promise<SessionRelease> {
+  const ref = ctx.connection?.credentialRef;
+  if (!ref)
+    return { revoked: "unavailable", reason: code("release.no-session") };
+  let release: SessionRelease = {
+    revoked: "unavailable",
+    reason: code("release.no-token"),
+  };
+  try {
+    await rotateSession(ctx, ref, async (current) => {
+      if (!current.accessToken) return current;
+      try {
+        release = (await logout(ctx, current.accessToken))
+          ? { revoked: true, reason: code("release.session-ended") }
+          : { revoked: false, reason: code("release.refused") };
+      } catch {
+        release = { revoked: false, reason: code("release.unreachable") };
+      }
+      return current;
+    });
+  } catch {
+    // Custody refused (the credential is gone); report a logout that was made.
+    if (release.revoked === "unavailable")
+      return { revoked: false, reason: code("release.credential-gone") };
+  }
+  return release;
 }

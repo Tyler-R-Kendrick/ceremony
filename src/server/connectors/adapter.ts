@@ -164,12 +164,26 @@ export type InvokeResult = {
 export type DisconnectScope = "local" | "broker" | "upstream";
 export type DisconnectOutcome =
   "applied" | "unsupported" | "failed" | "not-attempted" | "indeterminate";
+/**
+ * The provider's side of a sign-in the host held, ended when the connection is
+ * disconnected without an upstream scope (see `ConnectorAdapter.releaseSession`).
+ * `revoked` is `true` when the provider acknowledged, `false` when it was tried
+ * and not acknowledged, `"unavailable"` when there was nothing to try with.
+ * `reason` is a stable dotted code; it never carries a token, a body or text
+ * the provider wrote.
+ */
+export type SessionRelease = {
+  revoked: boolean | "unavailable";
+  reason: string;
+};
 export type DisconnectResult = {
   local: DisconnectOutcome;
   broker: DisconnectOutcome;
   upstream: DisconnectOutcome;
   /** Other local connections that share the affected upstream grant, for impact review. */
   sharedWith?: string[];
+  /** Best-effort release of a session the host held; absent when the adapter holds none. */
+  release?: SessionRelease;
 };
 
 export type DiscoverInput = {
@@ -300,6 +314,15 @@ export interface ConnectorAdapter {
     scope: DisconnectScope,
   ): Promise<DisconnectResult>;
   revoke?(ctx: AdapterCallContext): Promise<DisconnectResult>;
+  /**
+   * Ends, at the provider, a sign-in session the host holds for this
+   * connection: called while the connection is disconnected in a scope that
+   * does not ask the provider to end the grant (local, broker), just before the
+   * held tokens are dropped. Best effort and bounded: a failure of any kind is
+   * an outcome (`revoked: false`), never an error that stops the disconnect.
+   * An adapter that holds no session of its own does not implement it.
+   */
+  releaseSession?(ctx: AdapterCallContext): Promise<SessionRelease>;
   export?(
     ctx: AdapterCallContext,
     request: ExportRequest,

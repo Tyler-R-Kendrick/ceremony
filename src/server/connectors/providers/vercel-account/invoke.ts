@@ -5,9 +5,14 @@ import type {
   DisconnectResult,
   InvokeRequest,
   InvokeResult,
+  SessionRelease,
 } from "../../adapter.js";
 import type { ConnectorOAuthOptions } from "../../auth/connector-oauth.js";
-import { revokeUpstreamGrant } from "../../auth/revocation.js";
+import {
+  revokeUpstreamGrant,
+  revokeUpstreamGrantWithReason,
+  sessionReleaseOf,
+} from "../../auth/revocation.js";
 import { boundOperation } from "../../binding.js";
 import { ConnectorError } from "../../errors.js";
 import { listTeams, readUser } from "./client.js";
@@ -225,4 +230,37 @@ export async function endSignIn(
     scope: sessionScope(ctx),
     credentialRef: ref,
   });
+}
+
+/**
+ * Presents the held refresh token, then the access token, to Vercel's
+ * revocation endpoint (RFC 7009, with the `none` client's `client_id`) as part
+ * of a disconnect that did not ask for it. Best effort: the answer is what
+ * happened, never an error, and says so with a stable code and no token. Not
+ * attempted, and said so, when the issuer policy turned revocation off, when
+ * Vercel's metadata names no revocation endpoint, or when custody holds
+ * nothing to present.
+ */
+export async function releaseSignIn(
+  ctx: AdapterCallContext,
+  options: ConnectorOAuthOptions,
+): Promise<SessionRelease> {
+  const ref = ctx.connection?.credentialRef;
+  if (!ref)
+    return { revoked: "unavailable", reason: "oauth.revoke.no-session" };
+  let oauth;
+  try {
+    oauth = await resolveSignIn(ctx, options);
+  } catch {
+    return { revoked: false, reason: "oauth.revoke.unresolved" };
+  }
+  return sessionReleaseOf(
+    await revokeUpstreamGrantWithReason(ctx, {
+      server: oauth.server,
+      client: oauth.client,
+      policy: oauth.policy,
+      scope: sessionScope(ctx),
+      credentialRef: ref,
+    }),
+  );
 }

@@ -445,7 +445,7 @@
         "operationId": "disconnectConnection",
         "tags": ["connections"],
         "summary": "Disconnect locally, at the broker, or upstream",
-        "description": "A local unlink attempts nothing upstream. Broker and upstream scopes are a person's decision only.\n\nRequires one of these capabilities: `executor` (or `admin`).\n\n**Human-only inputs:** `scope (broker, upstream)`. An assistant that sends them is refused (or, for `confirm`, the flag is ignored).",
+        "description": "A local unlink asks the provider to end nothing, with one exception: a connector that holds a sign-in session of its own (an account sign-in) first tries, best effort, to end it there, and says what came of it in `result.release`; that attempt never stops the unlink. Broker and upstream scopes are a person's decision only.\n\nRequires one of these capabilities: `executor` (or `admin`).\n\n**Human-only inputs:** `scope (broker, upstream)`. An assistant that sends them is refused (or, for `confirm`, the flag is ignored).",
         "x-ceremony-capabilities": ["executor"],
         "x-ceremony-human-only-inputs": ["scope (broker, upstream)"],
         "parameters": [
@@ -4463,6 +4463,25 @@
                   "type": "string",
                   "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,199}$"
                 }
+              },
+              "release": {
+                "type": "object",
+                "properties": {
+                  "revoked": {
+                    "anyOf": [
+                      { "type": "boolean" },
+                      { "type": "string", "const": "unavailable" }
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120,
+                    "pattern": "^[a-z][a-z0-9]*(?:[.\\-_:][a-z0-9]+){0,15}$"
+                  }
+                },
+                "required": ["revoked", "reason"],
+                "additionalProperties": false
               }
             },
             "required": ["local", "broker", "upstream"],

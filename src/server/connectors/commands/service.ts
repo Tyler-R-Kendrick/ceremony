@@ -104,6 +104,10 @@ import {
   type ReconnectInput,
 } from "./inputs.js";
 import { claimHandoff, submissionOf } from "./handoff-claim.js";
+import {
+  releaseSession,
+  SESSION_RELEASE_TIMEOUT_MS,
+} from "./session-release.js";
 import type { ConnectorPolicy, PolicySubject } from "./policy.js";
 
 /*
@@ -2927,6 +2931,19 @@ export class ConnectorCommandService {
         );
       else remote = { ...remote, [input.scope]: "unsupported" };
     }
+    // A sign-in the host kept for this connection is ended at the provider
+    // before the tokens are dropped, unless the caller already asked the
+    // adapter to end the grant (the upstream scope). Best effort and bounded:
+    // see session-release.ts.
+    const release =
+      input.scope === "upstream"
+        ? undefined
+        : await releaseSession(this.registry.get(binding.adapterId), {
+            ...this.context(actor, binding, current.record),
+            signal: AbortSignal.timeout(
+              Math.min(this.callTimeoutMs, SESSION_RELEASE_TIMEOUT_MS),
+            ),
+          });
     if (record.credentialRef)
       await this.ports.credentials
         .revoke(this.scope(record), record.credentialRef)
@@ -2938,6 +2955,7 @@ export class ConnectorCommandService {
       local: "applied",
       broker: remote.broker,
       upstream: remote.upstream,
+      ...(release ? { release } : {}),
       ...(sharedWith.length || remote.sharedWith?.length
         ? {
             sharedWith: [

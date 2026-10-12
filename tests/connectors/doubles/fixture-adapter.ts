@@ -214,6 +214,8 @@ export type FixtureAdapterOptions = {
   support?: ConnectorAdapter["support"];
   /** Declare the adapter generic: its evidence then speaks for one definition at a time. */
   evidenceScope?: ConnectorAdapter["evidenceScope"];
+  /** Gives the adapter a session of its own to end at the provider on a disconnect. */
+  releaseSession?: ConnectorAdapter["releaseSession"];
 };
 
 type OauthPrivate = { verifier: string; url: string; redirectUri: string };
@@ -679,5 +681,9 @@ export function createFixtureAdapter(
     async revoke(ctx: AdapterCallContext): Promise<DisconnectResult> {
       return this.disconnect!(ctx, "upstream");
     },
+
+    ...(options.releaseSession
+      ? { releaseSession: options.releaseSession }
+      : {}),
   };
 }

@@ -114,8 +114,10 @@ export type AccountSetupOptions = {
   /** Teams the binding permits; defaults to the first two of Alice's. */
   teams?: string[];
   settings?: Record<string, unknown>;
-  /** Turns RFC 7009 revocation on in the issuer policy. */
+  /** Pins RFC 7009 revocation off (false) in the issuer policy; on is the policy default. */
   revoke?: boolean;
+  /** The longest the service lets any adapter call run (its own default otherwise). */
+  callTimeoutMs?: number;
   /** Overrides the destination's origin and network. */
   apiOrigin?: string;
   apiNetwork?: "public" | "loopback-fixture";
@@ -210,6 +212,9 @@ export async function accountSetup(
     origin: ORIGIN,
     importers: [],
     now,
+    ...(options.callTimeoutMs === undefined
+      ? {}
+      : { callTimeoutMs: options.callTimeoutMs }),
   });
 
   const definition = buildDefinition({

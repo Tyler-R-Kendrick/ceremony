@@ -110,6 +110,8 @@ export type AwsSetupOptions = {
   destinations?: { oidc?: string; portal?: string };
   /** The custody port refuses a record this close to its expiry; the default is its own. */
   expirySafetyMarginMs?: number;
+  /** The longest the service lets any adapter call run (its own default otherwise). */
+  callTimeoutMs?: number;
 };
 
 export async function awsSetup(t: TestContext, options: AwsSetupOptions = {}) {
@@ -186,6 +188,9 @@ export async function awsSetup(t: TestContext, options: AwsSetupOptions = {}) {
     origin: ORIGIN,
     importers: [],
     now,
+    ...(options.callTimeoutMs === undefined
+      ? {}
+      : { callTimeoutMs: options.callTimeoutMs }),
   });
 
   const definition = buildDefinition({

@@ -455,6 +455,8 @@ test("every assumption the double serves is written down once, in the module", (
     "ResourceNotFoundException",
     "lapsed access token",
     "another client",
+    "Logout (POST /logout",
+    "not known to stop working after Logout",
   ])
     assert.ok(
       AWS_ASSUMPTIONS.some((line) => line.includes(keyword)),

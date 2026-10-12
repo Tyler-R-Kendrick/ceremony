@@ -186,12 +186,26 @@ export const disconnectOutcomes = [
   "indeterminate",
 ] as const;
 export type DisconnectOutcome = (typeof disconnectOutcomes)[number];
+/**
+ * What became of the provider's side of the sign-in a connection held, when it
+ * was disconnected without asking the provider to end the grant: `true` when
+ * the provider acknowledged it, `false` when it was tried and not
+ * acknowledged, `"unavailable"` when there was nothing to try with (no
+ * endpoint, no token, switched off). Never blocks the disconnect, and holds a
+ * stable code only: no token, no body, no provider text.
+ */
+export const sessionReleaseSchema = z.strictObject({
+  revoked: z.union([z.boolean(), z.literal("unavailable")]),
+  reason: codeSchema,
+});
+export type SessionRelease = z.infer<typeof sessionReleaseSchema>;
 export const disconnectResultSchema = z.object({
   local: z.enum(disconnectOutcomes),
   broker: z.enum(disconnectOutcomes),
   upstream: z.enum(disconnectOutcomes),
   /** Other local connections sharing the affected upstream grant. */
   sharedWith: z.array(connectorReferenceSchema).max(64).optional(),
+  release: sessionReleaseSchema.optional(),
 });
 export type DisconnectResult = z.infer<typeof disconnectResultSchema>;
 

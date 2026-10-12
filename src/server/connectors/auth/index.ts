@@ -168,6 +168,9 @@ export {
 export {
   OAUTH_REVOKE_OPERATION,
   revokeUpstreamGrant,
+  revokeUpstreamGrantWithReason,
+  sessionReleaseOf,
+  type Revocation,
   type RevokeUpstreamInput,
 } from "./revocation.js";
 

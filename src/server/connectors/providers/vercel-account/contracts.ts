@@ -76,6 +76,7 @@ export const VERCEL_ACCOUNT_ASSUMPTIONS = Object.freeze([
   "a client whose authentication method is `none` is accepted at the device and token endpoints (the dashboard page lists `none` for CLIs; the discovery document's token_endpoint_auth_methods_supported does not list it)",
   "the verification page is vercel.com/oauth/device (the pages give no verification_uri)",
   "the revocation endpoint accepts a `none` client's client_id in place of a secret",
+  "the revocation endpoint answers 200 for a token it does not know and ends only the token it is given: it is not known to end an access token when its refresh token is revoked (RFC 7009 says a server SHOULD), so both are presented, the refresh token first",
   "a refresh token rotates on use and a replayed one is invalid_grant (the tokens page says single use and rotated on exchange; the error code is not stated)",
   "a refresh token is issued only when offline_access was requested (the token response example says 'Present if offline_access scope is requested'; nothing says it is issued under no other condition)",
   "an access token obtained through the device grant is accepted by GET /v2/user and GET /v2/teams; whether it is accepted by the Connect management endpoints is unverified, because the permissions page says API permissions are in private beta",
@@ -129,6 +130,12 @@ export function vercelAccountSettings(
  * configuration. RFC 7591 registration is not offered, because the generic
  * client resolution only registers a method the issuer's metadata lists, and
  * Vercel's lists no `none`.
+ *
+ * Revocation is on by default, best effort: a disconnect (local or upstream)
+ * presents the refresh token and then the access token to Vercel's revocation
+ * endpoint with the client's `client_id`, and a failure of any kind is reported
+ * on the disconnect result without stopping the disconnect. `revoke: false`
+ * pins it off, which the result then says (`oauth.revoke.disabled`).
  */
 export function vercelAccountIssuerPolicy(
   options: { revoke?: boolean } = {},
@@ -142,7 +149,8 @@ export function vercelAccountIssuerPolicy(
       clientIdConfiguration: vercelAccountConfigurationNames.clientId,
       clientAuthentication: "none",
     },
-    revocation: options.revoke ? "on-upstream-disconnect" : "disabled",
+    revocation:
+      options.revoke === false ? "disabled" : "on-upstream-disconnect",
   };
 }
 
