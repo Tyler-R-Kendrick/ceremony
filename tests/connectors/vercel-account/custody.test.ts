@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
+import { inspect } from "node:util";
 import { ConnectorError } from "../../../src/server/connectors/errors.js";
+import { ensureFresh } from "../../../src/server/connectors/providers/vercel-account/session.js";
 import {
   accountSetup,
   alice,
@@ -63,11 +65,17 @@ function captureConsole(t: TestContext) {
   return lines;
 }
 
-async function failure(work: Promise<unknown>) {
+/**
+ * A refusal as a caller sees it. What the error prints when it is inspected or
+ * logged, cause chain and hidden members included, goes to `printed` so it is
+ * swept with the rest.
+ */
+async function failure(work: Promise<unknown>, printed: string[] = []) {
   try {
     await work;
   } catch (error) {
     assert.ok(error instanceof ConnectorError);
+    printed.push(inspect(error, { depth: null, showHidden: true }));
     return {
       code: error.code,
       detail: error.detail,
@@ -85,6 +93,7 @@ test("no surface a caller can read carries a secret, after a ceremony that refre
     revoke: true,
   });
   const views: Array<[string, unknown]> = [];
+  const printed: string[] = [];
   const note = (label: string, value: unknown) => {
     views.push([label, value]);
     return value;
@@ -102,6 +111,7 @@ test("no surface a caller can read carries a secret, after a ceremony that refre
       handoffRefOf(first.polled),
       { team: "someone-elses" },
     ),
+    printed,
   );
   note("unknown team", unknown);
   assert.equal(unknown.detail, "vercel-account.team.unknown");
@@ -157,6 +167,7 @@ test("no surface a caller can read carries a secret, after a ceremony that refre
         input: { extra: "x" },
         commandId: "sweep-refused",
       }),
+      printed,
     ),
   );
 
@@ -200,11 +211,35 @@ test("no surface a caller can read carries a secret, after a ceremony that refre
   }
   note("journal", setup.journal);
   note("console", logged);
+  note("printed errors", printed);
 
   sweep(setup, views, [alice.email!]);
   // Nothing of the provider's own words survives either.
   assert.equal(JSON.stringify(views).includes(CANARY), false);
   assert.equal(JSON.stringify(setup.journal).includes(CANARY), false);
+});
+
+test("a refresh answer the client refuses is not printed with the error, cause chain included", async (t) => {
+  const setup = await accountSetup(t);
+  const { connectionRef } = await connectAndChoose(setup);
+  // Vercel answers the refresh with a token type this client does not support:
+  // the answer holds a new token pair, and the library keeps the answer on its error.
+  setup.fixture.answerTokensAs("mac");
+  setup.advance(59 * 60_000);
+  const ctx = await setup.adapterContext(connectionRef);
+  const printed: string[] = [];
+  const refusal = await failure(
+    ensureFresh(ctx, ctx.connection!.credentialRef!, {}),
+    printed,
+  );
+  assert.equal(refusal.code, "expired");
+  assert.equal(refusal.detail, "vercel-account.session.refresh-unknown");
+  assert.equal(
+    setup.fixture.issued.accessTokens.length,
+    2,
+    "an answer was issued",
+  );
+  sweep(setup, [["printed error", printed]]);
 });
 
 test("the sweep can find a secret: custody and the private half of a handoff hold them", async (t) => {

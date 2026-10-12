@@ -304,6 +304,8 @@ export async function startAwsIdentityCenter(
     });
   };
 
+  /** What tokenType the endpoint reports; see `answerTokensAs`. */
+  let tokenType = "Bearer";
   const mintTokens = (
     client: Client,
     personId: string,
@@ -319,7 +321,7 @@ export async function startAwsIdentityCenter(
     issued.accessTokens.push(accessToken);
     const body: Record<string, unknown> = {
       accessToken,
-      tokenType: "Bearer",
+      tokenType,
       expiresIn: accessLifetime,
     };
     // assumed: refresh tokens only for a client that registered the grant and a scope
@@ -662,6 +664,10 @@ export async function startAwsIdentityCenter(
     /** CreateToken answers this status (a 5xx) without acting on the request; null restores it. */
     failTokens(status: number | null) {
       tokenStatus = status ?? undefined;
+    },
+    /** CreateToken reports this tokenType from now on (a type the client does not support, to prove its answer is not echoed). */
+    answerTokensAs(type: string) {
+      tokenType = type;
     },
     /** Every portal call answers this status (a 5xx) without acting on it; null restores the portal. */
     failPortal(status: number | null) {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
+import { inspect } from "node:util";
 import { ConnectorError } from "../../../src/server/connectors/errors.js";
 import {
   awsSetup,
@@ -16,7 +17,7 @@ import {
  * token, the client secret, the device code and the role credentials are
  * dummy values the double issued, so the sweep looks for the exact strings.
  * Every surface a caller, a model, a log or an operator can read is swept
- * after a ceremony that renews, refreshes, reconnects and disconnects; custody
+ * after a ceremony that renews, refreshes, is refused, is denied, signs in a second connection and disconnects; custody
  * and the private half of a handoff are the only places a secret may be, and
  * the sweep proves it can find one there.
  */
@@ -66,11 +67,17 @@ function captureConsole(t: TestContext) {
   return lines;
 }
 
-async function failure(work: Promise<unknown>) {
+/**
+ * A refusal as a caller sees it. What the error prints when it is inspected or
+ * logged, cause chain and hidden members included, goes to `printed` so it is
+ * swept with the rest.
+ */
+async function failure(work: Promise<unknown>, printed: string[] = []) {
   try {
     await work;
   } catch (error) {
     assert.ok(error instanceof ConnectorError);
+    printed.push(inspect(error, { depth: null, showHidden: true }));
     return {
       code: error.code,
       detail: error.detail,
@@ -81,7 +88,7 @@ async function failure(work: Promise<unknown>) {
   throw new Error("expected a refusal");
 }
 
-test("no surface a caller can read carries a secret, after a ceremony that renews, refreshes, reconnects and disconnects", async (t) => {
+test("no surface a caller can read carries a secret, after a ceremony that renews, refreshes, is refused, is denied, signs in a second connection and disconnects", async (t) => {
   const logged = captureConsole(t);
   const setup = await awsSetup(t, {
     double: {
@@ -91,6 +98,7 @@ test("no surface a caller can read carries a secret, after a ceremony that renew
     },
   });
   const views: Array<[string, unknown]> = [];
+  const printed: string[] = [];
   const note = (label: string, value: unknown) => {
     views.push([label, value]);
     return value;
@@ -142,8 +150,17 @@ test("no surface a caller can read carries a secret, after a ceremony that renew
       input: { "aws-account": "777788889999" },
       commandId: "sweep-roles",
     }),
+    printed,
   );
   note("refused invoke", refused);
+  note(
+    "list roles",
+    await setup.service.invoke(setup.agent, connectionRef, {
+      operationRef: "aws-identity-center.list-account-roles",
+      input: { "aws-account": "111122223333" },
+      commandId: "sweep-roles-ok",
+    }),
+  );
 
   // Renewal, then a refresh grant (the access token lapses at twenty minutes).
   setup.advance(26 * 60_000);
@@ -164,6 +181,7 @@ test("no surface a caller can read carries a secret, after a ceremony that renew
       handoffRefOf(second.polled),
       { accountId: "111122223333", roleName: "BillingAdministrator" },
     ),
+    printed,
   );
   note("unassigned role", unassigned);
   assert.equal(unassigned.detail, "aws-identity-center.role.unassigned");
@@ -180,7 +198,7 @@ test("no surface a caller can read carries a secret, after a ceremony that renew
     await setup.service.poll(setup.person, connectionRefOf(denying)),
   );
 
-  // Disconnect upstream, then a reconnect on a fresh connection.
+  // Disconnect upstream.
   const disconnected = await setup.service.disconnect(
     setup.person,
     connectionRef,
@@ -203,11 +221,35 @@ test("no surface a caller can read carries a secret, after a ceremony that renew
   }
   note("journal", setup.journal);
   note("console", logged);
+  note("printed errors", printed);
 
   sweep(setup, views);
   // Nothing of the provider's own words survives either.
   assert.equal(JSON.stringify(views).includes(CANARY), false);
   assert.equal(JSON.stringify(setup.journal).includes(CANARY), false);
+});
+
+test("a refresh answer the client refuses is not printed with the error, cause chain included", async (t) => {
+  const setup = await awsSetup(t, {
+    double: { accessTokenLifetimeSeconds: 1200, roleLifetimeMs: 30 * 60_000 },
+  });
+  const { connectionRef } = await connectAndChoose(setup);
+  // AWS answers the refresh with a token type this client does not support: the
+  // answer holds a new token pair, which must not travel with the refusal.
+  setup.fixture.answerTokensAs("MAC");
+  setup.advance(26 * 60_000);
+  const printed: string[] = [];
+  const refusal = await failure(
+    setup.service.verify(setup.person, connectionRef),
+    printed,
+  );
+  assert.equal(refusal.detail, "aws-identity-center.token.type");
+  assert.equal(
+    setup.fixture.issued.accessTokens.length,
+    2,
+    "an answer was issued",
+  );
+  sweep(setup, [["printed error", printed]]);
 });
 
 test("the sweep can find a secret: custody and the private half of a handoff hold them", async (t) => {

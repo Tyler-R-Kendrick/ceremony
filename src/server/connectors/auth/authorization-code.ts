@@ -32,6 +32,7 @@ import {
   neverSent,
   requestOptions,
   sameSecret,
+  safeCause,
   sha256Hex,
   splitScope,
   tokenErrorDetail,
@@ -948,7 +949,7 @@ export async function refreshAccessToken(
           });
           throw new ConnectorError("indeterminate", {
             detail: "oauth.refresh.indeterminate",
-            cause: failure,
+            cause: safeCause(failure),
           });
         }
       },

@@ -227,6 +227,8 @@ export async function startVercelAccount(options: VercelAccountOptions = {}) {
     });
   };
 
+  /** What token_type the endpoint reports; see `answerTokensAs`. */
+  let tokenType = "Bearer";
   const mintTokens = async (
     clientId: string,
     personId: string,
@@ -242,7 +244,7 @@ export async function startVercelAccount(options: VercelAccountOptions = {}) {
     issued.accessTokens.push(accessToken);
     const body: Record<string, unknown> = {
       access_token: accessToken,
-      token_type: "Bearer",
+      token_type: tokenType,
       ...(options.omitExpiresIn ? {} : { expires_in: accessLifetime }),
       scope,
     };
@@ -534,6 +536,10 @@ export async function startVercelAccount(options: VercelAccountOptions = {}) {
     deny,
     userCodes: () => [...devicesByUserCode.keys()],
     /** The token endpoint answers this status (a 5xx) without acting on the request; null restores it. */
+    /** The token endpoint reports this token_type from now on (a type the client does not support, to prove its answer is not echoed). */
+    answerTokensAs(type: string) {
+      tokenType = type;
+    },
     failTokens(status: number | null) {
       tokenStatus = status ?? undefined;
     },

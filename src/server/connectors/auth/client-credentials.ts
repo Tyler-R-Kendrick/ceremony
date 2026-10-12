@@ -16,6 +16,7 @@ import {
   joinScope,
   neverSent,
   requestOptions,
+  safeCause,
   sha256Hex,
   splitScope,
   tokenErrorDetail,
@@ -247,7 +248,7 @@ export async function grantClientCredentials(
     await settle("indeterminate", "oauth.client-credentials.indeterminate");
     throw new ConnectorError("indeterminate", {
       detail: "oauth.client-credentials.indeterminate",
-      cause: failure,
+      cause: safeCause(failure),
     });
   }
   await settle("applied");
