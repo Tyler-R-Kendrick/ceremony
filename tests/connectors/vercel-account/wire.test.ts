@@ -579,6 +579,10 @@ test("every assumption the double serves is written down once, in the module", (
     "offline_access",
     "private beta",
     "until",
+    "limited",
+    "invalid_scope",
+    "access_denied",
+    "removed",
   ])
     assert.ok(
       VERCEL_ACCOUNT_ASSUMPTIONS.some((line) => line.includes(keyword)),

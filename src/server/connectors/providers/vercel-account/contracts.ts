@@ -72,14 +72,18 @@ export const TOKEN_RENEW_BUFFER_MS = 120_000;
  */
 export const VERCEL_ACCOUNT_ASSUMPTIONS = Object.freeze([
   "the device authorization endpoint answers RFC 8628 section 3.2 members and takes client_id and scope in a form-encoded body (the discovery document advertises the endpoint and the grant; no page describes either)",
-  "an application created on the Sign in with Vercel dashboard page may use the device grant; the pages show the grant only in the discovery document, and `vercel login` may use a client of Vercel's own",
+  "an application created on the Sign in with Vercel dashboard page may use the device grant; the discovery document lists the grant, and the Manage-from-dashboard page says Sign-In Access is checked when a user completes the device authorization flow, but no page gives the request or response, and `vercel login` may use a client of Vercel's own",
   "a client whose authentication method is `none` is accepted at the device and token endpoints (the dashboard page lists `none` for CLIs; the discovery document's token_endpoint_auth_methods_supported does not list it)",
   "the verification page is vercel.com/oauth/device (the pages give no verification_uri)",
   "the revocation endpoint accepts a `none` client's client_id in place of a secret",
   "a refresh token rotates on use and a replayed one is invalid_grant (the tokens page says single use and rotated on exchange; the error code is not stated)",
-  "a refresh token is issued only when offline_access was requested",
+  "a refresh token is issued only when offline_access was requested (the token response example says 'Present if offline_access scope is requested'; nothing says it is issued under no other condition)",
   "an access token obtained through the device grant is accepted by GET /v2/user and GET /v2/teams; whether it is accepted by the Connect management endpoints is unverified, because the permissions page says API permissions are in private beta",
-  "GET /v2/teams pages with `until` set to the previous page's pagination.next",
+  "GET /v2/teams pages with `until` set to the previous page's pagination.next; `until` is inclusive and next is the last team's createdAt minus one",
+  "GET /v2/user and GET /v2/teams answer their full forms to a token that holds only identity scopes (the REST reference documents `limited: true` forms for a token without enough privileges, which the adapter's schemas do not model)",
+  "an application the user removed in their dashboard is answered 401 on the REST reads and invalid_grant at refresh",
+  "an unknown scope at the device endpoint is answered invalid_scope",
+  "an application restricted to a team is refused access_denied at authorization, device approval and refresh (the dashboard page says so; the adapter ends the session when a refresh is refused that way)",
 ]);
 
 // ---------------------------------------------------------------------------

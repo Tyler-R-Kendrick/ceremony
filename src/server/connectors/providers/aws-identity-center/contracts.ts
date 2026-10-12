@@ -67,8 +67,10 @@ export const AWS_ASSUMPTIONS = Object.freeze([
   "slow_down grows the polling interval by five seconds (RFC 8628 section 3.5; the reference does not say)",
   "a wrong or already-used deviceCode is answered invalid_grant (the reference lists InvalidGrantException without saying when)",
   "a refresh token is issued only when the client registered the refresh_token grant and a scope",
+  "a refresh token is single use and CreateToken rotates it on use (the CreateToken page says only that a refreshToken is returned 'if present'); the adapter treats a presented token as spent and never presents it twice, and drops one an answer does not replace",
   "an unassigned role is answered ResourceNotFoundException, HTTP 404",
-  "a Portal API call with an access token issued to another client is answered UnauthorizedException, HTTP 401",
+  "a Portal API call with a lapsed access token is answered UnauthorizedException, HTTP 401",
+  "a Portal API call with an access token issued to another client is answered 401; this is the double's own rule and is in tension with the OIDC Welcome page, which says the tokens grant access to all of a person's account entitlements, not a particular application, so it is not a protection the adapter can rely on",
 ]);
 
 // ---------------------------------------------------------------------------

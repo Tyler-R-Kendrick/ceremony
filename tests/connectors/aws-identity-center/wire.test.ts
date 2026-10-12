@@ -4,6 +4,7 @@ import type { AdapterCallContext } from "../../../src/server/connectors/adapter.
 import { runtimeBindingSchema } from "../../../src/server/connectors/binding.js";
 import { ConnectorError } from "../../../src/server/connectors/errors.js";
 import {
+  AWS_ASSUMPTIONS,
   awsSettings,
   createAwsIdentityCenterAdapter,
   oidcErrorCode,
@@ -434,4 +435,24 @@ test("a sign-in session that is already over reports a failed upstream disconnec
   );
   assert.equal(result.upstream, "failed");
   assert.equal(setup.fixture.counts.logout, 1);
+});
+
+test("every assumption the double serves is written down once, in the module", () => {
+  assert.equal(new Set(AWS_ASSUMPTIONS).size, AWS_ASSUMPTIONS.length);
+  for (const keyword of [
+    "portal.sso.<region>",
+    "epoch milliseconds",
+    "epoch seconds",
+    "slow_down",
+    "invalid_grant",
+    "refresh_token grant",
+    "single use",
+    "ResourceNotFoundException",
+    "lapsed access token",
+    "another client",
+  ])
+    assert.ok(
+      AWS_ASSUMPTIONS.some((line) => line.includes(keyword)),
+      keyword,
+    );
 });
