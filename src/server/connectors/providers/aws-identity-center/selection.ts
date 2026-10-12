@@ -277,6 +277,13 @@ export async function completeSelection(
     });
   if (allowedRoles(ctx, accountId.data, [roleName.data]).length !== 1)
     throw new ConnectorError("denied", { detail: code("role.not-permitted") });
+  // An intent that named only an account narrowed what was offered; what is
+  // typed is held to it too, before the portal is asked for credentials.
+  const intended = intendedTarget(ctx);
+  if (intended && intended.accountId !== accountId.data)
+    throw new ConnectorError("denied", {
+      detail: code("account.not-intended"),
+    });
   return bindRole(ctx, ref, accountId.data, roleName.data, false);
 }
 

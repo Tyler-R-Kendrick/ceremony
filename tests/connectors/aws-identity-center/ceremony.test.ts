@@ -136,6 +136,44 @@ test("an intent naming an account narrows what is offered", async (t) => {
   assert.equal(view.target?.id, "444455556666:PowerUserAccess");
 });
 
+test("an intent naming an account is held to when the person types, before the portal is asked for credentials", async (t) => {
+  const setup = await awsSetup(t);
+  const first = await connectAndApprove(setup, {
+    target: { kind: "aws-account", id: "111122223333" },
+  });
+  const handoffRef = handoffRefOf(first.polled);
+  assert.equal(asView(first.polled).lifecycle, "human-required");
+  // Another account the binding permits is not the one asked for.
+  const listed = setup.fixture.counts.listRoles;
+  await assert.rejects(
+    setup.service.provideInput(setup.person, first.connectionRef, handoffRef, {
+      accountId: "444455556666",
+      roleName: "PowerUserAccess",
+    }),
+    (error: unknown) =>
+      error instanceof ConnectorError &&
+      error.code === "denied" &&
+      error.detail === "aws-identity-center.account.not-intended",
+  );
+  assert.equal(
+    setup.fixture.counts.listRoles,
+    listed,
+    "the portal was not asked about the other account",
+  );
+  assert.equal(setup.fixture.counts.roleCredentials, 0);
+  // The account that was asked for still works, on the same open choice.
+  const done = asView(
+    await setup.service.provideInput(
+      setup.person,
+      first.connectionRef,
+      handoffRef,
+      { accountId: "111122223333", roleName: "ReadOnlyAccess" },
+    ),
+  );
+  assert.equal(done.lifecycle, "active");
+  assert.equal(done.target?.id, "111122223333:ReadOnlyAccess");
+});
+
 test("an intent naming a role binds that role of a two-role account", async (t) => {
   const setup = await awsSetup(t);
   const { polled } = await connectAndApprove(setup, {
