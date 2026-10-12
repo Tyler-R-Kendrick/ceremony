@@ -5,7 +5,9 @@ import type {
 } from "../../adapter.js";
 import {
   assertHandoffCurrent,
+  discardSuperseded,
   inputRequiredHandoff,
+  pendingSession,
 } from "../../auth/index.js";
 import { displayText } from "../../display-text.js";
 import { ConnectorError } from "../../errors.js";
@@ -209,6 +211,7 @@ export async function continueAfterSignIn(
   // The device code is spent and its handoff settled. If listing or binding
   // fails, the tokens must not be left in custody with nothing pointing at them.
   try {
+    await discardSuperseded(ctx, ref);
     return await planAndBind(ctx, ref);
   } catch (error) {
     await discard(ctx, ref);
@@ -239,6 +242,7 @@ async function planAndBind(
     claims: [],
     code: code("selection.required"),
     handoff: selectionHandoff(ctx, ref, plan),
+    adapterState: pendingSession(ref),
     handoffSettled: true,
   };
 }
@@ -357,6 +361,7 @@ export async function bindRole(
         region: awsSettings(ctx.binding).region,
         expiresAt: next.expiresAt,
       },
+      ...pendingSession(null),
     },
     ...(handoffSettled ? { handoffSettled: true } : {}),
   };

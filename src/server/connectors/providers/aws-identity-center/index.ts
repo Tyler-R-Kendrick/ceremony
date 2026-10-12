@@ -13,7 +13,8 @@ import { ConnectorError } from "../../errors.js";
 import type { AwsCredentials } from "../../aws-credentials.js";
 import { beginSignIn, pollSignIn } from "./device.js";
 import { roleClaims, roleTarget } from "./evidence.js";
-import { endSignIn, invokeAws, releaseSignIn } from "./invoke.js";
+import { invokeAws } from "./invoke.js";
+import { endSignIn, releaseSignIn } from "./release.js";
 import {
   AWS_IDENTITY_CENTER_ADAPTER_ID,
   AWS_IDENTITY_CENTER_ADAPTER_VERSION,

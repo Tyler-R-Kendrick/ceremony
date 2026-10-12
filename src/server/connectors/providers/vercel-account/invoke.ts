@@ -2,17 +2,10 @@ import { z } from "zod";
 import type {
   AdapterCallContext,
   CompletionResult,
-  DisconnectResult,
   InvokeRequest,
   InvokeResult,
-  SessionRelease,
 } from "../../adapter.js";
 import type { ConnectorOAuthOptions } from "../../auth/connector-oauth.js";
-import {
-  revokeUpstreamGrant,
-  revokeUpstreamGrantWithReason,
-  sessionReleaseOf,
-} from "../../auth/revocation.js";
 import { boundOperation } from "../../binding.js";
 import { ConnectorError } from "../../errors.js";
 import { listTeams, readUser } from "./client.js";
@@ -29,17 +22,12 @@ import {
   claimsFor,
   teamTarget,
 } from "./evidence.js";
-import {
-  ensureFresh,
-  resolveSignIn,
-  sessionScope,
-  withBearer,
-} from "./session.js";
+import { ensureFresh, sessionScope, withBearer } from "./session.js";
 
 /*
  * What a caller may do with a signed-in connection besides use it: read who
  * signed in and the teams it may reach, check that the sign-in still stands,
- * and end it. The token itself is never an output; trusted host code reaches
+ * (ending it is `release.ts`). The token itself is never an output; trusted host code reaches
  * it only through the management lease (`management.ts`).
  */
 
@@ -202,65 +190,4 @@ export async function verifyAccount(
       };
     throw error;
   }
-}
-
-/**
- * Ends the grant at Vercel (RFC 7009) when the host's reviewed policy asked
- * for it and Vercel's metadata advertises an endpoint; otherwise it says why
- * it did not. Local custody is released by the command layer either way.
- */
-export async function endSignIn(
-  ctx: AdapterCallContext,
-  options: ConnectorOAuthOptions,
-): Promise<DisconnectResult["upstream"]> {
-  const ref = ctx.connection?.credentialRef;
-  if (!ref) return "not-attempted";
-  let oauth;
-  try {
-    oauth = await resolveSignIn(ctx, options);
-  } catch {
-    return "failed";
-  }
-  if (oauth.policy.revocation !== "on-upstream-disconnect")
-    return "not-attempted";
-  return revokeUpstreamGrant(ctx, {
-    server: oauth.server,
-    client: oauth.client,
-    policy: oauth.policy,
-    scope: sessionScope(ctx),
-    credentialRef: ref,
-  });
-}
-
-/**
- * Presents the held refresh token, then the access token, to Vercel's
- * revocation endpoint (RFC 7009, with the `none` client's `client_id`) as part
- * of a disconnect that did not ask for it. Best effort: the answer is what
- * happened, never an error, and says so with a stable code and no token. Not
- * attempted, and said so, when the issuer policy turned revocation off, when
- * Vercel's metadata names no revocation endpoint, or when custody holds
- * nothing to present.
- */
-export async function releaseSignIn(
-  ctx: AdapterCallContext,
-  options: ConnectorOAuthOptions,
-): Promise<SessionRelease> {
-  const ref = ctx.connection?.credentialRef;
-  if (!ref)
-    return { revoked: "unavailable", reason: "oauth.revoke.no-session" };
-  let oauth;
-  try {
-    oauth = await resolveSignIn(ctx, options);
-  } catch {
-    return { revoked: false, reason: "oauth.revoke.unresolved" };
-  }
-  return sessionReleaseOf(
-    await revokeUpstreamGrantWithReason(ctx, {
-      server: oauth.server,
-      client: oauth.client,
-      policy: oauth.policy,
-      scope: sessionScope(ctx),
-      credentialRef: ref,
-    }),
-  );
 }

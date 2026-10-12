@@ -166,6 +166,16 @@ export {
 } from "./client-credentials.js";
 
 export {
+  combineReleases,
+  discardPending,
+  discardSuperseded,
+  heldSessions,
+  pendingSession,
+  PENDING_SESSION_STATE,
+  type HeldSession,
+} from "./pending-session.js";
+
+export {
   OAUTH_REVOKE_OPERATION,
   revokeUpstreamGrant,
   revokeUpstreamGrantWithReason,

@@ -1971,6 +1971,8 @@ export class ConnectorCommandService {
         await finish("completed");
         patch.lifecycle = "human-required";
         patch.lastOutcome = code(result.code, "human.required");
+        if (result.adapterState)
+          patch.state = boundedState(record.state, result.adapterState);
         if (result.handoff)
           return this.issueHandoff(
             actor,

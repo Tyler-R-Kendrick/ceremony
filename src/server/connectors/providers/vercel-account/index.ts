@@ -21,12 +21,8 @@ import {
   vercelAccountOperations,
   type VercelAccountOperation,
 } from "./contracts.js";
-import {
-  endSignIn,
-  invokeAccount,
-  releaseSignIn,
-  verifyAccount,
-} from "./invoke.js";
+import { invokeAccount, verifyAccount } from "./invoke.js";
+import { endSignIn, releaseSignIn } from "./release.js";
 
 export * from "./contracts.js";
 export { accountApiDestination } from "./client.js";
