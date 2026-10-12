@@ -152,6 +152,16 @@ export async function awsSetup(t: TestContext, options: AwsSetupOptions = {}) {
       return ports.effects.complete(effectRef, outcome);
     },
   };
+  // Every custody record the adapter writes, so a test can prove none outlives its attempt.
+  const stored: string[] = [];
+  const credentials = {
+    ...ports.credentials,
+    store: async (...args: Parameters<typeof ports.credentials.store>) => {
+      const ref = await ports.credentials.store(...args);
+      stored.push(ref);
+      return ref;
+    },
+  };
   const registry = new ConnectorAdapterRegistry();
   registry.register(createAwsIdentityCenterAdapter());
   const definitions = memoryDefinitionStore();
@@ -162,7 +172,7 @@ export async function awsSetup(t: TestContext, options: AwsSetupOptions = {}) {
       evidence: ports.evidence,
       effects,
       handoffs: ports.handoffs,
-      credentials: ports.credentials,
+      credentials,
       definitions,
       artifacts: memoryArtifactStore(),
     },
@@ -256,20 +266,29 @@ export async function awsSetup(t: TestContext, options: AwsSetupOptions = {}) {
    */
   const heldMaterial = async (connectionRef: string) => {
     const connection = await record(connectionRef);
+    const scope = {
+      tenantId: connection.tenantId,
+      ownerKind: connection.ownerKind,
+      ownerId: connection.ownerId,
+      connectionRef: connection.connectionRef,
+      bindingRef: connection.bindingRef,
+      custody: connection.custody,
+    };
+    // Reading through a rotation writes the record back, so the expiry it
+    // had is carried over: looking must not change what is looked at.
+    const expiresAt = (
+      await ports.credentials.describe(scope, connection.credentialRef!)
+    )?.expiresAt;
     let held: Record<string, string> = {};
     await ports.credentials.refresh(
-      {
-        tenantId: connection.tenantId,
-        ownerKind: connection.ownerKind,
-        ownerId: connection.ownerId,
-        connectionRef: connection.connectionRef,
-        bindingRef: connection.bindingRef,
-        custody: connection.custody,
-      },
+      scope,
       connection.credentialRef!,
       async (current) => {
         held = { ...current };
-        return { material: current };
+        return {
+          material: current,
+          ...(expiresAt === undefined ? {} : { expiresAt }),
+        };
       },
     );
     return held;
@@ -308,6 +327,7 @@ export async function awsSetup(t: TestContext, options: AwsSetupOptions = {}) {
     person,
     agent: delegate_,
     journal,
+    stored,
     record,
     heldMaterial,
     adapterContext,

@@ -204,6 +204,20 @@ export async function continueAfterSignIn(
   ctx: AdapterCallContext,
   ref: string,
 ): Promise<CompletionResult> {
+  // The device code is spent and its handoff settled. If listing or binding
+  // fails, the tokens must not be left in custody with nothing pointing at them.
+  try {
+    return await planAndBind(ctx, ref);
+  } catch (error) {
+    await discard(ctx, ref);
+    throw error;
+  }
+}
+
+async function planAndBind(
+  ctx: AdapterCallContext,
+  ref: string,
+): Promise<CompletionResult> {
   const plan = await withSession(ctx, ref, (material) =>
     planChoice(ctx, material.accessToken!),
   );

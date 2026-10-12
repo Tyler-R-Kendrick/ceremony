@@ -436,8 +436,12 @@ export async function startAwsIdentityCenter(
   const holds = (personId: string, accountId: string) =>
     people.get(personId)?.accounts.find((a) => a.accountId === accountId);
 
+  /** Set by `failPortal`: every portal call answers this status without acting on the request. */
+  let portalStatus: number | undefined;
   const portal = (request: RecordedRequest) => {
     const path = request.url.pathname;
+    if (portalStatus !== undefined)
+      return portalError(portalStatus, "unavailable");
     const session = held(request);
     if (path === "/logout" && request.method === "POST") {
       counts.logout++;
@@ -643,6 +647,10 @@ export async function startAwsIdentityCenter(
     /** CreateToken answers this status (a 5xx) without acting on the request; null restores it. */
     failTokens(status: number | null) {
       tokenStatus = status ?? undefined;
+    },
+    /** Every portal call answers this status (a 5xx) without acting on it; null restores the portal. */
+    failPortal(status: number | null) {
+      portalStatus = status ?? undefined;
     },
     /** Stops listening on the OIDC origin, so a request fails before it is sent. */
     stopOidc: () => oidc.close(),

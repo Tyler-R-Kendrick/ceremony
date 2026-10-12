@@ -85,6 +85,43 @@ test("a refresh answered 5xx is never presented again", async (t) => {
   assert.equal(setup.fixture.counts.token, sent, "no second presentation");
 });
 
+test("a portal that is down after the person approved leaves no tokens in custody", async (t) => {
+  const setup = await awsSetup(t);
+  const connected = await setup.service.connect(setup.person, {
+    bindingRef: setup.binding.bindingRef,
+    intent: {},
+  });
+  setup.fixture.approve(userCodeOf(connected));
+  setup.fixture.failPortal(503);
+  setup.advance(6_000);
+  await assert.rejects(
+    setup.service.poll(setup.person, connectionRefOf(connected)),
+    (error: unknown) =>
+      error instanceof ConnectorError && error.code === "upstream-unavailable",
+  );
+  assert.equal(
+    setup.fixture.issued.accessTokens.length,
+    1,
+    "AWS did issue a token",
+  );
+  assert.equal(setup.stored.length > 0, true);
+  const connection = await setup.record(connectionRefOf(connected));
+  const scope = {
+    tenantId: connection.tenantId,
+    ownerKind: connection.ownerKind,
+    ownerId: connection.ownerId,
+    connectionRef: connection.connectionRef,
+    bindingRef: connection.bindingRef,
+    custody: connection.custody,
+  };
+  for (const ref of setup.stored)
+    assert.equal(
+      await setup.ports.credentials.describe(scope, ref),
+      undefined,
+      "no record outlives the attempt",
+    );
+});
+
 test("nothing the binding permits is held by the person: the attempt ends and nothing is kept", async (t) => {
   const setup = await awsSetup(t, { accounts: ["999900001111"] });
   const { connectionRef, polled } = await connectAndApprove(setup);
