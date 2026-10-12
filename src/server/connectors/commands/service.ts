@@ -103,6 +103,7 @@ import {
   type OperationApproval,
   type ReconnectInput,
 } from "./inputs.js";
+import { closeDisconnected } from "./disconnect-close.js";
 import { withHandoffClaim } from "./handoff-claim.js";
 import {
   releaseSession,
@@ -2972,13 +2973,26 @@ export class ConnectorCommandService {
           }
         : {}),
     };
-    current = await this.update(actor, current, {
-      lifecycle:
-        result.upstream === "applied"
-          ? "upstream-revoked"
-          : "locally-disconnected",
-      lastOutcome: `disconnect.${input.scope}`,
-    });
+    // The record is closed even if something wrote it while the provider was
+    // being told (disconnect-close.ts).
+    current = await port(() =>
+      closeDisconnected(
+        this.ports.connections,
+        async (ref) =>
+          this.ports.credentials
+            .revoke(this.scope(record), ref)
+            .catch(() => {}),
+        actor,
+        current,
+        {
+          lifecycle:
+            result.upstream === "applied"
+              ? "upstream-revoked"
+              : "locally-disconnected",
+          lastOutcome: `disconnect.${input.scope}`,
+        },
+      ),
+    );
     return { result, connection: this.project(actor, current) };
   }
 
