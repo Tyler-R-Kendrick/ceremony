@@ -292,14 +292,12 @@ test("stored material that is not a whole sign-in is refused, and a whole one ro
   assert.deepEqual(parseMaterial(serializeMaterial(whole)), whole);
   const raw = serializeMaterial(whole);
   const broken: Array<Record<string, string>> = [
-    { ...raw, phase: "other" },
     { ...raw, client_id: "" },
     { ...raw, sso_access_token_expires_at: "soon" },
     { ...raw, role_expires_at: "-1" },
     Object.fromEntries(
       Object.entries(raw).filter(([key]) => key !== "session_token"),
     ),
-    { ...raw, phase: "registered" },
     Object.fromEntries(
       Object.entries(raw).filter(([key]) => key !== "sso_access_token"),
     ),

@@ -480,7 +480,6 @@ test("a refresh token the journal already holds is never presented again, whiche
 
 test("stored material is whole or refused: lifetimes are positive integers and a bound role carries all four members", () => {
   const raw = {
-    phase: "role-bound",
     client_id: "c",
     client_secret: "s",
     client_secret_expires_at: "10",
@@ -493,6 +492,22 @@ test("stored material is whole or refused: lifetimes are positive integers and a
     role_expires_at: "7",
   };
   assert.equal(parseMaterial(raw).role?.expiresAt, 7);
+  // The phase is read from the members present; the record stores no word for it.
+  assert.equal(parseMaterial(raw).phase, "role-bound");
+  const signedInOnly = {
+    client_id: raw.client_id,
+    client_secret: raw.client_secret,
+    client_secret_expires_at: raw.client_secret_expires_at,
+    sso_access_token: raw.sso_access_token,
+    sso_access_token_expires_at: raw.sso_access_token_expires_at,
+  };
+  assert.equal(parseMaterial(signedInOnly).phase, "signed-in");
+  const registeredOnly = {
+    client_id: raw.client_id,
+    client_secret: raw.client_secret,
+    client_secret_expires_at: raw.client_secret_expires_at,
+  };
+  assert.equal(parseMaterial(registeredOnly).phase, "registered");
   assert.equal(
     parseMaterial({ ...raw, sso_refresh_token: "" }).refreshToken,
     undefined,
@@ -519,8 +534,11 @@ test("stored material is whole or refused: lifetimes are positive integers and a
   refused({ session_token: undefined });
   refused({ role_expires_at: undefined });
   refused({ role_expires_at: "0" });
-  refused({ phase: "registered" });
-  refused({ phase: "signed-in", sso_access_token: undefined });
+  // Role credentials with no sign-in behind them are not a whole record.
+  refused({
+    sso_access_token: undefined,
+    sso_access_token_expires_at: undefined,
+  });
 });
 
 test("signing in again holds the refresh token the answer carries, and none when it carries none", () => {

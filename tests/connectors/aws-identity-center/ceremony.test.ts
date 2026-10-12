@@ -110,7 +110,7 @@ test("a person signs in, picks an account and role, and the connection is active
   );
   assert.deepEqual(fixture.violations, []);
   const held = await setup.heldMaterial(connectionRef);
-  assert.equal(held["phase"], "role-bound");
+  assert.equal("phase" in held, false, "the record stores no bookkeeping word");
   assert.equal(
     held["access_key_id"],
     fixture.issued.roleCredentials[0]!.accessKeyId,

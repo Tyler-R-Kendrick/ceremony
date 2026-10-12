@@ -62,22 +62,21 @@ function integer(value: string | undefined): number | undefined {
   return parsed;
 }
 
+/**
+ * The record holds no bookkeeping, only what is secret or what the sign-in
+ * needs to keep working: custody refuses a callback result that contains
+ * anything the record holds, so a stored word such as a phase name would make
+ * an operation fail whenever an account or role is named with it. The phase
+ * is read from which members are present.
+ */
 export function parseMaterial(raw: CredentialMaterial): SessionMaterial {
-  const phase = raw["phase"];
   const clientId = raw["client_id"];
   const clientSecret = raw["client_secret"];
   const clientSecretExpiresAt = integer(raw["client_secret_expires_at"]);
-  if (
-    (phase !== "registered" &&
-      phase !== "signed-in" &&
-      phase !== "role-bound") ||
-    !clientId ||
-    !clientSecret ||
-    clientSecretExpiresAt === undefined
-  )
+  if (!clientId || !clientSecret || clientSecretExpiresAt === undefined)
     throw malformed();
   const material: SessionMaterial = {
-    phase,
+    phase: "registered",
     clientId,
     clientSecret,
     clientSecretExpiresAt,
@@ -88,18 +87,20 @@ export function parseMaterial(raw: CredentialMaterial): SessionMaterial {
     if (expires === undefined) throw malformed();
     material.accessToken = accessToken;
     material.accessTokenExpiresAt = expires;
+    material.phase = "signed-in";
   }
   if (raw["sso_refresh_token"])
     material.refreshToken = raw["sso_refresh_token"];
-  if (phase === "registered" && accessToken) throw malformed();
-  if (phase !== "registered" && !accessToken) throw malformed();
-  if (phase === "role-bound") {
-    const keyId = raw["access_key_id"];
-    const secret = raw["secret_access_key"];
-    const session = raw["session_token"];
+  const keyId = raw["access_key_id"];
+  const secret = raw["secret_access_key"];
+  const session = raw["session_token"];
+  const roleMembers = [keyId, secret, session, raw["role_expires_at"]];
+  if (roleMembers.some((member) => member !== undefined)) {
+    // Role credentials need a sign-in behind them, and all four members.
     const expires = integer(raw["role_expires_at"]);
-    if (!keyId || !secret || !session || expires === undefined)
+    if (!accessToken || !keyId || !secret || !session || expires === undefined)
       throw malformed();
+    material.phase = "role-bound";
     material.role = {
       accessKeyId: keyId,
       secretAccessKey: secret,
@@ -114,7 +115,6 @@ export function serializeMaterial(
   material: SessionMaterial,
 ): CredentialMaterial {
   const out: Record<string, string> = {
-    phase: material.phase,
     client_id: material.clientId,
     client_secret: material.clientSecret,
     client_secret_expires_at: String(material.clientSecretExpiresAt),
