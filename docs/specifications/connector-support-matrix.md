@@ -212,7 +212,7 @@ Module: `src/server/connectors/providers/aws-identity-center/index.ts` (`createA
 - verify: Identity is the portal's report for this sign-in; STS is not asked.
 - invoke: Read-only: ListAccounts and ListAccountRoles for the accounts the binding permits. Role credentials are never an output.
 - reconnect: Reconnecting is a new sign-in; a different account or role needs an explicit account switch.
-- disconnect: A local disconnect first calls the portal's Logout, best effort: the result says whether the portal acknowledged (`release`), and a failure never stops the disconnect; then it drops the held tokens and role credentials. The upstream scope calls Logout and reports it as the upstream outcome.
+- disconnect: A local disconnect first calls the portal's Logout for each sign-in the connection holds (its own, and one waiting for the role choice), best effort: the result says whether the portal acknowledged (`release`), and a failure never stops the disconnect; then it drops the held tokens and role credentials. The upstream scope calls Logout and reports it as the upstream outcome. Cancelling the role choice drops the sign-in held for it without telling the portal.
 - revoke: Logout ends the sign-in session; role sessions already issued run to their own expiry. The OIDC API has no operation that revokes a refresh token, so that token is dropped with custody and is not known to be ended.
 
 ### `camel-kamelet` — Apache Camel Kamelets
@@ -606,7 +606,7 @@ Module: `src/server/connectors/providers/vercel-account/index.ts` (`createVercel
 - verify: Renews the access token with its single-use refresh token when it is about to lapse, then re-reads the user and teams.
 - invoke: Read-only: GET /v2/user and GET /v2/teams. The token is never an output; the management leg of Vercel Connect reaches it through a lease the host wires.
 - reconnect: Reconnecting is a new sign-in; a different team needs an explicit switch.
-- disconnect: A local disconnect first presents the held refresh and access tokens to Vercel's revocation endpoint, best effort: the result says whether Vercel acknowledged (`release`), and a failure never stops the disconnect. The upstream scope does the same and reports it as the upstream outcome. Both are off when the reviewed issuer policy says `revocation: disabled`.
+- disconnect: A local disconnect first presents the held refresh and access tokens to Vercel's revocation endpoint for each sign-in the connection holds (its own, and one waiting for the team choice), best effort: the result says whether Vercel acknowledged (`release`), and a failure never stops the disconnect. The upstream scope does the same and reports it as the upstream outcome. Both are off when the reviewed issuer policy says `revocation: disabled`. Cancelling the team choice drops the sign-in held for it without telling Vercel.
 - revoke: RFC 7009 revocation of the refresh and access tokens, on unless the issuer policy says disabled.
 
 ### `vercel-connect` — Vercel Connect

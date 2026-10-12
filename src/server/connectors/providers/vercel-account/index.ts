@@ -161,7 +161,7 @@ export function createVercelAccountAdapter(
           "Reconnecting is a new sign-in; a different team needs an explicit switch.",
         ]),
         status("disconnect", ready, [
-          "A local disconnect first presents the held refresh and access tokens to Vercel's revocation endpoint, best effort: the result says whether Vercel acknowledged (`release`), and a failure never stops the disconnect. The upstream scope does the same and reports it as the upstream outcome. Both are off when the reviewed issuer policy says `revocation: disabled`.",
+          "A local disconnect first presents the held refresh and access tokens to Vercel's revocation endpoint for each sign-in the connection holds (its own, and one waiting for the team choice), best effort: the result says whether Vercel acknowledged (`release`), and a failure never stops the disconnect. The upstream scope does the same and reports it as the upstream outcome. Both are off when the reviewed issuer policy says `revocation: disabled`. Cancelling the team choice drops the sign-in held for it without telling Vercel.",
         ]),
         status("revoke", ready, [
           "RFC 7009 revocation of the refresh and access tokens, on unless the issuer policy says disabled.",

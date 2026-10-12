@@ -190,9 +190,9 @@ export type DisconnectOutcome = (typeof disconnectOutcomes)[number];
  * What became of the provider's side of the sign-in a connection held, when it
  * was disconnected without asking the provider to end the grant: `true` when
  * the provider acknowledged it, `false` when it was tried and not
- * acknowledged, `"unavailable"` when there was nothing to try with (no
- * endpoint, no token, switched off). Never blocks the disconnect, and holds a
- * stable code only: no token, no body, no provider text.
+ * acknowledged, `"unavailable"` when there was nothing to try (no endpoint, no
+ * token, switched off) or another local connection shares the grant. Never
+ * blocks the disconnect; holds a stable code only, no token, body or text.
  */
 export const sessionReleaseSchema = z.strictObject({
   revoked: z.union([z.boolean(), z.literal("unavailable")]),
