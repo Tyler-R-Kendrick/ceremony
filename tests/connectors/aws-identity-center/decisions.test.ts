@@ -689,3 +689,38 @@ test("a refresh that never left is not spent, and the journal says so", async (t
   );
   assert.equal(setup.fixture.counts.refresh, 0);
 });
+
+test("a refresh the journal records as never sent may be tried again, and a lone account with two roles lists them", async (t) => {
+  const setup = await awsSetup(t, {
+    double: { accessTokenLifetimeSeconds: 1200, roleLifetimeMs: 30 * MINUTE },
+  });
+  const { connectionRef } = await connectAndChoose(setup);
+  const held = await setup.heldMaterial(connectionRef);
+  const connection = await setup.record(connectionRef);
+  const begun = await setup.ports.effects.begin({
+    actor: setup.person,
+    connectionRef,
+    bindingRef: connection.bindingRef,
+    operation: AWS_TOKEN_REFRESH_OPERATION,
+    digest: sha256Hex(
+      "aws-refresh",
+      held["client_id"]!,
+      held["sso_refresh_token"]!,
+    ),
+  });
+  await setup.ports.effects.complete(begun.effectRef, {
+    status: "not-applied",
+    at: setup.clock(),
+  });
+  setup.advance(26 * MINUTE);
+  const view = asView(await setup.service.verify(setup.person, connectionRef));
+  assert.equal(view.lifecycle, "active");
+  assert.equal(setup.fixture.counts.refresh, 1);
+
+  const lone = await awsSetup(t, { accounts: ["111122223333"] });
+  const { polled } = await connectAndApprove(lone);
+  assert.equal(
+    asView(polled).presentation!.instructions,
+    `${LEAD}111122223333 Production (ReadOnlyAccess, AdministratorAccess).`,
+  );
+});

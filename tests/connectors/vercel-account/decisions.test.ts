@@ -20,6 +20,7 @@ import {
 import {
   accountSwitchRequested,
   claimsFor,
+  priorUserId,
 } from "../../../src/server/connectors/providers/vercel-account/evidence.js";
 import { ensureFresh } from "../../../src/server/connectors/providers/vercel-account/session.js";
 import { resolveCredential } from "../../../src/server/connectors/providers/vercel/index.js";
@@ -187,8 +188,12 @@ async function offered(
     people: [person],
     teams: person.teams.map((team) => team.id),
   });
-  const { polled } = await connectAndApprove(setup);
-  return { setup, text: asView(polled).presentation!.instructions! };
+  const first = await connectAndApprove(setup);
+  return {
+    setup,
+    first,
+    text: asView(first.polled).presentation!.instructions!,
+  };
 }
 
 test("the line a person reads is cleaned of control characters and capped, saying when there is more", async (t) => {
@@ -963,5 +968,158 @@ test("an outage while reading an account is an outage, not a session that ended"
     }),
     (error: unknown) =>
       error instanceof ConnectorError && error.code === "upstream-unavailable",
+  );
+});
+
+// ------------------------------------------- the rest of what is observable
+
+test("slugs are cleaned at their edges in the line, and the handoff tells the page which one field to ask for", async (t) => {
+  const { setup, first, text } = await offered(t, [
+    { slug: "\u0007acme\u0007" },
+    { slug: "labs" },
+  ]);
+  assert.equal(text, `${LEAD}acme (team_dummy_000); labs (team_dummy_001).`);
+  const choice = await setup.ports.handoffs.present(
+    setup.person,
+    handoffRefOf(first.polled),
+  );
+  assert.equal(choice?.private["fields"], JSON.stringify(["team"]));
+});
+
+test("a token with no stated lifetime leaves no expiry in the state or the claims", async (t) => {
+  const setup = await accountSetup(t, {
+    teams: ["team_dummy_acme"],
+    double: { omitExpiresIn: true },
+  });
+  const { connectionRef } = await connectAndApprove(setup);
+  const record = await setup.record(connectionRef);
+  assert.deepEqual(record.state["vercelAccount"], {
+    userId: alice.id,
+    teamId: "team_dummy_acme",
+    slug: "acme",
+  });
+  assert.equal(record.verification?.validUntil, undefined);
+  const adapter = createVercelAccountAdapter();
+  const ctx = await setup.adapterContext(connectionRef);
+  const result = await adapter.verify!(ctx);
+  assert.equal(result.state, "complete");
+  assert.deepEqual(result.adapterState?.["vercelAccount"], {
+    userId: alice.id,
+    teamId: "team_dummy_acme",
+    slug: "acme",
+  });
+  for (const claim of result.claims) assert.equal(claim.validUntil, undefined);
+});
+
+test("an operation bound under a name the adapter does not know is not run as one it does", async (t) => {
+  const setup = await accountSetup(t);
+  const adapter = createVercelAccountAdapter();
+  const { connectionRef } = await connectAndChoose(setup);
+  const ctx = await setup.adapterContext(connectionRef);
+  const withStranger = {
+    ...ctx,
+    binding: runtimeBindingSchema.parse({
+      ...setup.binding,
+      operations: [
+        ...vercelAccountBoundOperations(),
+        {
+          ...vercelAccountBoundOperations()[0]!,
+          operationRef: "vercel-account.other",
+          nativeId: "Other",
+        },
+      ],
+    }),
+  } as AdapterCallContext;
+  const before = setup.fixture.apiRequests.length;
+  await assert.rejects(
+    adapter.invoke!(withStranger, {
+      operationRef: "vercel-account.other",
+      input: {},
+      commandId: "c",
+    }),
+    (error: unknown) => detailOf(error) === "vercel-account.operation.unbound",
+  );
+  assert.equal(setup.fixture.apiRequests.length, before, "nothing was sent");
+});
+
+test("a verification of a session the person ended answers expired, with no claim", async (t) => {
+  const setup = await accountSetup(t);
+  const adapter = createVercelAccountAdapter();
+  const { connectionRef } = await connectAndChoose(setup);
+  const ctx = await setup.adapterContext(connectionRef);
+  setup.fixture.revokeApp(alice.id);
+  const result = await adapter.verify!(ctx);
+  assert.deepEqual(
+    [result.state, result.code, result.claims],
+    ["expired", "vercel-account.session.revoked", []],
+  );
+});
+
+test("an issuer that is down is an outage even when the client id is also missing", async (t) => {
+  const setup = await accountSetup(t, { clientId: null });
+  const view = (await setup.service.connect(setup.person, {
+    bindingRef: setup.binding.bindingRef,
+    intent: {},
+  })) as { connectionRef: string };
+  const ctx = await setup.adapterContext(view.connectionRef);
+  await setup.fixture.stopIssuer();
+  await assert.rejects(
+    createVercelAccountAdapter().authorize!(ctx, {
+      ownerKind: "user",
+    } as never),
+    (error: unknown) =>
+      error instanceof ConnectorError &&
+      error.code === "upstream-unavailable" &&
+      error.detail === "oauth.discovery.unavailable",
+  );
+});
+
+test("a custody record that holds no access token is a conflict the adapter names, not a request without a bearer", async (t) => {
+  const setup = await accountSetup(t);
+  const { connectionRef } = await connectAndChoose(setup);
+  const connection = await setup.record(connectionRef);
+  const scope = {
+    tenantId: connection.tenantId,
+    ownerKind: connection.ownerKind,
+    ownerId: connection.ownerId,
+    connectionRef: connection.connectionRef,
+    bindingRef: connection.bindingRef,
+    custody: connection.custody,
+  };
+  await setup.ports.credentials.refresh(
+    scope,
+    connection.credentialRef!,
+    async (current) => {
+      const { access_token: _gone, ...rest } = current;
+      void _gone;
+      return { material: rest, expiresAt: Number(current["expires_at"]) };
+    },
+  );
+  const before = setup.fixture.apiRequests.length;
+  await assert.rejects(
+    setup.service.invoke(setup.agent, connectionRef, {
+      operationRef: "vercel-account.get-user",
+      input: {},
+      commandId: "malformed",
+    }),
+    (error: unknown) =>
+      error instanceof ConnectorError &&
+      error.code === "conflict" &&
+      error.detail === "vercel-account.credential.malformed",
+  );
+  assert.equal(setup.fixture.apiRequests.length, before);
+});
+
+test("the user a connection was bound to is read from its state, and a connection with none has none", async () => {
+  await Promise.resolve();
+  assert.equal(priorUserId({} as AdapterCallContext), undefined);
+  assert.equal(priorUserId(stateOnly({})), undefined);
+  assert.equal(
+    priorUserId(
+      stateOnly({
+        vercelAccount: { userId: "u", teamId: "t", slug: "s" },
+      }),
+    ),
+    "u",
   );
 });
