@@ -131,7 +131,8 @@
     "format": "prettier --write src examples tests scripts package.json tsconfig*.json *.config.ts stryker*.json stryker*.mjs README.md CONTRIBUTING.md PRODUCT.md DESIGN.md docs .devcontainer .github",
     "format:check": "prettier --check src examples tests scripts package.json tsconfig*.json *.config.ts stryker*.json stryker*.mjs README.md CONTRIBUTING.md PRODUCT.md DESIGN.md docs .devcontainer .github && node scripts/check-control-characters.mjs",
     "verify": "node --import tsx scripts/verify-deterministic.mjs",
-    "test:connectors:mutation": "stryker run stryker.connectors.config.mjs"
+    "test:connectors:mutation": "stryker run stryker.connectors.config.mjs",
+    "test:accounts:mutation": "stryker run stryker.accounts.config.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "4.0.50",
