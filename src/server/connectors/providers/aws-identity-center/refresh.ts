@@ -182,14 +182,13 @@ export async function renewRole(
 
 /**
  * Makes the held role credentials current, renewing them with a new
- * GetRoleCredentials call when fewer than five minutes remain (or on demand).
- * Returns the expiry custody now enforces.
+ * GetRoleCredentials call when fewer than five minutes remain. Returns the
+ * expiry custody now enforces.
  */
 export async function ensureCurrent(
   ctx: AdapterCallContext,
   ref: string,
-  options: { force?: boolean } = {},
-): Promise<{ expiresAt: number; renewed: boolean }> {
+): Promise<{ expiresAt: number }> {
   const described = await ctx.environment.credentials.describe(
     sessionScope(ctx),
     ref,
@@ -200,16 +199,13 @@ export async function ensureCurrent(
     });
   const now = ctx.environment.now();
   if (
-    !options.force &&
     described.expiresAt !== undefined &&
     described.expiresAt > now + ROLE_CREDENTIAL_RENEW_BUFFER_MS
   )
-    return { expiresAt: described.expiresAt, renewed: false };
+    return { expiresAt: described.expiresAt };
   const bound = boundIdentity(ctx);
-  let renewed = false;
-  const result = await rotateSession(ctx, ref, async (current) => {
-    renewed = true;
-    return renewRole(ctx, current, bound);
-  });
-  return { expiresAt: result.expiresAt, renewed };
+  const result = await rotateSession(ctx, ref, (current) =>
+    renewRole(ctx, current, bound),
+  );
+  return { expiresAt: result.expiresAt };
 }
