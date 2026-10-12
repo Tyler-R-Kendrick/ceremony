@@ -81,8 +81,14 @@ for (const [name, answer, options] of [
   ],
 ] as const)
   test(`a Logout that ${name} is reported as sent and unknown`, async (t) => {
-    const setup = await awsSetup(t, options);
+    // The set-up (connect, poll, the choice) runs under the default timeout;
+    // only the disconnect is held to the short one. A short timeout on the
+    // whole service also bounds the set-up and fails it under load.
+    const setup = await awsSetup(t);
     const { connectionRef, done } = await connectAndChoose(setup);
+    if ("callTimeoutMs" in options)
+      (setup.service as unknown as { callTimeoutMs: number }).callTimeoutMs =
+        options.callTimeoutMs;
     answerLogoutWith(t, answer);
     const started = Date.now();
     const result = await setup.service.disconnect(setup.person, connectionRef, {
