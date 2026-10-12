@@ -33,7 +33,7 @@ import {
   getRoleCredentials,
   roleExpiry,
 } from "./portal.js";
-import { currentAccessToken } from "./refresh.js";
+import { afterRefresh, currentAccessToken } from "./refresh.js";
 
 /*
  * Choosing what the sign-in is for. IAM Identity Center signs a person in to
@@ -294,32 +294,34 @@ export async function bindRole(
 ): Promise<CompletionResult> {
   const next = await rotateSession(ctx, ref, async (current) => {
     const withToken = await currentAccessToken(ctx, current);
-    const roles = await listAccountRoles(
-      ctx,
-      withToken.accessToken!,
-      accountId,
-    );
-    if (!roles.items.includes(roleName))
-      throw new ConnectorError("invalid-request", {
-        detail: code("role.unassigned"),
-      });
-    const credentials = await getRoleCredentials(
-      ctx,
-      withToken.accessToken!,
-      accountId,
-      roleName,
-    );
-    const bound: SessionMaterial = {
-      ...withToken,
-      phase: "role-bound",
-      role: {
-        accessKeyId: credentials.accessKeyId,
-        secretAccessKey: credentials.secretAccessKey,
-        sessionToken: credentials.sessionToken,
-        expiresAt: roleExpiry(ctx, credentials),
-      },
-    };
-    return bound;
+    return afterRefresh(current, withToken, async () => {
+      const roles = await listAccountRoles(
+        ctx,
+        withToken.accessToken!,
+        accountId,
+      );
+      if (!roles.items.includes(roleName))
+        throw new ConnectorError("invalid-request", {
+          detail: code("role.unassigned"),
+        });
+      const credentials = await getRoleCredentials(
+        ctx,
+        withToken.accessToken!,
+        accountId,
+        roleName,
+      );
+      const bound: SessionMaterial = {
+        ...withToken,
+        phase: "role-bound",
+        role: {
+          accessKeyId: credentials.accessKeyId,
+          secretAccessKey: credentials.secretAccessKey,
+          sessionToken: credentials.sessionToken,
+          expiresAt: roleExpiry(ctx, credentials),
+        },
+      };
+      return bound;
+    });
   });
   const role = { accountId, roleName, expiresAt: next.expiresAt };
   return {

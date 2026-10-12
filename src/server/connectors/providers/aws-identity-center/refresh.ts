@@ -13,6 +13,7 @@ import {
   tokenResponseSchema,
 } from "./contracts.js";
 import {
+  KeptWithFailure,
   rotateSession,
   sessionScope,
   signedIn,
@@ -150,6 +151,28 @@ function portalOutcome(error: unknown): unknown {
   return error;
 }
 
+/**
+ * Runs the portal work that follows `currentAccessToken`. When that call spent
+ * a refresh token (`refreshed` is not `current`), a failure here must not lose
+ * the tokens it returned: they are the only ones that work, so the rotation
+ * writes them and then reports `fail(error)`.
+ */
+export async function afterRefresh(
+  current: SessionMaterial,
+  refreshed: SessionMaterial,
+  work: () => Promise<SessionMaterial>,
+  fail: (error: unknown) => unknown = (error) => error,
+): Promise<SessionMaterial> {
+  try {
+    return await work();
+  } catch (error) {
+    const failure = fail(error);
+    throw refreshed === current
+      ? failure
+      : new KeptWithFailure(refreshed, failure);
+  }
+}
+
 /** Fresh role credentials for the role this record is bound to. */
 export async function renewRole(
   ctx: AdapterCallContext,
@@ -159,25 +182,28 @@ export async function renewRole(
   if (current.phase !== "role-bound")
     throw new ConnectorError("conflict", { detail: code("role.not-bound") });
   const withToken = await currentAccessToken(ctx, current);
-  try {
-    const credentials = await getRoleCredentials(
-      ctx,
-      withToken.accessToken!,
-      bound.accountId,
-      bound.roleName,
-    );
-    return {
-      ...withToken,
-      role: {
-        accessKeyId: credentials.accessKeyId,
-        secretAccessKey: credentials.secretAccessKey,
-        sessionToken: credentials.sessionToken,
-        expiresAt: roleExpiry(ctx, credentials),
-      },
-    };
-  } catch (error) {
-    throw portalOutcome(error);
-  }
+  return afterRefresh(
+    current,
+    withToken,
+    async () => {
+      const credentials = await getRoleCredentials(
+        ctx,
+        withToken.accessToken!,
+        bound.accountId,
+        bound.roleName,
+      );
+      return {
+        ...withToken,
+        role: {
+          accessKeyId: credentials.accessKeyId,
+          secretAccessKey: credentials.secretAccessKey,
+          sessionToken: credentials.sessionToken,
+          expiresAt: roleExpiry(ctx, credentials),
+        },
+      };
+    },
+    portalOutcome,
+  );
 }
 
 /**

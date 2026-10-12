@@ -162,27 +162,55 @@ export function withSession<T>(
 }
 
 /**
+ * What a rotation's work throws when it already holds material that must be
+ * written although the rest of the work failed. A refresh token is single use:
+ * once CreateToken has answered a refresh, the answer holds the only token
+ * that works, so a failure after it (the portal throttling, a timeout) must
+ * not drop it. The rotation writes `material`, then throws `failure`.
+ */
+export class KeptWithFailure extends Error {
+  constructor(
+    readonly material: SessionMaterial,
+    readonly failure: unknown,
+  ) {
+    super("the rotation kept its material and failed");
+    this.name = "KeptWithFailure";
+  }
+}
+
+/**
  * Computes the next material from the current under custody's single-flight
  * rotation. The callback sees the record even when it has expired. It returns
  * the next material, and the record's expiry is derived from it so a caller
- * cannot forget to move it.
+ * cannot forget to move it. Work that fails by throwing {@link KeptWithFailure}
+ * has its material written first and its failure rethrown afterwards.
  */
 export async function rotateSession(
   ctx: AdapterCallContext,
   ref: string,
   work: (current: SessionMaterial) => Promise<SessionMaterial>,
 ): Promise<{ ref: string; expiresAt: number }> {
+  const kept: { failure?: unknown; failed: boolean } = { failed: false };
   const result = await ctx.environment.credentials.refresh(
     sessionScope(ctx),
     ref,
     async (raw) => {
-      const next = await work(parseMaterial(raw));
+      let next: SessionMaterial;
+      try {
+        next = await work(parseMaterial(raw));
+      } catch (error) {
+        if (!(error instanceof KeptWithFailure)) throw error;
+        kept.failed = true;
+        kept.failure = error.failure;
+        next = error.material;
+      }
       return {
         material: serializeMaterial(next),
         expiresAt: custodyExpiry(next),
       };
     },
   );
+  if (kept.failed) throw kept.failure;
   return { ref: result.ref, expiresAt: result.expiresAt ?? 0 };
 }
 
