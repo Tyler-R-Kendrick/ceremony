@@ -14,6 +14,12 @@ import type {
  * nothing the adapter does, throws or answers can stop the disconnect, and
  * what comes back is a value-blind outcome, never a token, a body or the
  * provider's text.
+ *
+ * It is about a session the connection holds alone. While another local
+ * connection still lists the same upstream grant (`sharedWith`), ending the
+ * session would end it for that holder too, so the provider is left alone, as
+ * the neighbouring guard does for the broker and upstream scopes; the report
+ * says so. The disconnect that removes the last holder asks.
  */
 
 /** The longest a disconnect waits for the provider to answer. */
@@ -32,9 +38,14 @@ const failed = (reason: string): SessionRelease => ({
 export async function releaseSession(
   adapter: ConnectorAdapter | undefined,
   context: AdapterCallContext,
-  timeoutMs: number = SESSION_RELEASE_TIMEOUT_MS,
+  {
+    timeoutMs = SESSION_RELEASE_TIMEOUT_MS,
+    sharedWith = [],
+  }: { timeoutMs?: number; sharedWith?: readonly string[] } = {},
 ): Promise<SessionRelease | undefined> {
   if (!adapter?.releaseSession) return undefined;
+  if (sharedWith.length)
+    return { revoked: "unavailable", reason: "session.shared-grant" };
   let timer: NodeJS.Timeout | undefined;
   try {
     const answer = await Promise.race([

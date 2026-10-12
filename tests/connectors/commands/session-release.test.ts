@@ -69,7 +69,7 @@ test("an adapter that never answers is reported as timed out at the bound", asyn
   const outcome = await releaseSession(
     adapterWith(() => new Promise<SessionRelease>(() => {})),
     ctx,
-    50,
+    { timeoutMs: 50 },
   );
   assert.deepEqual(outcome, {
     revoked: false,
@@ -77,6 +77,24 @@ test("an adapter that never answers is reported as timed out at the bound", asyn
   });
   assert.ok(Date.now() - started < 2_000);
   assert.ok(SESSION_RELEASE_TIMEOUT_MS <= 10_000, "a disconnect waits briefly");
+});
+
+test("a session another local connection still shares is not asked about, and the report says so", async () => {
+  let asked = 0;
+  const adapter = adapterWith(async () => {
+    asked++;
+    return { revoked: true, reason: "oauth.revoke.applied" };
+  });
+  assert.deepEqual(
+    await releaseSession(adapter, ctx, { sharedWith: ["connection:other"] }),
+    { revoked: "unavailable", reason: "session.shared-grant" },
+  );
+  assert.equal(asked, 0, "the provider was not contacted");
+  assert.deepEqual(await releaseSession(adapter, ctx, { sharedWith: [] }), {
+    revoked: true,
+    reason: "oauth.revoke.applied",
+  });
+  assert.equal(asked, 1, "the last holder's disconnect does ask");
 });
 
 test("an answer outside the schema a person reads is replaced, not passed on", async () => {
@@ -106,8 +124,12 @@ const SESSION = "human-session";
 const json = async (response: Response) =>
   (await response.json()) as Record<string, any>;
 
-async function activeApiKeyConnection(harness: Harness) {
-  harness.register(SESSION, human());
+async function activeApiKeyConnection(
+  harness: Harness,
+  session = SESSION,
+  person = human(),
+) {
+  harness.register(session, person);
   const imported = await json(
     await harness.fetch("/api/v1/connectors/import", {
       body: {
@@ -115,7 +137,7 @@ async function activeApiKeyConnection(harness: Harness) {
         mediaType: "application/json",
         text: FIXTURE_DOCUMENT(harness.provider.origin),
       },
-      session: SESSION,
+      session,
     }),
   );
   const binding = await json(
@@ -129,7 +151,7 @@ async function activeApiKeyConnection(harness: Harness) {
           profileId: "api-key",
         },
       },
-      session: SESSION,
+      session,
     }),
   );
   const connected = await json(
@@ -138,13 +160,13 @@ async function activeApiKeyConnection(harness: Harness) {
         bindingRef: binding.bindingRef,
         intent: { profileId: "api-key", requestedPermissions: ["read"] },
       },
-      session: SESSION,
+      session,
     }),
   );
   const active = await json(
     await harness.fetch(
       `/api/v1/connectors/connections/${encodeURIComponent(connected.connectionRef)}/handoffs/${encodeURIComponent(connected.handoff.handoffRef)}/input`,
-      { body: { values: { apiKey: "fixture-api-key" } }, session: SESSION },
+      { body: { values: { apiKey: "fixture-api-key" } }, session },
     ),
   );
   assert.equal(active.lifecycle, "active");
@@ -236,4 +258,53 @@ test("an adapter with nothing to release leaves the route's answer as it was", a
     broker: "not-attempted",
     upstream: "not-attempted",
   });
+});
+
+test("while another local connection shares the grant a local disconnect leaves the provider alone, and the last holder's ends it", async (t) => {
+  let asked = 0;
+  const harness = await createHarness({
+    adapter: {
+      releaseSession: async () => {
+        asked++;
+        return { revoked: true, reason: "fixture.release.ended" };
+      },
+    },
+  });
+  t.after(() => harness.close());
+  const first = await activeApiKeyConnection(harness);
+  // Another person on the same binding, signed in as the same account. (The
+  // service finds a shared grant through the first holder the store lists, so
+  // the newer connection is the one that sees the older.)
+  const second = await activeApiKeyConnection(
+    harness,
+    "second-session",
+    human({ subjectId: "subject-2", sessionId: "second-session" }),
+  );
+
+  const shared = await json(
+    await harness.fetch(disconnectPath(second.connectionRef), {
+      body: { expectedRevision: second.revision, scope: "local" },
+      session: "second-session",
+    }),
+  );
+  assert.equal(shared.connection.lifecycle, "locally-disconnected");
+  assert.deepEqual(shared.result.sharedWith, [first.connectionRef]);
+  assert.deepEqual(shared.result.release, {
+    revoked: "unavailable",
+    reason: "session.shared-grant",
+  });
+  assert.equal(asked, 0, "the other holder's sign-in was not ended");
+
+  const last = await json(
+    await harness.fetch(disconnectPath(first.connectionRef), {
+      body: { expectedRevision: first.revision, scope: "local" },
+      session: SESSION,
+    }),
+  );
+  assert.equal(last.result.sharedWith, undefined);
+  assert.deepEqual(last.result.release, {
+    revoked: true,
+    reason: "fixture.release.ended",
+  });
+  assert.equal(asked, 1);
 });

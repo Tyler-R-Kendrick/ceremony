@@ -320,7 +320,8 @@ export interface ConnectorAdapter {
    * does not ask the provider to end the grant (local, broker), just before the
    * held tokens are dropped. Best effort and bounded: a failure of any kind is
    * an outcome (`revoked: false`), never an error that stops the disconnect.
-   * An adapter that holds no session of its own does not implement it.
+   * Not called while other local connections share the grant. An adapter that
+   * holds no session of its own does not implement it.
    */
   releaseSession?(ctx: AdapterCallContext): Promise<SessionRelease>;
   export?(

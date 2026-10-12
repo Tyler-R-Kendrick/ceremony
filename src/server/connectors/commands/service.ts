@@ -2949,12 +2949,16 @@ export class ConnectorCommandService {
     const release =
       input.scope === "upstream"
         ? undefined
-        : await releaseSession(this.registry.get(binding.adapterId), {
-            ...this.context(actor, binding, current.record),
-            signal: AbortSignal.timeout(
-              Math.min(this.callTimeoutMs, SESSION_RELEASE_TIMEOUT_MS),
-            ),
-          });
+        : await releaseSession(
+            this.registry.get(binding.adapterId),
+            {
+              ...this.context(actor, binding, current.record),
+              signal: AbortSignal.timeout(
+                Math.min(this.callTimeoutMs, SESSION_RELEASE_TIMEOUT_MS),
+              ),
+            },
+            { sharedWith },
+          );
     if (record.credentialRef)
       await this.ports.credentials
         .revoke(this.scope(record), record.credentialRef)
