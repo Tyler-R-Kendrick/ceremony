@@ -238,6 +238,65 @@ test("a rotation custody refuses is reported as busy, not gone, and the sign-in 
   );
 });
 
+test("a release that meets a rotation already in flight waits for it and then ends the session", async (t) => {
+  const setup = await awsSetup(t);
+  const { connectionRef, polled } = await connectAndApprove(setup);
+  const handoffRef = (polled as { handoff?: { handoffRef?: string } }).handoff
+    ?.handoffRef;
+  assert.ok(handoffRef);
+
+  // The person's choice is mid-flight: GetRoleCredentials is held, and the
+  // session's rotation with it.
+  const real = globalThis.fetch;
+  const reached = Promise.withResolvers<void>();
+  const gate = Promise.withResolvers<void>();
+  t.mock.method(
+    globalThis,
+    "fetch",
+    async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (new URL(url).pathname === "/federation/credentials") {
+        reached.resolve();
+        await gate.promise;
+      }
+      return real(input, init);
+    },
+  );
+  const choosing = setup.service
+    .provideInput(setup.person, connectionRef, handoffRef, {
+      accountId: "111122223333",
+      roleName: "ReadOnlyAccess",
+    })
+    .then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    );
+  await reached.promise;
+
+  const disconnecting = setup.service.disconnect(setup.person, connectionRef, {
+    expectedRevision: (polled as View).revision,
+    scope: "local",
+  });
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  gate.resolve();
+  const result = await disconnecting;
+  await choosing;
+
+  closedLocally(result);
+  assert.deepEqual(
+    result.result.release,
+    { revoked: true, reason: `${CODE}.session-ended` },
+    "it did not report the session as having nothing to end",
+  );
+  assert.equal(setup.fixture.counts.logout, 1, "the session was ended at AWS");
+  assert.deepEqual(await leftInCustody(setup, connectionRef), []);
+});
+
 test("no token, role credential or provider word is in anything the disconnect leaves behind", async (t) => {
   const printed: string[] = [];
   for (const method of ["log", "info", "warn", "error", "debug"] as const)

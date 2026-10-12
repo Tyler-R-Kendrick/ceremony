@@ -5,6 +5,7 @@ import type {
   SessionRelease,
 } from "../adapter.js";
 import { beginAttempt } from "../attempts.js";
+import { ConnectorError } from "../errors.js";
 import type { CredentialMaterial, CredentialScope } from "../ports.js";
 import type { ResolvedClient } from "./client.js";
 import type { ResolvedAuthorizationServer } from "./discovery.js";
@@ -111,13 +112,22 @@ export async function revokeUpstreamGrantWithReason(
           return unchanged(current);
         },
       );
-    } catch {
-      // Custody refused (the credential is gone, or not this scope's).
-      // Nothing was presented unless `present` already recorded an outcome.
-      return outcome ?? revocation("failed", "oauth.revoke.credential-gone");
+    } catch (error) {
+      // Custody refused: the credential is gone (or not this scope's), busy,
+      // or failed. Nothing was presented unless `present` recorded an outcome.
+      return outcome ?? revocation("failed", refusal(error));
     }
-  return outcome ?? revocation("failed", "oauth.revoke.credential-gone");
+  // Joined a rotation twice and never had a turn: nothing was presented.
+  return outcome ?? revocation("failed", "oauth.revoke.rotation-in-flight");
 }
+
+/** Why custody would not let the revocation read the credential. */
+const refusal = (error: unknown) =>
+  error instanceof ConnectorError && error.code === "not-found"
+    ? "oauth.revoke.credential-gone"
+    : error instanceof ConnectorError && error.code === "conflict"
+      ? "oauth.revoke.busy"
+      : "oauth.revoke.failed";
 
 async function present(
   ctx: AdapterCallContext,

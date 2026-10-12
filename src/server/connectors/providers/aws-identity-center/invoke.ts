@@ -238,18 +238,27 @@ export async function releaseSignIn(
     revoked: "unavailable",
     reason: code("release.no-token"),
   };
+  // A caller that joins a rotation already in flight is answered when it ends
+  // without its own callback running (custody shares one run per credential),
+  // so the session has not been looked at yet: look again, once, at what the
+  // rotation left. That one is the new token's turn.
+  let looked = false;
   try {
-    await rotateSession(ctx, held.ref, async (current) => {
-      if (!current.accessToken) return current;
-      try {
-        release = (await logout(ctx, current.accessToken))
-          ? { revoked: true, reason: code("release.session-ended") }
-          : { revoked: false, reason: code("release.refused") };
-      } catch {
-        release = { revoked: false, reason: code("release.unreachable") };
-      }
-      return current;
-    });
+    for (let round = 0; round < 2 && !looked; round++)
+      await rotateSession(ctx, held.ref, async (current) => {
+        looked = true;
+        if (!current.accessToken) return current;
+        try {
+          release = (await logout(ctx, current.accessToken))
+            ? { revoked: true, reason: code("release.session-ended") }
+            : { revoked: false, reason: code("release.refused") };
+        } catch {
+          release = { revoked: false, reason: code("release.unreachable") };
+        }
+        return current;
+      });
+    if (!looked)
+      release = { revoked: false, reason: code("release.rotation-in-flight") };
   } catch (error) {
     // Custody would not rotate the session: say why, unless a Logout was made.
     if (release.revoked === "unavailable") release = rotationFailure(error);

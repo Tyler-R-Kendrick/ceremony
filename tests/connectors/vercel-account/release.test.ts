@@ -271,3 +271,57 @@ test("no token, no provider word and no identity is in anything the disconnect l
     }
   }
 });
+
+test("a release that meets a refresh already in flight waits for it and revokes the tokens it issued", async (t) => {
+  const setup = await accountSetup(t);
+  const { connectionRef, done } = await connectAndChoose(setup);
+  // The access token is close to lapsing, so a verify refreshes it: hold that request.
+  setup.advance(59 * 60_000);
+  const real = globalThis.fetch;
+  const reached = Promise.withResolvers<void>();
+  const gate = Promise.withResolvers<void>();
+  t.mock.method(
+    globalThis,
+    "fetch",
+    async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (new URL(url).pathname === "/login/oauth/token") {
+        reached.resolve();
+        await gate.promise;
+      }
+      return real(input, init);
+    },
+  );
+  const verifying = setup.service
+    .verify(setup.person, connectionRef)
+    .catch(() => undefined);
+  await reached.promise;
+
+  const disconnecting = setup.service.disconnect(setup.person, connectionRef, {
+    expectedRevision: (done as View).revision,
+    scope: "local",
+  });
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  gate.resolve();
+  const result = await disconnecting;
+  await verifying;
+
+  closedLocally(result);
+  assert.deepEqual(result.result.release, {
+    revoked: true,
+    reason: "oauth.revoke.applied",
+  });
+  const { accessTokens, refreshTokens } = setup.fixture.issued;
+  assert.equal(accessTokens.length, 2, "the held refresh did go through");
+  assert.equal(
+    setup.fixture.refreshTokenUsable(refreshTokens[1]!),
+    false,
+    "the refresh token the rotation issued is the one revoked",
+  );
+  assert.equal(setup.fixture.accessTokenValid(accessTokens[1]!), false);
+});
