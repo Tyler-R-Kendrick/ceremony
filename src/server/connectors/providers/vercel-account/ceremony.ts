@@ -12,6 +12,7 @@ import {
   DEVICE_CODE_INTENT,
   inputRequiredHandoff,
   pollDeviceAuthorization,
+  splitScope,
   type DevicePollState,
 } from "../../auth/index.js";
 import type { ConnectorOAuthOptions } from "../../auth/connector-oauth.js";
@@ -209,7 +210,7 @@ function selectionHandoff(
     private: {
       ...proposal.private,
       sessionRef: ref,
-      reported: JSON.stringify(reported),
+      reported: reported.join(" "),
       instructions: describeTeams(plan.teams, plan.truncated),
     },
   };
@@ -260,7 +261,7 @@ async function continueAfterSignIn(
   };
 }
 
-/** The person's choice: a slug or an id, checked against Vercel's own list and the binding. */
+/** The person's choice: an id or a slug, checked against Vercel's own list and the binding. */
 export async function completeSelection(
   ctx: AdapterCallContext,
   values: Record<string, string>,
@@ -291,9 +292,11 @@ export async function completeSelection(
     user: await readUser(ctx, bearer),
     listing: await listTeams(ctx, bearer),
   }));
-  const team = listed.listing.teams.find(
-    (candidate) => candidate.slug === entered || candidate.id === entered,
-  );
+  // An id is exact; a slug is what a person usually types. If one team's slug
+  // is spelled like another's id, the id wins, so a pick means one team.
+  const team =
+    listed.listing.teams.find((candidate) => candidate.id === entered) ??
+    listed.listing.teams.find((candidate) => candidate.slug === entered);
   if (!team)
     throw new ConnectorError("invalid-request", {
       detail: code("team.unknown"),
@@ -301,13 +304,14 @@ export async function completeSelection(
   const plan = planTeams(ctx, { teams: [team], truncated: false });
   if (plan.kind !== "single")
     throw new ConnectorError("denied", { detail: code("team.not-permitted") });
-  let reported: string[] = [];
-  try {
-    reported = JSON.parse(handoff.private["reported"] ?? "[]") as string[];
-  } catch {
-    reported = [];
-  }
-  return bindTeam(ctx, ref, listed.user, team, reported, false);
+  return bindTeam(
+    ctx,
+    ref,
+    listed.user,
+    team,
+    splitScope(handoff.private["reported"]),
+    false,
+  );
 }
 
 /** Binds the connection to one team: the sign-in's record stays the connection's credential. */

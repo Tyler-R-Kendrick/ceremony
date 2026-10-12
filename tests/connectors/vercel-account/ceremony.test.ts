@@ -187,6 +187,30 @@ test("a team Vercel does not list for this person is refused, the choice stays o
   assert.equal(retried.target?.id, "team_dummy_labs");
 });
 
+test("an id wins over a slug spelled like it, so a pick means one team", async (t) => {
+  const tangled = {
+    ...alice,
+    teams: [
+      { id: "team_dummy_a", slug: "team_dummy_b", createdAt: START_TIME - 2 },
+      { id: "team_dummy_b", slug: "b", createdAt: START_TIME - 3 },
+    ],
+  };
+  const setup = await accountSetup(t, {
+    people: [tangled],
+    teams: ["team_dummy_a", "team_dummy_b"],
+  });
+  const first = await connectAndApprove(setup);
+  const active = asView(
+    await setup.service.provideInput(
+      setup.person,
+      first.connectionRef,
+      handoffRefOf(first.polled),
+      { team: "team_dummy_b" },
+    ),
+  );
+  assert.equal(active.target?.id, "team_dummy_b");
+});
+
 test("a choice outside the one field, or in the wrong shape, is refused before Vercel is asked", async (t) => {
   const setup = await accountSetup(t);
   const first = await connectAndApprove(setup);
