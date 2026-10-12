@@ -184,3 +184,28 @@ test("a new sign-in that reaches its choice discards the one an earlier choice w
     "only the sign-in the open choice names is still held",
   );
 });
+
+test("cancelling the team choice drops the sign-in that was held for it", async (t) => {
+  const setup = await accountSetup(t);
+  const { connectionRef } = await connectAndApprove(setup);
+  assert.equal((await leftInCustody(setup, connectionRef)).length, 1);
+
+  await setup.service.cancelPending(setup.person, connectionRef);
+
+  assert.deepEqual(await leftInCustody(setup, connectionRef), []);
+  assert.equal(await pendingOf(setup, connectionRef), null);
+});
+
+test("cancelling a reconnect's team choice drops the new sign-in and leaves the one the connection has", async (t) => {
+  const setup = await accountSetup(t);
+  const { connectionRef } = await connectAndChoose(setup);
+  const own = (await setup.record(connectionRef)).credentialRef!;
+  await reconnectToChoice(setup, connectionRef);
+  assert.equal(setup.stored.length, 2);
+
+  await setup.service.cancelPending(setup.person, connectionRef);
+
+  assert.deepEqual(await leftInCustody(setup, connectionRef), [own]);
+  assert.equal((await setup.record(connectionRef)).credentialRef, own);
+  assert.equal(await pendingOf(setup, connectionRef), null);
+});

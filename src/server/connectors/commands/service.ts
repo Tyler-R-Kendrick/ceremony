@@ -96,6 +96,7 @@ import {
   type OperationApproval,
   type ReconnectInput,
 } from "./inputs.js";
+import { abandonPendingSession } from "./abandon-pending.js";
 import {
   boundOperationTransport,
   declaredOAuthOrigins,
@@ -2687,6 +2688,11 @@ export class ConnectorCommandService {
     const summary = pending(entry.record);
     if (!summary) return this.project(actor, entry);
     await this.ports.handoffs.cancelAll(connectionRef, "cancelled");
+    const abandoned = await abandonPendingSession(
+      this.ports.credentials,
+      this.scope(entry.record),
+      entry.record,
+    );
     return this.project(
       actor,
       await this.update(actor, entry, {
@@ -2696,6 +2702,7 @@ export class ConnectorCommandService {
           entry.record.lifecycle === "human-required"
             ? "authorization-required"
             : entry.record.lifecycle,
+        ...abandoned,
       }),
     );
   }

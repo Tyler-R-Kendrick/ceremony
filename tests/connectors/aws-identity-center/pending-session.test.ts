@@ -81,27 +81,30 @@ test("a disconnect by an agent, who cannot read the person's handoff, still ends
   assert.deepEqual(await leftInCustody(setup, connectionRef), []);
 });
 
-test("a disconnect after the person cancelled the choice still ends the sign-in that was held for it", async (t) => {
+test("cancelling the choice drops the sign-in that was held for it, and a later disconnect has nothing left to end", async (t) => {
   const setup = await awsSetup(t);
   const { connectionRef } = await connectAndApprove(setup);
+  assert.equal((await leftInCustody(setup, connectionRef)).length, 1);
+
   const cancelled = await setup.service.cancelPending(
     setup.person,
     connectionRef,
   );
-  assert.equal(
-    (await leftInCustody(setup, connectionRef)).length,
-    1,
-    "cancelling the choice does not by itself end the sign-in",
-  );
 
+  assert.deepEqual(
+    await leftInCustody(setup, connectionRef),
+    [],
+    "the choice that could use the sign-in is gone, and so is the sign-in",
+  );
+  assert.equal(await pendingOf(setup, connectionRef), null);
   const result = await setup.service.disconnect(setup.person, connectionRef, {
     expectedRevision: (cancelled as View).revision,
     scope: "local",
   });
-
-  assert.equal(result.result.release?.revoked, true);
-  assert.equal(setup.fixture.counts.logout, 1);
-  assert.deepEqual(await leftInCustody(setup, connectionRef), []);
+  assert.deepEqual(result.result.release, {
+    revoked: "unavailable",
+    reason: `${CODE}.no-session`,
+  });
 });
 
 /** Starts a reconnect and gets the new sign-in approved and polled to its choice. */
@@ -155,4 +158,22 @@ test("a new sign-in that reaches its choice discards the one an earlier choice w
     [second],
     "only the sign-in the open choice names is still held",
   );
+});
+
+test("cancelling a reconnect's choice drops the new sign-in and leaves the one the connection has", async (t) => {
+  const setup = await awsSetup(t);
+  const { connectionRef } = await connectAndChoose(setup);
+  const own = (await setup.record(connectionRef)).credentialRef!;
+  await reconnectToChoice(setup, connectionRef);
+  assert.equal(setup.stored.length, 2);
+
+  const cancelled = await setup.service.cancelPending(
+    setup.person,
+    connectionRef,
+  );
+
+  assert.deepEqual(await leftInCustody(setup, connectionRef), [own]);
+  assert.equal((await setup.record(connectionRef)).credentialRef, own);
+  assert.equal(await pendingOf(setup, connectionRef), null);
+  assert.equal((cancelled as View).lifecycle, "authorization-required");
 });
