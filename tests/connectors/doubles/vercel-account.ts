@@ -70,6 +70,8 @@ export type VercelAccountOptions = {
   intervalSeconds?: number;
   /** The shortest gap between polls accepted when it is longer than advertised. */
   enforcedIntervalSeconds?: number;
+  /** Leave `expires_in` out of token responses, as an authorization server may. */
+  omitExpiresIn?: boolean;
   /** Answer slow_down to the first n polls whatever their spacing (assumed: a server under load asks a client to back off). */
   slowDownFirst?: number;
   accessTokenLifetimeSeconds?: number;
@@ -241,7 +243,7 @@ export async function startVercelAccount(options: VercelAccountOptions = {}) {
     const body: Record<string, unknown> = {
       access_token: accessToken,
       token_type: "Bearer",
-      expires_in: accessLifetime,
+      ...(options.omitExpiresIn ? {} : { expires_in: accessLifetime }),
       scope,
     };
     // read: a refresh token is issued when offline_access was granted
@@ -543,6 +545,8 @@ export async function startVercelAccount(options: VercelAccountOptions = {}) {
     failRest(status: number | null) {
       restStatus = status ?? undefined;
     },
+    /** Stops listening on the issuer's origin, so discovery fails. */
+    stopIssuer: () => issuer.close(),
     /** Stops listening on the API origin, so a request fails before it is sent. */
     stopApi: () => api.close(),
     expireDevice(userCode: string) {
@@ -579,7 +583,7 @@ export async function startVercelAccount(options: VercelAccountOptions = {}) {
     digest: (value: string) => createHash("sha256").update(value).digest("hex"),
     async close() {
       await api.close().catch(() => {});
-      await issuer.close();
+      await issuer.close().catch(() => {});
     },
   };
 }

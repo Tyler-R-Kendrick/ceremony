@@ -50,6 +50,9 @@ export default {
     testFiles: [
       "tests/connectors/vercel-account/*.test.ts",
       "tests/connectors/aws-identity-center/*.test.ts",
+      // The lease branch of the Vercel Connect credential is also reached by
+      // every test that resolves a credential without one.
+      "tests/connectors/vercel/*.test.ts",
     ],
   },
   jsonReporter: { fileName: "artifacts/accounts-mutation/mutation.json" },
