@@ -90,6 +90,7 @@ test("OPS-IDN: mounted hosted config and native JSON login/callback/logout use a
     assert.equal(config.status, 200);
     const contents = await config.json();
     assert.equal(contents.teachingAvailable, true);
+    assert.equal(contents.teachingAuthenticated, false);
     assert.equal(contents.liveManifests[0].id, "github");
     assert.equal(config.headers.get("cache-control"), "no-store");
     assert.equal((await fetch(`${origin}/api/auth/login`)).status, 400);
@@ -120,6 +121,12 @@ test("OPS-IDN: mounted hosted config and native JSON login/callback/logout use a
     assert.equal(callback.status, 303);
     assert.equal(provider.tokenCalls, 1);
     const sessionCookie = callback.headers.getSetCookie()[0]!.split(";")[0]!;
+    // The directory asks whether to demand an account of this answer and no
+    // other, so a signed-in caller has to be told so by it.
+    const signedInConfig = await fetch(`${origin}/api/config`, {
+      headers: { cookie: sessionCookie },
+    });
+    assert.equal((await signedInConfig.json()).teachingAuthenticated, true);
     const savedEnvironment = await fetch(`${origin}/api/environment`, {
       method: "POST",
       headers: {
@@ -187,6 +194,10 @@ test("OPS-IDN: mounted hosted config and native JSON login/callback/logout use a
     });
     assert.equal(signedOut.status, 200);
     assert.equal((await signedOut.json()).authenticated, false);
+    const signedOutConfig = await fetch(`${origin}/api/config`, {
+      headers: { cookie: sessionCookie },
+    });
+    assert.equal((await signedOutConfig.json()).teachingAuthenticated, false);
     assert.equal(
       (
         await fetch(`${origin}/api/v1/teaching/runs/private`, {

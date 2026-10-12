@@ -167,8 +167,14 @@ export async function hostedHttp(
       let authored: Awaited<
         ReturnType<TeachingRuntime["authoring"]["listManifests"]>
       > = [];
+      // The directory asks whether this host wants an account from this same
+      // answer rather than a second call, so a signed-in caller has to be told
+      // so here or it is asked to sign in again. Signed in is signed in
+      // whether or not listing what this caller authored then succeeds.
+      let authenticated = false;
       try {
         const actor = await authenticatedActor(request, runtime.identity);
+        authenticated = true;
         authored = await runtime.authoring.listManifests(actor);
       } catch {
         authored = [];
@@ -188,6 +194,7 @@ export async function hostedHttp(
           ].filter((manifest) => connectors.includes(manifest.id)),
           liveAvailable: true,
           teachingAvailable: true,
+          teachingAuthenticated: authenticated,
           teachingConnectors: connectors,
           generationAvailable: false,
         },
