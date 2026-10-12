@@ -62,6 +62,15 @@ export function withoutClaim(record: StoredHandoff): StoredHandoff {
 
 const attemptPattern = /^[A-Za-z0-9_-]{8,64}$/;
 
+/** Whether a settled handoff was settled by an attempt other than the one a waiter joined. */
+export const settledByOther = (
+  record: Pick<StoredHandoff, "settledBy">,
+  joining: string | undefined,
+) =>
+  joining !== undefined &&
+  record.settledBy !== undefined &&
+  record.settledBy !== joining;
+
 /**
  * A settlement made by an attempt is refused while another attempt holds a
  * live claim: the run whose claim lapsed and was taken over has lost the
@@ -90,7 +99,14 @@ export function createHandoffClaims(
   const unknown = () =>
     new ConnectorError("not-found", { detail: "handoff.unknown" });
   return {
-    async claim(handoffRef, expectedGeneration, submission, attempt, leaseMs) {
+    async claim(
+      handoffRef,
+      expectedGeneration,
+      submission,
+      attempt,
+      leaseMs,
+      joining,
+    ) {
       if (
         !sha256HexSchema.safeParse(submission).success ||
         !attemptPattern.test(attempt) ||
@@ -122,7 +138,9 @@ export function createHandoffClaims(
           });
         if (!open(current.state))
           throw new ConnectorError("conflict", {
-            detail: "handoff.already-completed",
+            detail: settledByOther(current, joining)
+              ? "handoff.settled-by-another"
+              : "handoff.already-completed",
           });
         const connection = await readRecord(
           tx,
@@ -138,7 +156,7 @@ export function createHandoffClaims(
           });
         const held = current.claim;
         if (held && at < held.expiresAt) {
-          if (held.submission === submission) return "shared";
+          if (held.submission === submission) return { shared: held.attempt };
           throw new ConnectorError("conflict", {
             detail: "handoff.already-claimed",
           });

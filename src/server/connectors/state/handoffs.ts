@@ -79,12 +79,14 @@ const recordOf = (value: StoredHandoff): HandoffRecord => {
     completedAt: _completed,
     reason: _reason,
     claim: _claim,
+    settledBy: _settledBy,
     ...rest
   } = value;
   void _schema;
   void _completed;
   void _reason;
   void _claim;
+  void _settledBy;
   return compact({ ...rest, private: { ...rest.private } });
 };
 
@@ -381,6 +383,7 @@ export function createHandoffPort(
           ...withoutClaim(current),
           state: target.data,
           completedAt: at,
+          ...(attempt !== undefined ? { settledBy: attempt } : {}),
         };
         await tx.put(key, completed, record.revision);
         await dropCorrelation(tx, tenantId, current);

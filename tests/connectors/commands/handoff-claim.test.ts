@@ -64,12 +64,13 @@ function scripted(...script: Array<"claimed" | "shared" | ConnectorError>) {
       if (next === undefined)
         throw new Error("claimed more often than scripted");
       if (next instanceof ConnectorError) throw next;
-      return next;
+      return next === "shared" ? { shared: HOLDER } : next;
     },
   } as unknown as HandoffPort;
   return { handoffs, calls };
 }
 const SUBMISSION = "c".repeat(64);
+const HOLDER = "holder-attempt-0001";
 const ATTEMPT = "attempt-one-0001";
 const completed = new ConnectorError("conflict", {
   detail: "handoff.already-completed",
@@ -297,7 +298,7 @@ const slow = (ms: number, answers: Array<"shared" | ConnectorError>) =>
       if (next === undefined)
         throw new Error("claimed more often than scripted");
       if (next instanceof ConnectorError) throw next;
-      return next;
+      return { shared: HOLDER };
     },
   }) as unknown as HandoffPort;
 
@@ -344,4 +345,32 @@ test("waiting for the winner's write is bounded by elapsed time even when each l
   assert.equal(answered, "answered anyway");
   assert.ok(looks < 10, `${looks} looks`);
   assert.ok(Date.now() - started < 1_200, `${Date.now() - started} ms`);
+});
+
+test("a waiter names the attempt it joined, and is not answered from a run that was not that one", async () => {
+  const { handoffs, calls } = scripted("shared", "shared", completed);
+  assert.equal(
+    await claimHandoff(handoffs, handoff, SUBMISSION, ATTEMPT, 1000),
+    "settled",
+  );
+  assert.equal(calls[0]!.length, 5, "the first look joins no one");
+  assert.deepEqual(
+    calls.slice(1).map((args) => args[5]),
+    [HOLDER, HOLDER],
+    "every later look says whose run it is waiting on",
+  );
+
+  const other = new ConnectorError("conflict", {
+    detail: "handoff.settled-by-another",
+  });
+  await assert.rejects(
+    claimHandoff(
+      scripted("shared", other).handoffs,
+      handoff,
+      SUBMISSION,
+      ATTEMPT,
+      1000,
+    ),
+    (error: unknown) => error === other,
+  );
 });

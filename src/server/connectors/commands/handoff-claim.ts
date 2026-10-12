@@ -68,11 +68,12 @@ export function submissionOf(
 /**
  * Claims the handoff for one attempt of a submission. `claimed` means the
  * caller runs it (and must give the claim back if it does not settle the
- * handoff); `settled` means an identical submission was in flight and has
- * since settled the handoff, so the caller's answer is the connection as that
- * run left it. Anything else is a refusal from the port. A joined submission
- * whose run failed takes the claim over and runs for itself, as a second try
- * would.
+ * handoff); `settled` means an identical submission was in flight and that
+ * run has since settled the handoff, so the caller's answer is the connection
+ * as that run left it. Anything else is a refusal from the port, including a
+ * handoff some other run settled in the meantime
+ * (`handoff.settled-by-another`). A joined submission whose run failed takes
+ * the claim over and runs for itself, as a second try would.
  */
 export async function claimHandoff(
   handoffs: HandoffPort,
@@ -82,6 +83,9 @@ export async function claimHandoff(
   leaseMs: number,
   signal?: AbortSignal,
 ): Promise<"claimed" | "settled"> {
+  // The attempt this one is waiting on, once there is one: the handoff is
+  // "settled" for us only if that attempt is what settled it.
+  let joined: string | undefined;
   const claim = () =>
     handoffs.claim(
       handoff.handoffRef,
@@ -89,10 +93,12 @@ export async function claimHandoff(
       submission,
       attempt,
       leaseMs,
+      ...(joined === undefined ? [] : [joined]),
     );
   let outcome = await claim();
   const started = performance.now();
-  while (outcome === "shared") {
+  while (outcome !== "claimed") {
+    joined = outcome.shared;
     if (elapsedSince(started) >= leaseMs)
       throw new ConnectorError("conflict", { detail: "handoff.claim-timeout" });
     await nap(signal);

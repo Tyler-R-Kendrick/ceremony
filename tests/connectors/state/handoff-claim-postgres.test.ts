@@ -102,7 +102,9 @@ test("AC-STATE-08: two PostgreSQL workers claiming one handoff with the same sub
       b.handoffs.claim(handoffRef, 0, ONE, A2, LEASE_MS),
     ]);
     assert.deepEqual(
-      [...answers].sort(),
+      answers
+        .map((answer) => (answer === "claimed" ? answer : "shared"))
+        .sort(),
       ["claimed", "shared"],
       `round ${round}`,
     );

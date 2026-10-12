@@ -116,6 +116,15 @@ export const storedHandoffSchema = handoffIssueInputSchema.safeExtend({
   completedAt: time.optional(),
   reason: stateCodeSchema.optional(),
   claim: handoffClaimSchema.optional(),
+  /**
+   * The attempt that settled the handoff (a random token, never a digest of
+   * what was submitted), kept so that a waiter that joined another attempt can
+   * tell whether it was that one that settled it.
+   */
+  settledBy: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{8,64}$/)
+    .optional(),
 });
 export type StoredHandoff = z.infer<typeof storedHandoffSchema>;
 export const correlationIndexSchema = z.strictObject({

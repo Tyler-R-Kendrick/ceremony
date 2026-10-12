@@ -129,6 +129,8 @@ export function memoryPorts(options: { now?: () => number } = {}) {
   };
 
   const handoffRecords = new Map<string, HandoffRecord>();
+  /** The attempt that settled each handoff, for a waiter that joined another. */
+  const handoffSettledBy = new Map<string, string>();
   const handoffClaims = new Map<
     string,
     { submission: string; attempt: string; expiresAt: number }
@@ -197,11 +199,19 @@ export function memoryPorts(options: { now?: () => number } = {}) {
         throw new Error("handoff already completed");
       record.state = state;
       handoffClaims.delete(handoffRef);
+      if (attempt !== undefined) handoffSettledBy.set(handoffRef, attempt);
       return record;
     },
     // The claim rules of the persistent port, kept beside the records so a
     // test that passes here cannot be hiding a claim the real store refuses.
-    async claim(handoffRef, expectedGeneration, submission, attempt, leaseMs) {
+    async claim(
+      handoffRef,
+      expectedGeneration,
+      submission,
+      attempt,
+      leaseMs,
+      joining,
+    ) {
       const record = handoffRecords.get(handoffRef);
       if (
         !/^[a-f0-9]{64}$/.test(submission) ||
@@ -222,7 +232,12 @@ export function memoryPorts(options: { now?: () => number } = {}) {
         });
       if (!pending)
         throw new ConnectorError("conflict", {
-          detail: "handoff.already-completed",
+          detail:
+            joining !== undefined &&
+            handoffSettledBy.has(handoffRef) &&
+            handoffSettledBy.get(handoffRef) !== joining
+              ? "handoff.settled-by-another"
+              : "handoff.already-completed",
         });
       const connection = connections.get(record.connectionRef)?.record;
       if (connection && connection.generation !== record.generation)
@@ -231,7 +246,7 @@ export function memoryPorts(options: { now?: () => number } = {}) {
         });
       const held = handoffClaims.get(handoffRef);
       if (held && now() < held.expiresAt) {
-        if (held.submission === submission) return "shared";
+        if (held.submission === submission) return { shared: held.attempt };
         throw new ConnectorError("conflict", {
           detail: "handoff.already-claimed",
         });

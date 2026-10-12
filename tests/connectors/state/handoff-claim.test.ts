@@ -70,7 +70,7 @@ async function scenario(ports: Ports, time: Clock) {
 
   // The first submission claims; the same one again shares it; another is refused.
   assert.equal(await claim(ONE, A1), "claimed");
-  assert.equal(await claim(ONE, A2), "shared");
+  assert.deepEqual(await claim(ONE, A2), { shared: A1 });
   await assert.rejects(claim(TWO, A3), refuses("handoff.already-claimed"));
   // A stale generation is refused whoever asks, and so is a malformed claim.
   await assert.rejects(claim(ONE, A2, 7), refuses("handoff.stale-generation"));
@@ -133,7 +133,7 @@ async function lapsedHolder(ports: Ports, time: Clock) {
   // The lapsed run ends and gives "its" claim back: it is the successor's, so nothing changes.
   await ports.handoffs.release(handoffRef, A1);
   await assert.rejects(claim(TWO, A3), refuses("handoff.already-claimed"));
-  assert.equal(await claim(ONE, A3), "shared");
+  assert.deepEqual(await claim(ONE, A3), { shared: A2 });
 
   // The lapsed run tries to settle the handoff its successor is working: refused.
   await assert.rejects(
@@ -177,6 +177,43 @@ async function unfencedSettlement(ports: Ports, time: Clock) {
     refuses("handoff.claim-lost"),
   );
   await ports.handoffs.complete(third.handoffRef, 0, "completed");
+}
+
+/** A waiter that joined an attempt is told whether it was that attempt that settled the handoff. */
+async function settledByWhom(ports: Ports, time: Clock) {
+  const { handoffRef } = await issueInputHandoff(ports, time);
+  const claim = (
+    submission: string,
+    attempt: string,
+    joining?: string,
+  ): Promise<unknown> =>
+    ports.handoffs.claim(handoffRef, 0, submission, attempt, LEASE_MS, joining);
+  assert.equal(await claim(ONE, A1), "claimed");
+  // A1 fails and gives the claim back; A3, another value, takes it and settles.
+  await ports.handoffs.release(handoffRef, A1);
+  assert.equal(await claim(TWO, A3), "claimed");
+  await ports.handoffs.complete(handoffRef, 0, "completed", A3);
+
+  // A2 had joined A1: the settlement is not A1's, so it is not A2's to be answered from.
+  await assert.rejects(
+    claim(ONE, A2, A1),
+    refuses("handoff.settled-by-another"),
+  );
+  // One that joined the settler, and one that joined no one, see a settled handoff as before.
+  await assert.rejects(
+    claim(TWO, A2, A3),
+    refuses("handoff.already-completed"),
+  );
+  await assert.rejects(claim(ONE, A2), refuses("handoff.already-completed"));
+
+  // A settlement that names no attempt (an adapter settling for itself) is
+  // nobody's in particular: a waiter is answered as it always was.
+  const other = await issueInputHandoff(ports, time);
+  await ports.handoffs.complete(other.handoffRef, 0, "completed");
+  await assert.rejects(
+    ports.handoffs.claim(other.handoffRef, 0, ONE, A2, LEASE_MS, A1),
+    refuses("handoff.already-completed"),
+  );
 }
 
 async function cancelledAndExpired(ports: Ports, time: Clock) {
@@ -259,6 +296,7 @@ for (const [name, build] of [
       "settling is fenced only by a live claim of another attempt",
       unfencedSettlement,
     ],
+    ["a waiter learns who settled the handoff", settledByWhom],
     ["cancel and expiry end a claim", cancelledAndExpired],
     ["a moved generation fences a claim", fenced],
   ] as const)

@@ -89,6 +89,9 @@ export type HandoffIssue = {
   /** Protected transient material: destination URL, PKCE verifier, widget token, device code. */
   private: Record<string, string>;
 };
+/** What taking a claim came to: ours to run, or an identical submission's attempt that holds it. */
+export type ClaimOutcome = "claimed" | { shared: string };
+
 export type HandoffRecord = Omit<HandoffIssue, "actor"> & {
   handoffRef: HandoffRef;
   tenantId: string;
@@ -132,12 +135,17 @@ export interface HandoffPort {
    * the caller; the values never reach the port) and `attempt` is a random
    * token naming this run. `claimed` means this attempt runs the work and must
    * `release` or settle; `shared` means an identical submission already holds
-   * the claim, so this one is answered from that run. Another submission, a
-   * stale generation or a handoff that is no longer pending is refused
-   * (`handoff.already-claimed`, `handoff.stale-generation`,
-   * `handoff.already-completed`, `handoff.expired`). A claim older than
-   * `leaseMs` is no one's: a worker that died with one does not hold the
-   * handoff forever, and the attempt that takes it over replaces it.
+   * the claim (named by the attempt that holds it), so this one is answered
+   * from that run. Another submission, a stale generation or a handoff that is
+   * no longer pending is refused (`handoff.already-claimed`,
+   * `handoff.stale-generation`, `handoff.already-completed`,
+   * `handoff.expired`). A claim older than `leaseMs` is no one's: a worker that
+   * died with one does not hold the handoff forever, and the attempt that
+   * takes it over replaces it. A caller that is waiting on a holder passes that
+   * attempt as `joining`: if the handoff was settled by some other attempt, it
+   * is refused as `handoff.settled-by-another` rather than
+   * `handoff.already-completed`, so a waiter is never answered from a run it
+   * did not join.
    */
   claim(
     handoffRef: HandoffRef,
@@ -145,7 +153,8 @@ export interface HandoffPort {
     submission: string,
     attempt: string,
     leaseMs: number,
-  ): Promise<"claimed" | "shared">;
+    joining?: string,
+  ): Promise<ClaimOutcome>;
   /**
    * Gives a claim back when its attempt ended without settling the handoff, so
    * the person can submit again. Only the attempt's own claim is removed: a
