@@ -1,21 +1,25 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ConnectorError } from "../../../src/server/connectors/errors.js";
-import type { AdapterCallContext } from "../../../src/server/connectors/adapter.js";
 import {
   createVercelConnectAdapter,
   credentialRole,
   resolveCredential,
   vercelOperationRef,
   withBearer,
-  type VercelSettings,
 } from "../../../src/server/connectors/providers/vercel/index.js";
 import { callVercel } from "../../../src/server/connectors/providers/vercel/client.js";
 import { accountManagementSource } from "../../../src/server/connectors/providers/vercel-account/index.js";
-import { ORIGIN } from "../commands/harness.js";
-import { startVercelConnect } from "../doubles/vercel-connect.js";
-import { buildBinding, buildConnection } from "../vercel/harness.js";
-import { accountSetup, alice, connectAndChoose } from "./harness.js";
+import { alice } from "./harness.js";
+import {
+  bearerOf,
+  CONFIGURED_TOKEN,
+  list,
+  MINUTE,
+  rig,
+  settings,
+  TEAM,
+} from "./management-rig.js";
 
 /*
  * The management leg of Vercel Connect, fed by a signed-in account in place
@@ -27,128 +31,6 @@ import { accountSetup, alice, connectAndChoose } from "./harness.js";
  * accepts a device-grant token at all (the permissions page calls API
  * permissions a private beta). The Connect double models that acceptance.
  */
-
-const TEAM = "team_dummy_acme";
-const PROJECT = "prj_main";
-const CONNECTOR = "slack/acme-slack";
-const WORKLOAD_TOKEN = "oidc_workload_token";
-const CONFIGURED_TOKEN = "vma_configured_token";
-const MINUTE = 60_000;
-
-const settings: VercelSettings = {
-  project: { id: PROJECT, environment: "production" },
-  profiles: {
-    app: {
-      connector: CONNECTOR,
-      subject: { type: "app" },
-      installation: { mode: "installation-free" },
-      scopes: ["chat:write"],
-    },
-  },
-  defaultProfile: "app",
-  returnPath: "/connectors/vercel/return",
-};
-
-async function rig(
-  t: Parameters<typeof accountSetup>[0],
-  options: {
-    teamOnConnect?: string;
-    configured?: boolean;
-    account?: "signed-in" | "none";
-  } = {},
-) {
-  const setup = await accountSetup(t);
-  const { connectionRef } = await connectAndChoose(setup);
-  const connectTeam = options.teamOnConnect ?? TEAM;
-  const connect = await startVercelConnect({
-    teamId: connectTeam,
-    connectors: [
-      {
-        uid: CONNECTOR,
-        type: "slack",
-        typeName: "Slack",
-        service: "slack",
-        projects: { [PROJECT]: ["production"] },
-      },
-    ],
-    credentials: [
-      {
-        token: WORKLOAD_TOKEN,
-        kind: "workload",
-        teamId: connectTeam,
-        projectId: PROJECT,
-        environment: "production",
-      },
-      ...(options.configured
-        ? [
-            {
-              token: CONFIGURED_TOKEN,
-              kind: "management" as const,
-              teamId: connectTeam,
-            },
-          ]
-        : []),
-    ],
-    // Vercel is one backend: a token its account service says is live is live.
-    authenticate: (token) =>
-      setup.fixture.accessTokenValid(token)
-        ? { token, kind: "management", teamId: connectTeam }
-        : undefined,
-  });
-  t.after(connect.close);
-  const accountCtx = await setup.adapterContext(connectionRef);
-  const source = accountManagementSource({
-    account: async () => (options.account === "none" ? undefined : accountCtx),
-  });
-  const adapter = createVercelConnectAdapter({ managementToken: source });
-  const binding = buildBinding({
-    apiOrigin: connect.origin,
-    teamId: connectTeam,
-    settings,
-    connectors: [CONNECTOR],
-    projects: [PROJECT],
-    environments: ["production"],
-  });
-  const connection = buildConnection({ binding });
-  const configuration = new Map<string, string>([
-    ["VERCEL_TEAM_ID", connectTeam],
-    ["VERCEL_CONNECT_WORKLOAD_TOKEN", WORKLOAD_TOKEN],
-    ...(options.configured
-      ? ([["VERCEL_MANAGEMENT_TOKEN", CONFIGURED_TOKEN]] as const)
-      : []),
-  ]);
-  const connectCtx = (): AdapterCallContext => ({
-    actor: setup.person,
-    binding,
-    connection,
-    generation: connection.generation,
-    signal: new AbortController().signal,
-    environment: setup.ports.environment({
-      fetch: globalThis.fetch,
-      origin: ORIGIN,
-      configuration: {
-        read: async (name: string) => configuration.get(name),
-        present: async (names: readonly string[]) =>
-          new Set(names.filter((name) => configuration.has(name))),
-        revision: async () => "cfg:1",
-      },
-    }),
-  });
-  return { setup, connectionRef, connect, accountCtx, adapter, connectCtx };
-}
-
-const list = (
-  rigged: Awaited<ReturnType<typeof rig>>,
-  ctx = rigged.connectCtx(),
-) =>
-  rigged.adapter.invoke!(ctx, {
-    operationRef: vercelOperationRef("connect.connectors.list"),
-    input: {},
-    commandId: `list-${Math.random().toString(36).slice(2)}`,
-  });
-
-const bearerOf = (call: { headers: Record<string, string> }) =>
-  /^Bearer (\S+)$/.exec(call.headers["authorization"] ?? "")?.[1];
 
 test("the management leg administers with the signed-in person's token, for the team they chose", async (t) => {
   const rigged = await rig(t);
