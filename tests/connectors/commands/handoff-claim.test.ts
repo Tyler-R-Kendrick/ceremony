@@ -5,6 +5,7 @@ import type { HandoffPort } from "../../../src/server/connectors/ports.js";
 import {
   claimHandoff,
   submissionOf,
+  withHandoffClaim,
 } from "../../../src/server/connectors/commands/handoff-claim.js";
 
 /*
@@ -141,4 +142,98 @@ test("waiting on an identical submission ends at the lease, with a typed refusal
       error.detail === "handoff.claim-timeout",
   );
   assert.ok(calls.length >= 2 && calls.length < 10, `${calls.length} looks`);
+});
+
+/** A port that says "shared" once, then that the run settled the handoff. */
+const joined = () => scripted("shared", completed);
+const submitted = {
+  kind: "input",
+  values: { choice: "a" },
+} as const;
+
+test("a waiter answers only once the connection shows the run's write, and then from it", async () => {
+  const { handoffs } = joined();
+  let looks = 0;
+  const answered = await withHandoffClaim(
+    {
+      handoffs,
+      newAttempt: () => ATTEMPT,
+      leaseMs: 1000,
+      landed: async () => ++looks >= 4,
+    },
+    handoff,
+    submitted,
+    async () => "ran",
+    async () => `answered after ${looks} looks`,
+  );
+  assert.equal(answered, "answered after 4 looks");
+});
+
+test("a waiter whose winner never writes answers when the wait runs out, and does not throw", async () => {
+  const { handoffs } = joined();
+  const started = Date.now();
+  const answered = await withHandoffClaim(
+    {
+      handoffs,
+      newAttempt: () => ATTEMPT,
+      leaseMs: 80,
+      landed: async () => false,
+    },
+    handoff,
+    submitted,
+    async () => "ran",
+    async () => "answered anyway",
+  );
+  assert.equal(answered, "answered anyway");
+  assert.ok(Date.now() - started < 2_000);
+});
+
+test("a completion that is not a person's input runs without a claim", async () => {
+  let claimed = 0;
+  const handoffs = {
+    claim: async () => ++claimed,
+  } as unknown as HandoffPort;
+  const ran = await withHandoffClaim(
+    {
+      handoffs,
+      newAttempt: () => ATTEMPT,
+      leaseMs: 1000,
+      landed: async () => true,
+    },
+    handoff,
+    { kind: "poll" },
+    async (attempt) => `ran with ${attempt}`,
+    async () => "answered",
+  );
+  assert.equal(ran, "ran with undefined");
+  assert.equal(claimed, 0);
+});
+
+test("a claim is given back when the run ends, whichever way it ends", async () => {
+  for (const ending of ["returns", "throws"] as const) {
+    const released: unknown[][] = [];
+    const handoffs = {
+      claim: async () => "claimed",
+      release: async (...args: unknown[]) => void released.push(args),
+    } as unknown as HandoffPort;
+    const work = withHandoffClaim(
+      {
+        handoffs,
+        newAttempt: () => ATTEMPT,
+        leaseMs: 1000,
+        landed: async () => true,
+      },
+      handoff,
+      submitted,
+      async (attempt) => {
+        assert.equal(attempt, ATTEMPT);
+        if (ending === "throws") throw new Error("run failed");
+        return "done";
+      },
+      async () => "answered",
+    );
+    if (ending === "throws") await assert.rejects(work, /run failed/);
+    else assert.equal(await work, "done");
+    assert.deepEqual(released, [["handoff:one", ATTEMPT]]);
+  }
 });

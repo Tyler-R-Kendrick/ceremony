@@ -2113,6 +2113,10 @@ export class ConnectorCommandService {
         handoffs: this.ports.handoffs,
         newAttempt: () => this.random.uuid(),
         leaseMs: this.callTimeoutMs * 2,
+        landed: async () =>
+          pending(
+            (await this.connection(actor, handoff.connectionRef)).record,
+          )?.handoffRef !== handoff.handoffRef,
       },
       handoff,
       input,

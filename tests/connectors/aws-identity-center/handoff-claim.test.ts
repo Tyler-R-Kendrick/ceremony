@@ -44,12 +44,18 @@ function holdFirstSettlement(setup: AwsSetup) {
   const real = setup.ports.handoffs.complete.bind(setup.ports.handoffs);
   let settling = 0;
   const gate = Promise.withResolvers<void>();
+  const reached = Promise.withResolvers<void>();
   setup.ports.handoffs.complete = async (...args) => {
     settling += 1;
-    if (settling === 1) await gate.promise;
+    if (settling === 1) {
+      reached.resolve();
+      await gate.promise;
+    }
     return real(...args);
   };
   return {
+    /** Resolves once the first settlement is held, which is when its run holds the claim. */
+    reached: reached.promise,
     release: () => gate.resolve(),
     restore: () => (setup.ports.handoffs.complete = real),
   };
@@ -216,4 +222,51 @@ test("a submission after the handoff settled is refused as consumed, as before",
     assert.ok("error" in late);
     assert.equal((late.error as ConnectorError).detail, "handoff.consumed");
   }
+});
+
+test("a waiter is answered with the connection its winner wrote, not the one from before", async (t) => {
+  const setup = await awsSetup(t);
+  const first = await connectAndApprove(setup);
+  const handoffRef = handoffRefOf(first.polled);
+  const hold = holdFirstSettlement(setup);
+  t.after(hold.restore);
+  // The winner settles the handoff and only then writes the connection: hold that write.
+  const realUpdate = setup.ports.connections.update.bind(
+    setup.ports.connections,
+  );
+  const write = Promise.withResolvers<void>();
+  const writing = Promise.withResolvers<void>();
+  let updates = 0;
+  setup.ports.connections.update = async (...args) => {
+    updates += 1;
+    if (updates === 1) {
+      writing.resolve();
+      await write.promise;
+    }
+    return realUpdate(...args);
+  };
+  t.after(() => {
+    setup.ports.connections.update = realUpdate;
+  });
+
+  const winner = submit(setup, first.connectionRef, handoffRef, READ_ONLY);
+  await hold.reached;
+  const waiter = submit(setup, first.connectionRef, handoffRef, READ_ONLY);
+  // Let the waiter join the claim, then let the winner settle the handoff.
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  hold.release();
+  await writing.promise;
+
+  // The handoff is settled and the connection is not written yet: the waiter must not answer.
+  const early = await Promise.race([
+    waiter,
+    new Promise<"waiting">((resolve) => setTimeout(resolve, 300, "waiting")),
+  ]);
+  assert.equal(early, "waiting", "the waiter answered before the winner wrote");
+
+  write.resolve();
+  const [won, waited] = await Promise.all([winner, waiter]);
+  assert.ok("ok" in won && "ok" in waited);
+  assert.equal(won.ok.lifecycle, "active");
+  assert.deepEqual(waited.ok, won.ok, "the waiter's answer is the winner's");
 });

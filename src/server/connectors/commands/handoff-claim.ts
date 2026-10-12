@@ -93,7 +93,25 @@ export type ClaimContext = {
   /** A fresh random token naming one attempt. */
   newAttempt(): string;
   leaseMs: number;
+  /**
+   * Whether the connection no longer shows the handoff as pending. A run
+   * settles the handoff before it writes the connection, so a waiter answers
+   * only once this is true (or the wait runs out).
+   */
+  landed(): Promise<boolean>;
 };
+
+/** Polls `check` until it holds or `budgetMs` of polling has passed; says whether it held. */
+async function pollUntil(
+  check: () => Promise<boolean>,
+  budgetMs: number,
+): Promise<boolean> {
+  for (let waited = 0; ; waited += POLL_MS) {
+    if (await check()) return true;
+    if (waited >= budgetMs) return false;
+    await sleep(POLL_MS);
+  }
+}
 
 /**
  * Runs `run` while holding the handoff's claim, if a person's values are being
@@ -121,7 +139,12 @@ export async function withHandoffClaim<T>(
     attempt,
     context.leaseMs,
   );
-  if (claimed === "settled") return answerSettled();
+  if (claimed === "settled") {
+    // The run that held the claim has settled the handoff; its write to the
+    // connection may be a step behind. What is answered is what it wrote.
+    await pollUntil(context.landed, context.leaseMs);
+    return answerSettled();
+  }
   try {
     return await run(attempt);
   } finally {
