@@ -8,6 +8,8 @@ import {
   type AuthAdapter,
 } from "./controller.js";
 import type { SignatureAgent } from "../core/web-bot-auth.js";
+import { boundResponse } from "./connectors/auth/response-bound.js";
+import { boundedAuthFetch } from "./public-auth-fetch.js";
 
 export interface CredentialStore {
   put(
@@ -142,6 +144,8 @@ export function createProtocolAdapter(
   };
   const options = {
     [oauth.allowInsecureRequests]: config.allowLoopbackHttp === true,
+    // Every answer is read under the OAuth ceiling, as in the connectors.
+    [oauth.customFetch]: boundedAuthFetch((input, init) => fetch(input, init)),
     signal: () => AbortSignal.timeout(10_000),
   };
   let verifier = "";
@@ -173,13 +177,14 @@ export function createProtocolAdapter(
         config.agent.headers(target.href),
       ))
         headers.set(name, value);
-    const response = await fetch(target, {
-      ...init,
-      headers,
-      redirect: "error",
-      signal: AbortSignal.timeout(10_000),
-    });
-    return response;
+    return boundResponse(
+      await fetch(target, {
+        ...init,
+        headers,
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
+      }),
+    );
   };
   const save = async (
     token: {
