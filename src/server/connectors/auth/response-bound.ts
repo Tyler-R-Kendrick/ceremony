@@ -74,3 +74,10 @@ export function noAnswerIfTooLarge(error: unknown): undefined {
   if (error instanceof ResponseTooLargeError) return undefined;
   throw error;
 }
+
+/** For `.catch` on `boundedResponseJson`: an answer too large to read becomes the caller's own refusal; anything else is the caller's to see. */
+export function refuseIfTooLarge(refusal: () => Error) {
+  return (error: unknown): never => {
+    throw error instanceof ResponseTooLargeError ? refusal() : error;
+  };
+}

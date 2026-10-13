@@ -1,6 +1,10 @@
 import { z } from "zod";
 import type { AuthOutcome } from "../core/index.js";
 import { trustedUrl, type CredentialStore } from "./adapters.js";
+import {
+  boundedResponseJson,
+  refuseIfTooLarge,
+} from "./connectors/auth/response-bound.js";
 import { CeremonyError, type AuthAdapter } from "./controller.js";
 
 /** Claimable Neon's documented auth.md profile, not the WorkOS email/code profile. */
@@ -32,18 +36,21 @@ export function createNeonAdapter(
       redirect: "error",
       signal: AbortSignal.timeout(10_000),
     });
+  const unavailable = () =>
+    new CeremonyError(
+      "Neon could not complete this request. Retry the ceremony.",
+    );
   const checked = async (response: Response) => {
     if (!response.ok) {
       await response.body?.cancel();
-      throw new CeremonyError(
-        "Neon could not complete this request. Retry the ceremony.",
-      );
+      throw unavailable();
     }
     if (stopped) {
       await response.body?.cancel();
       throw new CeremonyError("Attempt cancelled");
     }
-    return response.json();
+    // Every answer here is a handshake (an identity, a token, a claim), read under the OAuth ceiling.
+    return boundedResponseJson(response).catch(refuseIfTooLarge(unavailable));
   };
   const persist = async () => {
     const connectionRef = await store.put(
