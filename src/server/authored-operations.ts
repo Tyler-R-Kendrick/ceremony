@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import {
-  boundedJson,
+  boundedResponseJson,
   noAnswerIfTooLarge,
 } from "./connectors/auth/response-bound.js";
 import { publicAuthFetch } from "./public-auth-fetch.js";
@@ -798,7 +798,7 @@ export async function tokenRequest(
   if (!response.ok) return undefined;
   const json = z
     .record(z.string(), z.unknown())
-    .safeParse(await boundedJson(response).catch(noAnswerIfTooLarge));
+    .safeParse(await boundedResponseJson(response).catch(noAnswerIfTooLarge));
   if (!json.success) return undefined;
   const access =
     typeof json.data.access_token === "string"
@@ -855,7 +855,7 @@ export async function pollDeviceToken(
   }
   const json = z
     .record(z.string(), z.unknown())
-    .safeParse(await boundedJson(response).catch(() => null));
+    .safeParse(await boundedResponseJson(response).catch(() => null));
   if (!json.success) return { status: "denied" as const };
   if (
     response.ok &&

@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
-  boundedJson,
+  boundedResponseJson,
   noAnswerIfTooLarge,
 } from "./connectors/auth/response-bound.js";
 import { loopbackAuthFetch, publicAuthFetch } from "./public-auth-fetch.js";
@@ -134,7 +134,7 @@ export async function startDeviceAuthorization(
       expires_in: z.coerce.number().int().positive(),
       interval: z.coerce.number().int().positive().optional(),
     })
-    .safeParse(await boundedJson(response).catch(noAnswerIfTooLarge));
+    .safeParse(await boundedResponseJson(response).catch(noAnswerIfTooLarge));
   return json.success ? json.data : undefined;
 }
 

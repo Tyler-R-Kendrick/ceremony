@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { randomBytes } from "node:crypto";
 import {
-  boundedJson,
+  boundedResponseJson,
   noAnswerIfTooLarge,
 } from "./connectors/auth/response-bound.js";
 
@@ -177,7 +177,7 @@ export function createMailTmInbox(
         .object({ token: z.string() })
         .safeParse(
           token?.ok
-            ? await boundedJson(token).catch(noAnswerIfTooLarge)
+            ? await boundedResponseJson(token).catch(noAnswerIfTooLarge)
             : undefined,
         );
       if (!parsed.success) throw new Error("inbox unavailable");
