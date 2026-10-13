@@ -55,3 +55,22 @@ export async function boundResponse(
     headers: response.headers,
   });
 }
+
+/**
+ * The response's body as JSON, read under the ceiling by the same transport
+ * (`boundResponse`), for a caller that has a `Response` in hand and not a fetch
+ * to wrap. A body over the ceiling is a `ResponseTooLargeError`; one that is not
+ * JSON throws as `Response.json` does.
+ */
+export async function boundedJson(
+  response: Response,
+  limitBytes: number = MAX_RESPONSE_BYTES,
+): Promise<unknown> {
+  return (await boundResponse(response, limitBytes)).json();
+}
+
+/** For `.catch` on `boundedJson`: an answer too large to read is no answer at all; anything else is the caller's to see. */
+export function noAnswerIfTooLarge(error: unknown): undefined {
+  if (error instanceof ResponseTooLargeError) return undefined;
+  throw error;
+}

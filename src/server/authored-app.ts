@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import {
+  boundedJson,
+  noAnswerIfTooLarge,
+} from "./connectors/auth/response-bound.js";
 import type { ActorContext } from "../core/operation-contracts.js";
 import type { OperationContext } from "./recipes/registry.js";
 import type { AsyncCeremonyStore } from "./persistence/index.js";
@@ -216,7 +220,7 @@ export async function registerDynamicClient(
       dpop_bound_access_tokens: z.boolean().optional(),
     })
     .passthrough()
-    .safeParse(await response.json());
+    .safeParse(await boundedJson(response).catch(noAnswerIfTooLarge));
   if (
     !json.success ||
     json.data.client_secret !== undefined ||

@@ -1,5 +1,9 @@
 import { z } from "zod";
 import { randomBytes } from "node:crypto";
+import {
+  boundedJson,
+  noAnswerIfTooLarge,
+} from "./connectors/auth/response-bound.js";
 
 /**
  * Agent-controlled email inbox. Registration ceremonies need an address that
@@ -171,7 +175,11 @@ export function createMailTmInbox(
       });
       const parsed = z
         .object({ token: z.string() })
-        .safeParse(token?.ok ? await token.json() : undefined);
+        .safeParse(
+          token?.ok
+            ? await boundedJson(token).catch(noAnswerIfTooLarge)
+            : undefined,
+        );
       if (!parsed.success) throw new Error("inbox unavailable");
       tokens.set(address, parsed.data.token);
       return address;

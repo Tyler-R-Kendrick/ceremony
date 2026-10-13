@@ -1,5 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
+import {
+  boundedJson,
+  noAnswerIfTooLarge,
+} from "./connectors/auth/response-bound.js";
 import { loopbackAuthFetch, publicAuthFetch } from "./public-auth-fetch.js";
 import { accountIdentifierSchema } from "../core/teaching-contracts.js";
 import { AuthorizationError } from "./identity.js";
@@ -100,7 +104,7 @@ function ticketMatchesAttempt(
   );
 }
 
-async function startDeviceAuthorization(
+export async function startDeviceAuthorization(
   endpoint: string,
   clientId: string,
   scope: string,
@@ -130,7 +134,7 @@ async function startDeviceAuthorization(
       expires_in: z.coerce.number().int().positive(),
       interval: z.coerce.number().int().positive().optional(),
     })
-    .safeParse(await response.json());
+    .safeParse(await boundedJson(response).catch(noAnswerIfTooLarge));
   return json.success ? json.data : undefined;
 }
 
