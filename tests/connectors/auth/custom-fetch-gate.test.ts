@@ -44,11 +44,21 @@ const sources: Source[] = sourceFiles(join(ROOT, "src")).map((path) => ({
   file: relative(ROOT, path),
   text: readFileSync(path, "utf8"),
 }));
+/** Part A also reads the trees outside src that could import the libraries. */
+const gated: Source[] = [
+  ...sources,
+  ...["examples", "extensions", "scripts"].flatMap((dir) =>
+    sourceFiles(join(ROOT, dir)).map((path) => ({
+      file: relative(ROOT, path),
+      text: readFileSync(path, "utf8"),
+    })),
+  ),
+];
 const read = (file: string) => sources.find((s) => s.file === file)?.text;
 const network = deriveNetworkExports(ROOT);
 
 test("every call into OAuth that can reach the network is given the bounded transport", () => {
-  assert.deepEqual(gateProblems(sources, network), []);
+  assert.deepEqual(gateProblems(gated, network), []);
 });
 
 test("the builders the gate trusts still apply the ceiling", () => {
