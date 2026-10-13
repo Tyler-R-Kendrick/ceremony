@@ -14,6 +14,11 @@ import {
   createAirbyteAdapter,
 } from "../../../src/server/connectors/providers/airbyte/index.js";
 import { startAirbyteApiDouble } from "../doubles/airbyte-api.js";
+import {
+  assertReadUnder,
+  endlessFetch,
+  type Pulled,
+} from "../doubles/endless-body.js";
 import { fixtureActor, memoryPorts } from "../doubles/ports.js";
 import {
   connectionId,
@@ -851,6 +856,51 @@ test("local disconnect does not touch the deployment", async () => {
     assert.equal(upstream.upstream, "unsupported");
     assert.equal(h.double.requests.length, 0);
     assert.deepEqual(h.double.stateOf(connectionId), warehouseConnection.state);
+  } finally {
+    await h.close();
+  }
+});
+
+test("an answer from the deployment that never ends is cut off at the body ceiling", async () => {
+  const h = await harness();
+  try {
+    const seen: Pulled = { pulled: 0 };
+    const ctx = {
+      ...h.ctx,
+      environment: h.ports.environment({ fetch: endlessFetch(seen) }),
+    };
+    await assert.rejects(
+      () => h.adapter.discover!(ctx, { scope: { sourceId } }),
+      (error: unknown) =>
+        error instanceof ConnectorError &&
+        error.detail === "airbyte.response.invalid",
+    );
+    assertReadUnder(assert, seen, 4 * 1024 * 1024, "airbyte");
+  } finally {
+    await h.close();
+  }
+});
+
+test("a token answer that never ends is cut off at the OAuth ceiling", async () => {
+  const h = await harness();
+  try {
+    h.ports.configuration.set(airbyteConfigurationNames.clientId, "client-1");
+    h.ports.configuration.set(
+      airbyteConfigurationNames.clientSecret,
+      "secret-1",
+    );
+    const seen: Pulled = { pulled: 0 };
+    const ctx = {
+      ...h.ctx,
+      environment: h.ports.environment({ fetch: endlessFetch(seen) }),
+    };
+    await assert.rejects(
+      () => h.adapter.discover!(ctx, { scope: { sourceId } }),
+      (error: unknown) =>
+        error instanceof ConnectorError &&
+        error.detail === "airbyte.token.invalid",
+    );
+    assertReadUnder(assert, seen, 1_048_576, "airbyte token");
   } finally {
     await h.close();
   }
