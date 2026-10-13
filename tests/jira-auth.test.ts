@@ -57,7 +57,7 @@ test("Jira 3LO uses SDK state validation, JSON code exchange and site-bound iden
           }),
         true,
       );
-      assert.match(body.code, /^one-use-code(?:-[a-z]+)?$/);
+      assert.match(body.code, /^one-use-code(?:-[a-z-]+)?$/);
       if (consumed.has(body.code)) {
         res.statusCode = 400;
         res.end(JSON.stringify({ error: "invalid_grant" }));
@@ -66,6 +66,10 @@ test("Jira 3LO uses SDK state validation, JSON code exchange and site-bound iden
       consumed.add(body.code);
       if (mode === "lost") {
         res.destroy();
+        return;
+      }
+      if (mode === "token-oversized") {
+        res.end(JSON.stringify({ padding: "x".repeat(65536) }));
         return;
       }
       res.end(
@@ -237,6 +241,14 @@ test("Jira 3LO uses SDK state validation, JSON code exchange and site-bound iden
         error instanceof JiraAuthFailure &&
         error.code === "provider-unavailable",
     );
+  // The token answer is read under Jira's 64 KiB ceiling, and one over it is
+  // the provider being unavailable, as a lost answer is.
+  mode = "token-oversized";
+  await assert.rejects(
+    client.exchange(`${callback}-oversized`, state),
+    (error: unknown) =>
+      error instanceof JiraAuthFailure && error.code === "provider-unavailable",
+  );
   mode = "lost";
   await assert.rejects(
     client.exchange(`${callback}-lost`, state),

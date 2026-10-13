@@ -1,6 +1,13 @@
 import * as oauth from "oauth4webapi";
 import { z } from "zod";
 import { boundedJson } from "./authorization.js";
+import {
+  boundResponse,
+  ResponseTooLargeError,
+} from "./connectors/auth/response-bound.js";
+
+/** The most a Jira answer may weigh: 64 KiB, far under the OAuth ceiling. */
+const JIRA_BODY_BYTES = 65_536;
 
 const secret = z
   .string()
@@ -93,7 +100,8 @@ export function jiraAuth(
     throw new JiraAuthFailure("invalid-input");
   const now = options.now ?? Date.now;
   const client = { client_id: config.clientId };
-  const request = async (url: string, init: RequestInit) => {
+  /** One request to Jira, its answer unread: refused on a non-2xx, and on anything that is not an answer. */
+  const send = async (url: string, init: RequestInit): Promise<Response> => {
     options.signal.throwIfAborted();
     try {
       const response = await (options.fetch ?? fetch)(url, {
@@ -109,9 +117,17 @@ export function jiraAuth(
             : "verification-rejected",
         );
       }
-      return await boundedJson(response, 65536);
+      return response;
     } catch (error) {
       if (error instanceof JiraAuthFailure) throw error;
+      throw new JiraAuthFailure("provider-unavailable");
+    }
+  };
+  const request = async (url: string, init: RequestInit) => {
+    const response = await send(url, init);
+    try {
+      return await boundedJson(response, JIRA_BODY_BYTES);
+    } catch {
       throw new JiraAuthFailure("provider-unavailable");
     }
   };
@@ -194,15 +210,23 @@ export function jiraAuth(
                 !(init?.body instanceof URLSearchParams)
               )
                 throw new JiraAuthFailure("invalid-input");
-              const body = await request(as.token_endpoint, {
-                method: "POST",
-                headers: {
-                  "content-type": "application/json",
-                  accept: "application/json",
-                },
-                body: JSON.stringify(Object.fromEntries(init.body)),
-              });
-              return Response.json(body);
+              try {
+                return await boundResponse(
+                  await send(as.token_endpoint, {
+                    method: "POST",
+                    headers: {
+                      "content-type": "application/json",
+                      accept: "application/json",
+                    },
+                    body: JSON.stringify(Object.fromEntries(init.body)),
+                  }),
+                  JIRA_BODY_BYTES,
+                );
+              } catch (error) {
+                if (error instanceof ResponseTooLargeError)
+                  throw new JiraAuthFailure("provider-unavailable");
+                throw error;
+              }
             },
           },
         );
