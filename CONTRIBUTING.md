@@ -23,3 +23,7 @@ Run focused tests while editing; run the complete deterministic command before d
 Use small commits and scoped PRs. State what changed, exact checks and failures, and any external blockers. Review findings need a fix plus regression evidence, or an explicit unresolved release blocker. Squash only the reviewed exact head after its required checks pass; verify the resulting remote tree and retain unrelated/unmerged work.
 
 The package remains private. A passing build or merge does not authorize publication, provider registration, paid resources or production deployment. `verify:release` is a separate evidence gate, not a label to set by hand.
+
+## AI-assisted contributions
+
+Contributions may be built with coding agents under human direction and review. Disclose significant AI-generated content in the pull request description. Commits made with an agent should name the tool and model in the commit message when practical.

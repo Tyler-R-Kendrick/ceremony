@@ -2,6 +2,10 @@
 
 Composable authentication ceremonies with browser-native teaching and optional agent assistance. A host chooses a service; Ceremony reuses compatible setup, guides necessary human participation, verifies access and resumes the authorized task. OpenUI renders presentation; registered server operations execute protocols.
 
+## Status
+
+Active development. The npm package is not yet published.
+
 **Demos:** [videos of an agent creating an account, recovering from a taken address and connecting an API for someone with no account yet](docs/demos.md), recorded with webreel against self-hosted test providers.
 
 ## Run
@@ -55,5 +59,13 @@ The deterministic command covers recursive Node/Pact/security/integration tests,
 Production requires authenticated host identity, exact HTTPS origins, encrypted shared PostgreSQL state, current policy and configured integrations. The loopback example, local SQLite compatibility APIs and protocol fixtures are not substitutes. Secrets and transient protocol material are excluded from agent, demonstration, export and diagnostic surfaces.
 
 Cancellation does not secretly revoke upstream grants. Payment processing, lead capture, a generic workflow marketplace, package publication and automatic paid-resource provisioning are outside scope. Optional remote-browser/MCP/A2H capabilities keep their documented support and certification limits.
+
+## AI usage disclosure
+
+This project may use AI coding tools in development. Community documentation and some changes may be agent-assisted under human review. That use does not affect runtime ceremony behavior.
+
+## Project governance
+
+[Contributing](CONTRIBUTING.md) · [Code of conduct](CODE_OF_CONDUCT.md) · [Security](SECURITY.md) · [Governance](GOVERNANCE.md)
 
 [Documentation index](docs/README.md) · [Product scope](PRODUCT.md) · [Threat model](docs/ceremony-teaching-threat-model.md)
