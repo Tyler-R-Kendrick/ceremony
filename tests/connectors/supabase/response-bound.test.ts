@@ -10,6 +10,7 @@ import type {
 import { ConnectorError } from "../../../src/server/connectors/errors.js";
 import { createSupabaseManagementAdapter } from "../../../src/server/connectors/providers/supabase/index.js";
 import { fixtureActor } from "../doubles/ports.js";
+import { endlessResponse, type Sites } from "../doubles/endless-body.js";
 import {
   managementOrganization,
   managementProject,
@@ -41,8 +42,9 @@ const CONFIGURATION = {
 };
 const REDIRECT_URI = `${HOST_ORIGIN}${CALLBACK_PATH}`;
 const adapter = createSupabaseManagementAdapter();
-const CHUNK = 64 * 1024;
-const ENDLESS = 64 * 1024 * 1024;
+const TOKEN: Sites = [
+  "src/server/connectors/providers/supabase/management.ts#tokenRequestOptions",
+];
 
 const intent: AuthorizationIntent = {
   ownerKind: "user",
@@ -64,18 +66,7 @@ function streamingTokenEndpoint(real: typeof fetch) {
     );
     if (!state.endless || url.pathname !== "/v1/oauth/token")
       return real(input, init);
-    const chunk = new Uint8Array(CHUNK).fill(0x20);
-    const body = new ReadableStream<Uint8Array>({
-      pull(controller) {
-        if (state.pulled >= ENDLESS) return controller.close();
-        state.pulled += CHUNK;
-        controller.enqueue(chunk);
-      },
-    });
-    return new Response(body, {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
+    return endlessResponse(state, TOKEN);
   };
   return { state, fetch: wrapped };
 }

@@ -6,11 +6,6 @@ import {
   ndcConfigurationNames,
 } from "../../../src/server/connectors/providers/hasura-ndc/index.js";
 import {
-  assertReadUnder,
-  endlessFetch,
-  type Pulled,
-} from "../doubles/endless-body.js";
-import {
   minimalCapabilities,
   NDC_VERSION_LEGACY,
   schema,
@@ -683,22 +678,4 @@ test("the adapter reports host-owned custody and a pinned profile", () => {
     statuses.find((status) => status.dimension === "delegate")?.implementation,
     "unsupported",
   );
-});
-
-test("an answer from the connector that never ends is cut off at the body ceiling", async () => {
-  const h = await harness();
-  try {
-    const seen: Pulled = { pulled: 0 };
-    const ctx = {
-      ...h.ctx,
-      environment: h.ports.environment({ fetch: endlessFetch(seen) }),
-    };
-    await assert.rejects(
-      () => h.adapter.verify!(ctx),
-      rejects("ndc.response.too-large"),
-    );
-    assertReadUnder(assert, seen, 8 * 1024 * 1024, "ndc");
-  } finally {
-    await h.close();
-  }
 });

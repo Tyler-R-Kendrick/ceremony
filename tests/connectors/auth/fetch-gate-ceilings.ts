@@ -19,13 +19,20 @@ export type Forward = {
   index: number;
   path: string[];
 };
-export type Verdict = { problems: string[]; forwards: Forward[] };
+export type Verdict = {
+  problems: string[];
+  forwards: Forward[];
+  /** A ceiling was fixed here (a constant, a default or a fallback), not only taken from a parameter. */
+  fixed?: boolean;
+};
 
 const OK: Verdict = { problems: [], forwards: [] };
+const FIXED: Verdict = { problems: [], forwards: [], fixed: true };
 const problem = (text: string): Verdict => ({ problems: [text], forwards: [] });
 const join = (...verdicts: Verdict[]): Verdict => ({
   problems: verdicts.flatMap((verdict) => verdict.problems),
   forwards: verdicts.flatMap((verdict) => verdict.forwards),
+  fixed: verdicts.some((verdict) => verdict.fixed),
 });
 const DEPTH = 16;
 const isFallback = (kind: ts.SyntaxKind) =>
@@ -130,7 +137,7 @@ function judgeLeaf(
 ): Verdict {
   if (depth > DEPTH) return problem("a ceiling too deep to follow");
   const target = unwrap(node);
-  if (ts.isIdentifier(target) && target.text === "undefined") return OK;
+  if (ts.isIdentifier(target) && target.text === "undefined") return FIXED;
   const parameter = ts.isIdentifier(target)
     ? parameterOf(facts, target)
     : undefined;
@@ -164,7 +171,7 @@ function judgeLeaf(
     constant && named !== undefined ? { ...constant, bound: named } : constant;
   if (value)
     return value.bytes > 0 && value.bytes <= value.bound
-      ? OK
+      ? FIXED
       : problem(
           `hands the reader a ceiling of ${value.bytes} bytes; the most is ${value.bound}`,
         );

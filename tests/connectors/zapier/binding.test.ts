@@ -1,37 +1,20 @@
 import { strict as assert } from "node:assert";
 import { describe, test } from "node:test";
-import { readZapierApp } from "../../../src/server/connectors/formats/zapier/read.js";
 import {
   EXTERNAL_RUNTIME_PROTOCOL,
   SIGNATURE_HEADER,
-  SIGNATURE_KEY_ID_HEADER,
-  createExternalRuntimeAdapter,
   describeExternalRuntimeBindings,
   externalRuntimeBindingSchema,
   validateRuntimeValue,
-  type ExternalRuntimeBinding,
-  type RuntimeFieldSchema,
 } from "../../../src/server/connectors/formats/automation/external-runtime.js";
 import { ConnectorError } from "../../../src/server/connectors/errors.js";
 import type { AdapterCallContext } from "../../../src/server/connectors/adapter.js";
-import type { NativeCapability } from "../../../src/core/connectors/index.js";
 import { fixtureActor, memoryPorts } from "../doubles/ports.js";
 import {
-  assertReadUnder,
-  endlessFetch,
-  type Pulled,
-} from "../doubles/endless-body.js";
-import {
   RUNTIME_KEY_ID,
-  RUNTIME_PATH,
   connectionWithSecret,
-  delegatedBinding,
-  startExternalRuntime,
 } from "../fixtures/automation/external-runtime.js";
-import {
-  nativeAppDefinition,
-  nativeAppIdentity,
-} from "../fixtures/zapier/app.js";
+import { OPERATION_REF, withHarness } from "./harness.js";
 
 /*
  * The whole path, end to end: a Zapier app definition is imported statically,
@@ -41,158 +24,6 @@ import {
  * and no permission. Those come from the binding, which is a decision, and
  * from custody, which is the host's.
  */
-
-/** Turns an imported Zapier input-field list into the binding's input schema. */
-function schemaFromZapierFields(
-  capability: NativeCapability,
-): RuntimeFieldSchema {
-  const fields = (capability.nativeExtensions?.["inputFields"] ?? []) as Array<
-    Record<string, unknown>
-  >;
-  const properties: Record<string, RuntimeFieldSchema> = {};
-  const required: string[] = [];
-  for (const field of fields) {
-    const key = field["key"];
-    if (typeof key !== "string") continue;
-    const type = field["type"];
-    properties[key] =
-      type === "integer"
-        ? { type: "integer" }
-        : type === "number"
-          ? { type: "number" }
-          : type === "boolean"
-            ? { type: "boolean" }
-            : { type: "string", maxLength: 4096 };
-    if (field["required"] === true) required.push(key);
-  }
-  return { type: "object", properties, required, additionalProperties: false };
-}
-
-const OUTPUT_SCHEMA: RuntimeFieldSchema = {
-  type: "object",
-  properties: {
-    id: { type: "string", maxLength: 128 },
-    status: { type: "string", enum: ["draft", "sent", "paid"] },
-    total_cents: { type: "integer", minimum: 0 },
-  },
-  required: ["id", "status"],
-  additionalProperties: false,
-};
-
-const OPERATION_REF = "operation:zapier:create_invoice";
-
-async function importedCreate() {
-  const imported = await readZapierApp({
-    json: nativeAppDefinition,
-    identity: nativeAppIdentity,
-  });
-  const capability = imported.definition.capabilities.find(
-    (item) => item.nativeId === "create_invoice",
-  );
-  assert.ok(capability, "the create is a supported static import");
-  assert.ok(imported.executableCandidates.includes("create_invoice"));
-  return { imported, capability };
-}
-
-function runtimeBindingFor(
-  capability: NativeCapability,
-  overrides: Partial<ExternalRuntimeBinding> = {},
-): ExternalRuntimeBinding {
-  return externalRuntimeBindingSchema.parse({
-    operationRef: OPERATION_REF,
-    identity: {
-      ecosystem: "zapier",
-      nativeId: capability.nativeId,
-      nativeVersion: "1.4.0",
-    },
-    destinationId: "runtime",
-    path: RUNTIME_PATH,
-    owner: { kind: "user", id: fixtureActor.subjectId },
-    account: {
-      authority: "https://runtime.example",
-      externalIdName: "zapierAccountId",
-      externalId: "acct_7",
-    },
-    input: schemaFromZapierFields(capability),
-    output: OUTPUT_SCHEMA,
-    effect: "write",
-    outputClassification: "personal",
-    replay: "none",
-    environmentClass: "loopback-fixture",
-    timeoutMs: 5_000,
-    ...overrides,
-  });
-}
-
-type Harness = Awaited<ReturnType<typeof harness>>;
-
-async function harness(
-  options: {
-    behaviour?: NonNullable<
-      Parameters<typeof startExternalRuntime>[0]
-    >["behaviour"];
-    bindingOverrides?: Partial<ExternalRuntimeBinding>;
-    externalIds?: Record<string, string>;
-  } = {},
-) {
-  const { capability } = await importedCreate();
-  const runtime = await startExternalRuntime(
-    options.behaviour ? { behaviour: options.behaviour } : {},
-  );
-  const ports = memoryPorts();
-  const binding = delegatedBinding({
-    origin: runtime.origin,
-    operationRef: OPERATION_REF,
-    nativeId: "create_invoice",
-    effect: "write",
-  });
-  const connection = await connectionWithSecret(ports, {
-    binding,
-    ecosystem: "zapier",
-    service: "ledgerly",
-    externalIds: options.externalIds ?? { zapierAccountId: "acct_7" },
-  });
-  const external = runtimeBindingFor(
-    capability,
-    options.bindingOverrides ?? {},
-  );
-  const adapter = createExternalRuntimeAdapter({ bindings: [external] });
-  const controller = new AbortController();
-  const ctx: AdapterCallContext = {
-    actor: fixtureActor,
-    binding,
-    connection,
-    generation: 0,
-    signal: controller.signal,
-    environment: ports.environment({ fetch }),
-  };
-  return {
-    adapter,
-    ctx,
-    ports,
-    runtime,
-    binding,
-    external,
-    capability,
-    connection,
-    async close() {
-      controller.abort();
-      await runtime.close();
-    },
-  };
-}
-
-const withHarness = async (
-  options: Parameters<typeof harness>[0],
-  body: (harness: Harness) => Promise<void>,
-) => {
-  const built = await harness(options);
-  try {
-    await body(built);
-  } finally {
-    await built.close();
-  }
-};
 
 describe("binding a statically imported Zapier action to an approved runtime", () => {
   test("invokes it, signs the request and journals the effect", async () => {
@@ -542,30 +373,6 @@ describe("what the adapter reports about itself", () => {
         JSON.parse('{"__proto__":{"polluted":true}}') as unknown,
       ).ok,
       false,
-    );
-  });
-});
-
-test("a runtime answer that never ends is cut off at the ceiling while it is read, and the write is unknown", async () => {
-  await withHarness({}, async (h) => {
-    const seen: Pulled = { pulled: 0 };
-    const ctx = {
-      ...h.ctx,
-      environment: h.ports.environment({ fetch: endlessFetch(seen) }),
-    };
-    await assert.rejects(
-      h.adapter.invoke!(ctx, {
-        operationRef: OPERATION_REF,
-        input: { customer_id: "cus_1", total_cents: 4200, memo: "September" },
-        commandId: "command-endless",
-      }),
-      (error: unknown) =>
-        error instanceof ConnectorError && error.detail === "reply.size",
-    );
-    assertReadUnder(assert, seen, 256 * 1024, "external runtime");
-    assert.equal(
-      h.ports.inspect.effects()[0]?.outcome?.status,
-      "indeterminate",
     );
   });
 });

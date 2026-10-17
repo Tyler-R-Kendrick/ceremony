@@ -8,6 +8,12 @@ import {
   openLiveBrowser,
 } from "../src/server/live-view.js";
 import { createNeonAdapter } from "../src/server/neon.js";
+import {
+  assertReadUnder,
+  endlessFetch,
+  type Pulled,
+  type Sites,
+} from "./connectors/doubles/endless-body.js";
 import { IndeterminateAnswer } from "../src/server/controller.js";
 
 /*
@@ -24,33 +30,13 @@ import { IndeterminateAnswer } from "../src/server/controller.js";
 const unknown = (error: unknown) =>
   error instanceof IndeterminateAnswer && error.outcome === "indeterminate";
 
-const CHUNK = 64 * 1024;
-const ENDLESS = 64 * 1024 * 1024;
-const SLACK = 2 * CHUNK;
+const NEON: Sites = ["src/server/neon.ts#checked"];
+const LIVE_VIEW: Sites = ["src/server/live-view.ts#browserbaseLiveView"];
+const SESSION: Sites = ["src/server/live-view.ts#openLiveBrowser"];
+const EXECUTOR: Sites = ["src/server/browser-executor.ts#openRemote"];
 
-/** A fetch whose every answer is spaces without end; `seen.pulled` counts what the reader took. */
-function endlessFetch(seen: { pulled: number }): typeof fetch {
-  const chunk = new Uint8Array(CHUNK).fill(0x20);
-  return (async () =>
-    new Response(
-      new ReadableStream<Uint8Array>({
-        pull(controller) {
-          if (seen.pulled >= ENDLESS) return controller.close();
-          seen.pulled += CHUNK;
-          controller.enqueue(chunk);
-        },
-      }),
-      { status: 200, headers: { "content-type": "application/json" } },
-    )) as typeof fetch;
-}
-
-function assertBounded(seen: { pulled: number }, what: string) {
-  assert.ok(seen.pulled > 0, `${what}: the endless answer was in fact served`);
-  assert.ok(
-    seen.pulled <= MAX_RESPONSE_BYTES + SLACK,
-    `${what}: read ${seen.pulled} bytes of an answer; the ceiling is ${MAX_RESPONSE_BYTES}`,
-  );
-}
+const assertBounded = (seen: Pulled, what: string) =>
+  assertReadUnder(assert, seen, MAX_RESPONSE_BYTES, what);
 
 const store = {
   put: async () => "ref",
@@ -60,7 +46,7 @@ const store = {
 
 test("a Neon identity answer that never ends is cut off at the ceiling, and what it did is unknown", async (t) => {
   const seen = { pulled: 0 };
-  t.mock.method(globalThis, "fetch", endlessFetch(seen));
+  t.mock.method(globalThis, "fetch", endlessFetch(seen, NEON));
   const adapter = createNeonAdapter(store, {
     issuer: "http://127.0.0.1:4174",
     claimOrigins: ["http://127.0.0.1:4174"],
@@ -75,7 +61,7 @@ test("a Browserbase live-view answer that never ends is cut off at the ceiling, 
   const minter = browserbaseLiveView({
     apiKey: "synthetic-key",
     sessionId: "session",
-    fetch: endlessFetch(seen),
+    fetch: endlessFetch(seen, LIVE_VIEW),
   });
   await assert.rejects(minter({} as never), unknown);
   assertBounded(seen, "live view");
@@ -86,7 +72,7 @@ test("a Browserbase session answer that never ends is cut off at the ceiling, an
   await assert.rejects(
     openLiveBrowser(
       { kind: "browserbase", apiKey: "synthetic-key", projectId: "project" },
-      { fetch: endlessFetch(seen) },
+      { fetch: endlessFetch(seen, SESSION) },
     ),
     unknown,
   );
@@ -95,7 +81,7 @@ test("a Browserbase session answer that never ends is cut off at the ceiling, an
 
 test("a Browserbase session answer to the authorization executor that never ends is cut off at the ceiling, and what it did is unknown", async (t) => {
   const seen = { pulled: 0 };
-  t.mock.method(globalThis, "fetch", endlessFetch(seen));
+  t.mock.method(globalThis, "fetch", endlessFetch(seen, EXECUTOR));
   t.mock.method(chromium, "launch", async () => {
     throw new Error("Unexpected local fallback");
   });

@@ -23,6 +23,8 @@ import {
   refused,
 } from "./fetch-gate-fixtures.js";
 import * as forwards from "./fetch-gate-forward-fixtures.js";
+import { pairingProblems } from "./fetch-gate-pairing.js";
+import * as pairing from "./fetch-gate-pairing-fixtures.js";
 import { ACCEPTED, BODY_READS } from "./fetch-gate-ledgers.js";
 
 /*
@@ -48,7 +50,14 @@ const files = trackedSources(ROOT);
 const virtual: Record<string, string> = {
   ...modules,
   ...forwards.forwardModules,
+  ...pairing.pairingModules,
 };
+const pairingAt = [...pairing.pairingRefused, ...pairing.pairingAccepted].map(
+  (fixture, n) => {
+    virtual[pairing.pairingPath(n)] = fixture.source;
+    return pairing.pairingPath(n);
+  },
+);
 // A forwarding helper's fixtures run with its file and the modules they import.
 const forwardAt = [...forwards.forwardRefused, ...forwards.forwardAccepted].map(
   (fixture, n) => {
@@ -97,6 +106,37 @@ test("every call into OAuth reaches the network through the bounded transport, a
       `${file}: ${byFile.get(file)?.join(" | ") ?? "nothing"}; the ledger says ${entry.count}`,
     );
 });
+
+test("every bounded site is served an endless body by a test that names it", () => {
+  assert.deepEqual(pairingProblems(gate, files, real.accepted), []);
+});
+
+/** The pairing of one test file against the fixtures' one bounded site. */
+const pairingOf = (file: string) =>
+  pairingProblems(
+    gate,
+    [file],
+    runGate(gate, [pairing.pairingSite], network).accepted,
+  );
+
+pairing.pairingRefused.forEach((fixture, n) =>
+  test(`refused: ${fixture.name}`, () => {
+    const found = pairingOf(pairingAt[n]!);
+    assert.ok(
+      found.some((problem) => fixture.expect.test(problem)),
+      `the gate says why (${fixture.expect}): ${found.join(" | ") || "nothing"}`,
+    );
+  }),
+);
+
+pairing.pairingAccepted.forEach((fixture, n) =>
+  test(`accepted: ${fixture.name}`, () => {
+    assert.deepEqual(
+      pairingOf(pairingAt[pairing.pairingRefused.length + n]!),
+      [],
+    );
+  }),
+);
 
 test("the transport the gate trusts still does what it is trusted for", () => {
   assert.deepEqual(checkRegistry(gate), []);
