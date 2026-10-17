@@ -18,7 +18,7 @@ import { ConnectorError } from "./errors.js";
  * is `unanswered(error)`: the error the reader already gives a request that
  * got no answer in time (it can tell the two apart by `caller.aborted`). A
  * `ConnectorError` that `read` raises itself (a refusal, a body over its
- * ceiling) is kept as it is.
+ * ceiling) is kept as it is, and the body it did not read is cancelled.
  */
 export async function withinDeadline<T>(
   caller: AbortSignal,
@@ -42,6 +42,9 @@ export async function withinDeadline<T>(
     try {
       return await read(response, controller.signal);
     } catch (error) {
+      // A refusal made before the body was touched (a 401, a not-ok status)
+      // leaves it open on its socket; a body already read or cancelled is a no-op.
+      void response.body?.cancel().catch(() => {});
       throw controller.signal.aborted && !(error instanceof ConnectorError)
         ? unanswered(error)
         : error;
