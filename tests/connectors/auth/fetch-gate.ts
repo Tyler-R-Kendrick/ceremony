@@ -2,10 +2,14 @@ import ts from "typescript";
 import {
   CEILING_ARGUMENT,
   calleeName,
-  callsTo,
   checkAt,
   type Forward,
 } from "./fetch-gate-ceilings.js";
+import {
+  callsTo,
+  forwarderValueUses,
+  spellingsOf,
+} from "./fetch-gate-forwards.js";
 import { aliasProblems } from "./fetch-gate-aliases.js";
 import { Evaluator } from "./fetch-gate-evaluator.js";
 import type { GateProgram } from "./fetch-gate-program.js";
@@ -84,12 +88,30 @@ function ceilingProblems(
     aliasProblems(facts, sf);
     for (const text of facts.problems) problems.add(text);
   }
+  // The names each forwarding function goes by, and its uses as a value
+  // (fetch-gate-forwards.ts), found once per function.
+  const spelled = new Map<ts.SignatureDeclaration, ReadonlySet<string>>();
+  const namesOf = (fn: ts.SignatureDeclaration) => {
+    let names = spelled.get(fn);
+    if (!names) {
+      names = spellingsOf(gate, files, fn);
+      spelled.set(fn, names);
+      for (const text of forwarderValueUses(gate, files, fn, names))
+        problems.add(text);
+    }
+    return names;
+  };
   while (queue.length) {
     const next = queue.shift()!;
     const key = `${next.fn.getSourceFile().fileName}:${next.fn.pos}:${next.index}:${next.path.join(".")}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    for (const { facts, call } of callsTo(gate, files, next.fn))
+    for (const { facts, call } of callsTo(
+      gate,
+      files,
+      next.fn,
+      namesOf(next.fn),
+    ))
       judge(facts.file, call, next.index, next.path);
   }
   return [...problems];

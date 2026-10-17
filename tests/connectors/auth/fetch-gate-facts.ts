@@ -126,16 +126,32 @@ export class FileFacts {
     return values;
   }
 
-  /** The functions a callee resolves to, when every declaration of it is one. */
-  functionsOf(callee: ts.Node): ts.SignatureDeclaration[] | undefined {
+  /**
+   * The functions a callee resolves to, when every declaration of it is one,
+   * through any `const` that holds another name for one (`const read = f`).
+   */
+  functionsOf(
+    callee: ts.Node,
+    depth = 0,
+  ): ts.SignatureDeclaration[] | undefined {
     const target = unwrap(callee);
     if (ts.isFunctionLike(target)) return [target];
+    if (depth > 8) return undefined;
     if (!ts.isIdentifier(target) && !ts.isPropertyAccessExpression(target))
       return undefined;
     const values = this.declared(target);
-    if (!values?.length || !values.every((value) => ts.isFunctionLike(value)))
-      return undefined;
-    return values as ts.SignatureDeclaration[];
+    if (!values?.length) return undefined;
+    const fns: ts.SignatureDeclaration[] = [];
+    for (const value of values) {
+      const found = ts.isFunctionLike(value)
+        ? [value]
+        : ts.isIdentifier(value) || ts.isPropertyAccessExpression(value)
+          ? this.functionsOf(value, depth + 1)
+          : undefined;
+      if (!found) return undefined;
+      fns.push(...found);
+    }
+    return fns;
   }
 
   /** Every expression a function returns (its own returns, not nested functions'). */

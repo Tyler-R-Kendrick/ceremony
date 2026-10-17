@@ -1,6 +1,5 @@
 import ts from "typescript";
-import { FileFacts } from "./fetch-gate-facts.js";
-import type { GateProgram } from "./fetch-gate-program.js";
+import type { FileFacts } from "./fetch-gate-facts.js";
 import { MAX_CEILING, NAMED_CEILINGS, unwrap } from "./fetch-gate-syntax.js";
 
 /*
@@ -269,42 +268,4 @@ export function calleeName(node: ts.Node): string | undefined {
   if (ts.isIdentifier(target)) return target.text;
   if (ts.isPropertyAccessExpression(target)) return target.name.text;
   return undefined;
-}
-
-/** The name a function is called by: its own, or the `const` it is assigned to. */
-function nameOf(fn: ts.SignatureDeclaration): string | undefined {
-  if (fn.name && ts.isIdentifier(fn.name)) return fn.name.text;
-  if (ts.isVariableDeclaration(fn.parent) && ts.isIdentifier(fn.parent.name))
-    return fn.parent.name.text;
-  return undefined;
-}
-
-/** Every call, in the given files, to the function `fn`. */
-export function callsTo(
-  gate: GateProgram,
-  files: readonly string[],
-  fn: ts.SignatureDeclaration,
-): Array<{ facts: FileFacts; call: ts.CallExpression }> {
-  const name = nameOf(fn);
-  if (!name) return [];
-  const found: Array<{ facts: FileFacts; call: ts.CallExpression }> = [];
-  for (const file of files) {
-    const sf = gate.sourceFile(file);
-    if (!sf || !sf.text.includes(name)) continue;
-    const facts = new FileFacts(gate, file);
-    // Only a callee spelled with the name, or a file that imports it under
-    // another, can be a call to it; the checker decides which are.
-    const renamed = sf.text.includes(`${name} as `);
-    const walk = (node: ts.Node): void => {
-      if (
-        ts.isCallExpression(node) &&
-        (renamed || calleeName(node.expression) === name) &&
-        facts.functionsOf(node.expression)?.includes(fn)
-      )
-        found.push({ facts, call: node });
-      ts.forEachChild(node, walk);
-    };
-    walk(sf);
-  }
-  return found;
 }
