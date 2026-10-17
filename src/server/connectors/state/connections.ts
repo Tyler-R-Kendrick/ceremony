@@ -38,6 +38,7 @@ import {
   disconnectScopeSchema,
   externalIdNameSchema,
   externalIndexSchema,
+  stateCodeSchema,
   storedConnectionSchema,
   type DisconnectRecord,
   type StoredConnectionValue,
@@ -658,7 +659,12 @@ export function createConnectionStore(
       });
     },
 
-    async advanceGeneration(rawActor, connectionRef, expectedRevision) {
+    async advanceGeneration(
+      rawActor,
+      connectionRef,
+      expectedRevision,
+      lastOutcome,
+    ) {
       const actor = checkActor(rawActor);
       const result = await transact(store, async (tx) => {
         const current = await loadOwnedConnection(
@@ -686,6 +692,9 @@ export function createConnectionStore(
           ...kept,
           generation: current.value.record.generation + 1,
           updatedAt: isoAt(at),
+          ...(lastOutcome === undefined
+            ? {}
+            : { lastOutcome: stateCodeSchema.parse(lastOutcome) }),
         };
         const revision = await saveConnection(
           tx,

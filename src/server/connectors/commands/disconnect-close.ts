@@ -70,18 +70,31 @@ export async function closeDisconnected(
   }
 }
 
+/** What a disconnect and an administrator's revoke write when they fence: who fenced, for a reader that finds a newer generation. */
+export const CLOSING_OUTCOMES = [
+  "disconnect.closing",
+  "revoke.closing",
+] as const;
+
 /**
  * What a disconnect did to the record, from where it started to where closing
  * left it: it closed it (`applied`), or the record had already moved to
- * another generation, either closed by another disconnect (`already-closed`)
- * or taken over by a reconnect (`superseded`). Either way what the disconnect
- * held was released; only the record was not its to write.
+ * another generation, fenced by another disconnect or revoke that has closed
+ * it (`already-closed`) or is still closing it (`already-closing`), or by a
+ * reconnect (`superseded`), the only other command that fences. Either way
+ * what this disconnect held was released; only the record was not its to
+ * write.
  */
 export function localOutcome(
   fenced: ClosingConnection,
   after: ClosingConnection,
   isClosed: (record: ConnectionRecord) => boolean,
-): "applied" | "superseded" | "already-closed" {
+): "applied" | "superseded" | "already-closed" | "already-closing" {
   if (after.record.generation === fenced.record.generation) return "applied";
-  return isClosed(after.record) ? "already-closed" : "superseded";
+  if (isClosed(after.record)) return "already-closed";
+  return (CLOSING_OUTCOMES as readonly string[]).includes(
+    after.record.lastOutcome ?? "",
+  )
+    ? "already-closing"
+    : "superseded";
 }

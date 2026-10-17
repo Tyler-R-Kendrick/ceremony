@@ -189,6 +189,7 @@ const outcomeCopy: Record<string, string> = {
   indeterminate: "Unknown — being reconciled",
   superseded: "Released; a reconnect has since taken over the connection",
   "already-closed": "Already disconnected by another request",
+  "already-closing": "Released; another request is disconnecting it",
 };
 
 function relativeTime(iso: string, now: number): string {

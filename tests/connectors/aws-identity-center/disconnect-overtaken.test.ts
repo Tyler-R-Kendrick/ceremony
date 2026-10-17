@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
+import { hold, settle } from "../doubles/interleave.js";
 import { awsSetup, connectAndChoose, type AwsSetup } from "./harness.js";
 
 /*
  * A disconnect fences the connection, talks to the provider for as long as that
  * takes, and then closes the record. If something else took the connection over
- * in between (a reconnect, or another disconnect that closed it first), this
+ * in between (a reconnect, or another disconnect that closed it first or is
+ * closing it), this
  * disconnect has still released what it held, but it did not close the record,
  * and `local: "applied"` on a view that is not closed reads as "the connection
  * is disconnected". The outcome says which it was.
@@ -141,5 +143,49 @@ test("a disconnect that loses the record to another disconnect that closed it sa
   assert.equal(
     (outcome.value.connection as View).lifecycle,
     "locally-disconnected",
+  );
+});
+
+test("a disconnect overtaken by another disconnect that has fenced but not closed yet says the record is being closed, not that it was superseded", async (t) => {
+  const setup = await awsSetup(t);
+  const { connectionRef, done } = await connectAndChoose(setup);
+  const ports = (
+    setup.service as unknown as {
+      ports: { connections: object; evidence: object };
+    }
+  ).ports;
+  // The first stops at its closing write; the second fences and stops before
+  // it closes; then the first goes on.
+  const closing = hold(ports.connections, "update");
+  const first = settle(
+    setup.service.disconnect(setup.person, connectionRef, {
+      expectedRevision: (done as View).revision,
+      scope: "local",
+    }),
+  );
+  await closing.reached;
+  const seen = (await setup.service.status(
+    setup.person,
+    connectionRef,
+  )) as View;
+  const second = hold(ports.evidence, "invalidate");
+  const secondDone = settle(
+    setup.service.disconnect(setup.person, connectionRef, {
+      expectedRevision: seen.revision,
+      scope: "local",
+    }),
+  );
+  await second.reached;
+  closing.release();
+  const outcome = await first;
+  second.release();
+  await secondDone;
+
+  assert.equal(outcome.error, undefined, String(outcome.error));
+  assert.equal(outcome.value!.result.local, "already-closing");
+  assert.equal(
+    (await setup.record(connectionRef)).lifecycle,
+    "locally-disconnected",
+    "the second disconnect closed it",
   );
 });

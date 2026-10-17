@@ -375,7 +375,12 @@ export function memoryPorts(options: { now?: () => number } = {}) {
           revision: entry.revision,
         }));
     },
-    async advanceGeneration(actor, connectionRef, expectedRevision) {
+    async advanceGeneration(
+      actor,
+      connectionRef,
+      expectedRevision,
+      lastOutcome,
+    ) {
       const entry = connections.get(connectionRef);
       if (!entry || !owned(actor, entry.record)) throw new Error("denied");
       if (entry.revision !== expectedRevision) throw new Error("conflict");
@@ -386,6 +391,7 @@ export function memoryPorts(options: { now?: () => number } = {}) {
       entry.record = {
         ...kept,
         generation: entry.record.generation + 1,
+        ...(lastOutcome === undefined ? {} : { lastOutcome }),
       };
       entry.revision++;
       return { generation: entry.record.generation, revision: entry.revision };

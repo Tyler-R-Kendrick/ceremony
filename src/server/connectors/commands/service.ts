@@ -2656,6 +2656,7 @@ export class ConnectorCommandService {
         actor,
         connectionRef,
         entry.revision,
+        "reconnect.started",
       ),
     );
     await this.ports.handoffs.cancelAll(connectionRef, "reconnect");
@@ -2791,6 +2792,7 @@ export class ConnectorCommandService {
         actor,
         connectionRef,
         entry.revision,
+        "disconnect.closing",
       ),
     );
     await this.ports.handoffs.cancelAll(connectionRef, "disconnect");
@@ -2930,6 +2932,7 @@ export class ConnectorCommandService {
         actor,
         connectionRef,
         entry.revision,
+        "revoke.closing",
       ),
     );
     await this.ports.handoffs.cancelAll(connectionRef, "revoke");

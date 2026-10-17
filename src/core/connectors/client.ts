@@ -186,11 +186,12 @@ export const disconnectOutcomes = [
   "indeterminate",
 ] as const;
 export type DisconnectOutcome = (typeof disconnectOutcomes)[number];
-/** `local` adds two for a record this disconnect did not close: another disconnect did, or a reconnect took it over. */
+/** `local` adds three for a record this disconnect did not close: another disconnect closed it or is closing it, or a reconnect took it over. */
 export const localDisconnectOutcomes = [
   ...disconnectOutcomes,
   "superseded",
   "already-closed",
+  "already-closing",
 ] as const;
 export type LocalDisconnectOutcome = (typeof localDisconnectOutcomes)[number];
 /**

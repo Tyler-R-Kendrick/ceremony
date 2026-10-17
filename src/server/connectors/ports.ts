@@ -209,11 +209,16 @@ export interface ConnectionStorePort {
       lifecycle?: ConnectionSummary["lifecycle"];
     },
   ): Promise<Array<{ record: ConnectionRecord; revision: number }>>;
-  /** Fences later callbacks, refreshes and invocations against the previous generation. */
+  /**
+   * Fences later callbacks, refreshes and invocations against the previous
+   * generation. `lastOutcome`, when given, is written in the same step, so a
+   * reader that finds a newer generation can tell who fenced it.
+   */
   advanceGeneration(
     actor: ActorContext,
     connectionRef: ConnectionRef,
     expectedRevision: number,
+    lastOutcome?: string,
   ): Promise<{ generation: number; revision: number }>;
   /** Exact match on authority instance and external id within one tenant; never a display-name match. */
   findByExternalId(
