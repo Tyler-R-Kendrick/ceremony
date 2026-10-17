@@ -6,7 +6,10 @@ import { join } from "node:path";
 import test from "node:test";
 import { ConnectorError } from "../../../src/server/connectors/errors.js";
 import { createConnectorPorts } from "../../../src/server/connectors/state/index.js";
+import { names } from "../../../src/server/connectors/state/handoff-claims.js";
 import { handoffKey } from "../../../src/server/connectors/state/keys.js";
+import { rotateTenant } from "../../../src/server/persistence/maintenance.js";
+import { SYSTEM_TENANT } from "../../../src/server/system-tenants.js";
 import type { StoredHandoff } from "../../../src/server/connectors/state/schemas.js";
 import {
   SQLiteCeremonyStore,
@@ -21,7 +24,9 @@ import { actorFor, connectionRecord } from "../fixtures/state/records.js";
  * guessed back from the record by someone without that key. Two workers with
  * the same vault keys agree on it, a key rotation leaves a held claim
  * recognised, and a claim written before claims were keyed (the plain digest
- * itself) is honoured until its lease runs out.
+ * itself) is honoured until its lease runs out. A claim written under a key
+ * that has since left the ring is not recognised (fail closed), and the
+ * comparison names no candidate by how long it took.
  */
 
 const LEASE_MS = 60_000;
@@ -176,4 +181,70 @@ test("STATE-01: a claim written with the plain digest is honoured until its leas
   const kept = (await storedClaim(store, handoffRef))!;
   assert.equal(kept.attempt, A3);
   assert.notEqual(kept.submission, TWO);
+});
+
+test("STATE-01: a claim written under a key since removed from the ring refuses an identical retry until its lease ends", async (t) => {
+  const path = await database(t);
+  let at = 1_700_000_000_000;
+  const now = () => at;
+  const k1 = randomBytes(32);
+  const k2 = randomBytes(32);
+  const before = open(path, ring("k1", { k1 }), now);
+  const handoffRef = await issue(before.ports, at);
+  await before.ports.handoffs.claim(handoffRef, 0, ONE, A1, LEASE_MS);
+  await before.store.close();
+  // The operator's rotation seals every record again under the new key; the
+  // digest inside the claim stays the one the old key derived.
+  const rotating = open(path, ring("k2", { k1, k2 }), now);
+  for (const tenant of [TENANT, SYSTEM_TENANT.connector])
+    assert.ok((await rotateTenant(rotating.store, tenant)) > 0);
+  await rotating.store.close();
+  // The operator then retires the old key.
+  const after = open(path, ring("k2", { k2 }), now);
+  t.after(() => after.store.close());
+  await assert.rejects(
+    after.ports.handoffs.claim(handoffRef, 0, ONE, A2, LEASE_MS),
+    alreadyClaimed,
+    "the identical submission is not recognised: it is refused, never run twice",
+  );
+  await assert.rejects(
+    after.ports.handoffs.claim(handoffRef, 0, TWO, A3, LEASE_MS),
+    alreadyClaimed,
+  );
+  // The lease is what ends it: afterwards the handoff can be claimed again.
+  at += LEASE_MS;
+  assert.equal(
+    await after.ports.handoffs.claim(handoffRef, 0, ONE, A2, LEASE_MS),
+    "claimed",
+  );
+});
+
+test("STATE-01: the held digest is compared with every candidate, so no early exit tells which one matched", () => {
+  const held = "a".repeat(64);
+  const others = ["b".repeat(64), "c".repeat(64)];
+  for (const [candidates, plain] of [
+    [[held, ...others], others[0]!],
+    [[others[0]!, held, others[1]!], others[1]!],
+    [[...others, held], others[0]!],
+    [others, held],
+    [others, others[1]!],
+  ] as const) {
+    const read: number[] = [];
+    const counted = new Proxy([...candidates], {
+      get(target, property, receiver) {
+        if (typeof property === "string" && /^\d+$/.test(property))
+          read.push(Number(property));
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    const expected = candidates.includes(held) || plain === held;
+    assert.equal(names(held, plain, counted), expected);
+    assert.deepEqual(
+      [...new Set(read)].sort(),
+      candidates.map((_, index) => index),
+      `every keyed candidate is read (${candidates.indexOf(held)} matches)`,
+    );
+  }
+  // Digests of another length are never equal and never throw.
+  assert.equal(names(held, "short", ["also short"]), false);
 });

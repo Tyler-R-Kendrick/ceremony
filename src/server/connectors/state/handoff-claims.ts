@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import {
   PersistenceConflict,
   type AsyncCeremonyStore,
@@ -43,8 +44,21 @@ export const SUBMISSION_DIGEST = "handoff.submission";
  * were keyed holds the plain digest itself; it is still recognised until its
  * lease runs out (twice the call timeout), and nothing writes that form now.
  */
-const names = (held: string, plain: string, keyed: readonly string[]) =>
-  keyed.includes(held) || held === plain;
+export const names = (
+  held: string,
+  plain: string,
+  keyed: readonly string[],
+): boolean => {
+  // Every candidate is compared, in constant time, and none ends the loop:
+  // which of them matched is not told by how long this took.
+  let found = false;
+  for (const candidate of [...keyed, plain])
+    found = same(held, candidate) || found;
+  return found;
+};
+
+const same = (a: string, b: string): boolean =>
+  a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
 /** Reads again, this many times, when another worker changed the handoff between our read and our write. */
 const ATTEMPTS = 5;
