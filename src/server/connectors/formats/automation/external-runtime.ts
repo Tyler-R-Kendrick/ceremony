@@ -23,6 +23,7 @@ import {
   destinationFor,
   destinationUrl,
 } from "../../binding.js";
+import { readBoundedBytes } from "../../bounded-body.js";
 import { ConnectorError } from "../../errors.js";
 
 /*
@@ -619,16 +620,28 @@ export function createExternalRuntimeAdapter(
         throw new ConnectorError("upstream-unavailable");
       }
 
-      const text = await response.text();
-      if (text.length > maxResponseBytes) {
-        await ctx.environment.effects.complete(effectRef, {
-          status:
-            runtime.replay === "read-only" ? "not-applied" : "indeterminate",
-          code: "upstream.oversized",
-          at: ctx.environment.now(),
-        });
-        throw new ConnectorError("upstream-rejected", { detail: "reply.size" });
-      }
+      // Refused at the first chunk past the ceiling, not after the whole answer.
+      const oversized = new ConnectorError("upstream-rejected", {
+        detail: "reply.size",
+      });
+      const text = new TextDecoder().decode(
+        await readBoundedBytes(
+          response,
+          maxResponseBytes,
+          () => oversized,
+        ).catch(async (error: unknown) => {
+          if (error === oversized)
+            await ctx.environment.effects.complete(effectRef, {
+              status:
+                runtime.replay === "read-only"
+                  ? "not-applied"
+                  : "indeterminate",
+              code: "upstream.oversized",
+              at: ctx.environment.now(),
+            });
+          throw error;
+        }),
+      );
       if (!response.ok) {
         const applied =
           runtime.replay === "read-only" ? "not-applied" : "failed";

@@ -17,6 +17,11 @@ import type { AdapterCallContext } from "../../../src/server/connectors/adapter.
 import type { NativeCapability } from "../../../src/core/connectors/index.js";
 import { fixtureActor, memoryPorts } from "../doubles/ports.js";
 import {
+  assertReadUnder,
+  endlessFetch,
+  type Pulled,
+} from "../doubles/endless-body.js";
+import {
   RUNTIME_KEY_ID,
   RUNTIME_PATH,
   connectionWithSecret,
@@ -537,6 +542,30 @@ describe("what the adapter reports about itself", () => {
         JSON.parse('{"__proto__":{"polluted":true}}') as unknown,
       ).ok,
       false,
+    );
+  });
+});
+
+test("a runtime answer that never ends is cut off at the ceiling while it is read, and the write is unknown", async () => {
+  await withHarness({}, async (h) => {
+    const seen: Pulled = { pulled: 0 };
+    const ctx = {
+      ...h.ctx,
+      environment: h.ports.environment({ fetch: endlessFetch(seen) }),
+    };
+    await assert.rejects(
+      h.adapter.invoke!(ctx, {
+        operationRef: OPERATION_REF,
+        input: { customer_id: "cus_1", total_cents: 4200, memo: "September" },
+        commandId: "command-endless",
+      }),
+      (error: unknown) =>
+        error instanceof ConnectorError && error.detail === "reply.size",
+    );
+    assertReadUnder(assert, seen, 256 * 1024, "external runtime");
+    assert.equal(
+      h.ports.inspect.effects()[0]?.outcome?.status,
+      "indeterminate",
     );
   });
 });

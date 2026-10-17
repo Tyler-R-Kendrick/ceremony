@@ -176,7 +176,7 @@ const BODY_READS: Record<string, Read> = {
   },
   "src/server/authored-inbox.ts": {
     count: 5,
-    why: "mailbox data (the address, the message list and a message) from the inbox provider the author named; the mailbox token's own answer is bounded",
+    why: "messages from the inbox provider the author named: the address, the list and each message, whose verification codes and links the sign-in reads; the inbox is operator-supplied and the mailbox token's own answer is bounded",
   },
   "src/server/a2h.ts": {
     count: 1,
@@ -190,14 +190,6 @@ const BODY_READS: Record<string, Read> = {
     count: 1,
     why: "the provider's whoami page read through the browser's own Playwright request context, to compare an account name",
   },
-  "src/server/connectors/formats/automation/external-runtime.ts": {
-    count: 1,
-    why: "an automation runtime's result, data the operator's runtime returned for a run",
-  },
-  "src/server/connectors/formats/camel-kamelet/runner.ts": {
-    count: 1,
-    why: "the operator's Camel runner's result, data for a run",
-  },
   "src/server/connectors/import/network.ts": {
     count: 2,
     why: "an import's own fetch, read after the import service's byte limit has been applied to the stream",
@@ -205,14 +197,6 @@ const BODY_READS: Record<string, Read> = {
   "src/server/connectors/import/service.ts": {
     count: 1,
     why: "an import's document, read after the import service's byte limit has been applied",
-  },
-  "src/server/connectors/providers/dapr/invoke.ts": {
-    count: 1,
-    why: "a Dapr sidecar's answer to an invocation, data; the sidecar is the operator's own and local",
-  },
-  "src/server/connectors/providers/open-service-broker/client.ts": {
-    count: 1,
-    why: "an Open Service Broker answer, data the operator's broker returned",
   },
   "src/core/client.ts": {
     count: 2,
