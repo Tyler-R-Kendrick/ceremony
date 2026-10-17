@@ -19,12 +19,13 @@ import {
   notifyCache,
   readRecord,
   scanPrefix,
-  sha256Hex,
   timeSource,
   transact,
   type CacheInvalidationHook,
 } from "./common.js";
 import { settlePendingHandoffs } from "./handoffs.js";
+import { keyDigestOf } from "./connection-key.js";
+import { withLegacyPendingSession } from "./legacy-pending.js";
 import {
   connectionKey,
   externalIdKey,
@@ -142,52 +143,11 @@ export interface ConnectorConnectionStore extends ConnectionStorePort {
   keyDigest(record: ConnectionRecord): string;
 }
 
-/** The charter §6.4 tuple; unknown parts are omitted, never guessed. */
-export type ConnectionKeyParts = {
-  tenantId: string;
-  ownerKind: string;
-  ownerId: string;
-  sessionId?: string;
-  authorityInstance: string;
-  upstreamAccount?: Record<string, string>;
-  clientRegistration?: string;
-  authenticationProfile?: string;
-  target?: { kind: string; id: string };
-  bindingRef: string;
-  bindingRevision: number;
-  policyRevision: string;
-  configurationRevision: string;
-};
-
-export function connectionKeyDigest(parts: ConnectionKeyParts): string {
-  return sha256Hex(JSON.parse(canonicalJson(compact(parts))));
-}
-
-export function keyDigestOf(record: ConnectionRecord): string {
-  return connectionKeyDigest(
-    compact({
-      tenantId: record.tenantId,
-      ownerKind: record.ownerKind,
-      ownerId: record.ownerId,
-      sessionId: record.sessionId,
-      authorityInstance: record.authorityInstance,
-      upstreamAccount: record.externalIds,
-      authenticationProfile:
-        typeof record.state.authenticationProfile === "string"
-          ? record.state.authenticationProfile
-          : undefined,
-      clientRegistration:
-        typeof record.state.clientRegistration === "string"
-          ? record.state.clientRegistration
-          : undefined,
-      target: record.target,
-      bindingRef: record.bindingRef,
-      bindingRevision: record.bindingRevision,
-      policyRevision: record.policyRevision,
-      configurationRevision: record.configurationRevision,
-    }),
-  );
-}
+export {
+  connectionKeyDigest,
+  keyDigestOf,
+  type ConnectionKeyParts,
+} from "./connection-key.js";
 
 export const defaultOwnership: ConnectionOwnership = (actor, record) =>
   record.tenantId === actor.tenantId &&
@@ -254,7 +214,11 @@ export async function loadConnection(
     revision: record.revision,
     value: compact({
       schemaVersion: record.value.schemaVersion,
-      record: asConnectionRecord(record.value.record),
+      record: await withLegacyPendingSession(
+        tx,
+        tenantId,
+        asConnectionRecord(record.value.record),
+      ),
       keyDigest: record.value.keyDigest,
       disconnect: record.value.disconnect,
     }),
