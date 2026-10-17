@@ -29,7 +29,8 @@ import {
  * every ceiling handed to that transport must be a constant within its bound
  * (fetch-gate.ts says how). What the gate reports and accepts is in ACCEPTED
  * below, file by file, each with its reason: module loaders whose target it
- * cannot see, and the transport's own test. Nothing in production code.
+ * cannot see (two in operator scripts, the rest in tests), and the
+ * transport's own test. Nothing under src, examples, extensions or hosted.
  *
  * Part B. The response bodies production code reads by hand, in every shape a
  * read can take. An answer that carries, establishes or refreshes a
