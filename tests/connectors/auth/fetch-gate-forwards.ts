@@ -101,6 +101,13 @@ export function callsTo(
   return found;
 }
 
+/** `export default f` and `export { f as default }`: a name no import of the module has to repeat. */
+const asDefault = (node: ts.Identifier): boolean =>
+  ts.isExportAssignment(node.parent) ||
+  (ts.isExportSpecifier(node.parent) &&
+    node.parent.propertyName === node &&
+    node.parent.name.text === "default");
+
 /** Whether `node`, which names `fn`, is a use the callers' rule follows. */
 function followed(node: ts.Identifier): boolean {
   const parent = node.parent;
@@ -139,12 +146,27 @@ export function forwarderValueUses(
       if (
         ts.isIdentifier(node) &&
         names.has(node.text) &&
-        !followed(node) &&
+        facts.functionsOf(node)?.includes(fn)
+      ) {
+        if (asDefault(node))
+          facts.report(
+            node,
+            `exports ${node.text} as the default; a function that passes a ceiling on keeps a name of its own, so its callers can be found`,
+          );
+        else if (!followed(node))
+          facts.report(
+            node,
+            `takes ${node.text} as a value; it passes a ceiling on, and the gate follows it only where it is called, imported, re-exported or held in a const`,
+          );
+      } else if (
+        ts.isElementAccessExpression(node) &&
+        ts.isStringLiteralLike(node.argumentExpression) &&
+        names.has(node.argumentExpression.text) &&
         facts.functionsOf(node)?.includes(fn)
       )
         facts.report(
           node,
-          `takes ${node.text} as a value; it passes a ceiling on, and the gate follows it only where it is called, imported, re-exported or held in a const`,
+          `reads ${node.argumentExpression.text} by a computed name; a function that passes a ceiling on is called by its name`,
         );
       ts.forEachChild(node, visit);
     };

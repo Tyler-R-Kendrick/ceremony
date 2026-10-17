@@ -137,7 +137,14 @@ export class FileFacts {
     const target = unwrap(callee);
     if (ts.isFunctionLike(target)) return [target];
     if (depth > 8) return undefined;
-    if (!ts.isIdentifier(target) && !ts.isPropertyAccessExpression(target))
+    if (
+      !ts.isIdentifier(target) &&
+      !ts.isPropertyAccessExpression(target) &&
+      !(
+        ts.isElementAccessExpression(target) &&
+        ts.isStringLiteralLike(target.argumentExpression)
+      )
+    )
       return undefined;
     const values = this.declared(target);
     if (!values?.length) return undefined;

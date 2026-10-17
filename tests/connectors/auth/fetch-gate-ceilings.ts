@@ -274,5 +274,10 @@ export function calleeName(node: ts.Node): string | undefined {
   const target = unwrap(node);
   if (ts.isIdentifier(target)) return target.text;
   if (ts.isPropertyAccessExpression(target)) return target.name.text;
+  if (
+    ts.isElementAccessExpression(target) &&
+    ts.isStringLiteralLike(target.argumentExpression)
+  )
+    return target.argumentExpression.text;
   return undefined;
 }

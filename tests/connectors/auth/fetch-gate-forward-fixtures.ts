@@ -33,6 +33,9 @@ export const readHeld = readBoundedBody;`,
 
 const RAISED = /hands the reader a ceiling of 1099511627776 bytes/;
 const VALUE = /takes readBoundedBody as a value/;
+const DEFAULT = /exports \w+ as the default/;
+const SPREAD = /is called with spread arguments the gate cannot place/;
+const COMPUTED = /reads readBoundedBody by a computed name/;
 
 export const forwardRefused: Refused[] = [
   {
@@ -60,6 +63,48 @@ export const body = async (u: string) => held(await fetch(u), 2 ** 40, "probe.to
     source: `import { readBoundedBody } from "./bounded-body.js";
 let read = readBoundedBody;
 export const body = async (u: string) => read(await fetch(u), 2 ** 40, "probe.too-large");`,
+  },
+  {
+    name: "a forwarding helper re-exported as a module's default",
+    expect: DEFAULT,
+    source: `export { readBoundedBody as default } from "./bounded-body.js";`,
+  },
+  {
+    name: "a forwarding helper exported as a default",
+    expect: DEFAULT,
+    source: `import { readBoundedBody } from "./bounded-body.js";
+export default readBoundedBody;`,
+  },
+  {
+    name: "a forwarding helper held in a const that is exported as a default",
+    expect: DEFAULT,
+    source: `import { readBoundedBody } from "./bounded-body.js";
+const read = readBoundedBody;
+export { read as default };`,
+  },
+  {
+    name: "a forwarding helper called with spread arguments",
+    expect: SPREAD,
+    source: `import { readBoundedBody } from "./bounded-body.js";
+export const body = async (u: string) => {
+  const args = [await fetch(u), 2 ** 40, "probe.too-large"] as const;
+  return readBoundedBody(...args);
+};`,
+  },
+  {
+    name: "the reader called with spread arguments",
+    expect: SPREAD,
+    source: `import { readBoundedBytes } from "../../core/bounded-body.js";
+export const body = async (u: string) => {
+  const args = [await fetch(u), 2 ** 40, () => new Error("too large")] as const;
+  return readBoundedBytes(...args);
+};`,
+  },
+  {
+    name: "a forwarding helper called through its module namespace by a computed name",
+    expect: COMPUTED,
+    source: `import * as bounded from "./bounded-body.js";
+export const body = async (u: string) => bounded["readBoundedBody"](await fetch(u), 2 ** 40, "probe.too-large");`,
   },
   {
     name: "a forwarding helper handed on as a value",

@@ -106,7 +106,15 @@ function ceilingPass(
     direct: boolean,
   ) => {
     const facts = new Evaluator(gate, file);
-    const verdict = checkAt(facts, call.arguments[index], path);
+    // A spread at or before the ceiling hides which argument it is.
+    const verdict = call.arguments.slice(0, index + 1).some(ts.isSpreadElement)
+      ? {
+          problems: [
+            `${calleeName(call.expression) ?? "a bounder"} is called with spread arguments the gate cannot place`,
+          ],
+          forwards: [],
+        }
+      : checkAt(facts, call.arguments[index], path);
     for (const text of verdict.problems) facts.report(call, text);
     for (const text of facts.problems) problems.add(text);
     if (
