@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CeremonyError } from "./controller.js";
+import { IndeterminateAnswer } from "./ceremony-errors.js";
 import { CeremonyDatabase } from "./storage.js";
 import {
   openLiveBrowser,
@@ -183,9 +184,12 @@ export class RemoteHumanBrowser {
         },
       });
       if (!finished) this.browsers.set(id, cleanup);
-    } catch {
+    } catch (error) {
       await cleanup?.().catch(() => {});
       await live?.close().catch(() => {});
+      // An answer that went unread after the request was sent is unknown, not
+      // unavailable: the session may have been opened (ceremony-errors.ts).
+      if (error instanceof IndeterminateAnswer) throw error;
       throw new CeremonyError(
         "Remote browser unavailable. Continue in your own browser; completed setup is preserved.",
         503,
