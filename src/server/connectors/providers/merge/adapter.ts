@@ -21,6 +21,7 @@ import {
   type ApprovedDestination,
   type BoundOperation,
 } from "../../binding.js";
+import { readBoundedBytes } from "../../bounded-body.js";
 import { ConnectorError } from "../../errors.js";
 import {
   mergeAccountDetailsSchema,
@@ -279,11 +280,17 @@ export function createMergeAdapter(
       clearTimeout(timer);
       ctx.signal.removeEventListener("abort", abort);
     }
-    const text = await response.text();
-    if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES)
-      throw new ConnectorError("invalid-request", {
-        detail: "merge.response.too-large",
-      });
+    // Refused at the first chunk past the ceiling, not after the whole answer was held.
+    const text = new TextDecoder().decode(
+      await readBoundedBytes(
+        response,
+        MAX_BODY_BYTES,
+        () =>
+          new ConnectorError("invalid-request", {
+            detail: "merge.response.too-large",
+          }),
+      ),
+    );
     let body: unknown;
     if (text.length) {
       try {

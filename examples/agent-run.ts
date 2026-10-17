@@ -6,6 +6,11 @@ import {
   type HumanParticipationResult,
 } from "../src/server/browser-driver.js";
 import { createPlaywrightCeremonyPage } from "../src/server/browser-page.js";
+import { readBoundedBody } from "../src/server/connectors/bounded-body.js";
+import {
+  boundedResponseJson,
+  MAX_RESPONSE_BYTES,
+} from "../src/server/connectors/auth/response-bound.js";
 import { createHeuristicInterpreter } from "../src/server/browser-interpreter.js";
 import type {
   CeremonyRole,
@@ -99,7 +104,14 @@ const openHandoff: HumanHandoffContract = {
 async function codeFrom(issuer: string, address: string): Promise<string> {
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const page = await fetch(`${issuer}/inbox`).then((response) =>
-      response.ok ? response.text() : "",
+      // The page carries a verification code: read under the OAuth ceiling.
+      response.ok
+        ? readBoundedBody(
+            response,
+            MAX_RESPONSE_BYTES,
+            "example.inbox.too-large",
+          )
+        : "",
     );
     for (const row of page.split("<li>").slice(1))
       if (row.includes(address)) {
@@ -123,7 +135,9 @@ async function issuedBy(
     body: new URLSearchParams({ email, password }),
   });
   if (!response.ok) return undefined;
-  const body = (await response.json()) as { access_token?: unknown };
+  const body = (await boundedResponseJson(response)) as {
+    access_token?: unknown;
+  };
   return typeof body.access_token === "string" ? body.access_token : undefined;
 }
 

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { exportJWK, generateKeyPair } from "jose";
 import {
   beginAuthorizationCode,
   completeAuthorizationCode,
@@ -606,7 +607,6 @@ test("AC-AUTH-03: denial and expiry are distinct results, not failures", async (
 });
 
 test("private_key_jwt authenticates the client with a real signed assertion", async (t) => {
-  const { generateKeyPair, exportJWK } = await import("jose");
   const { privateKey } = await generateKeyPair("ES256", { extractable: true });
   const jwk = await exportJWK(privateKey);
   const harness = await authHarness(t, {

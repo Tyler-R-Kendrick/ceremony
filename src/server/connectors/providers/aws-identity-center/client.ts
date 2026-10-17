@@ -74,11 +74,13 @@ export function awsDestination(
   return destination;
 }
 
+export const AWS_RESPONSE_TOO_LARGE = "aws-identity-center.response.too-large";
+
 export function readBounded(response: Response): Promise<string> {
   return readBoundedBody(
     response,
     AWS_RESPONSE_LIMIT_BYTES,
-    "aws-identity-center.response.too-large",
+    AWS_RESPONSE_TOO_LARGE,
   );
 }
 

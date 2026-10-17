@@ -20,7 +20,9 @@ import {
   destinationUrl,
   type BoundOperation,
 } from "../../binding.js";
+import { readBoundedBytes } from "../../bounded-body.js";
 import { ConnectorError } from "../../errors.js";
+import { MAX_RESPONSE_BYTES } from "../../auth/response-bound.js";
 import {
   airbyteConfigurationNames,
   airbyteConfigurationRequirements,
@@ -66,6 +68,16 @@ export const AIRBYTE_ADAPTER_VERSION = "2026.09.18";
 
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 30_000;
+
+/** A response body as text, refused at the first chunk past `limit` and not after the whole of it was held. */
+const readText = async (response: Response, limit: number, detail: string) =>
+  new TextDecoder().decode(
+    await readBoundedBytes(
+      response,
+      limit,
+      () => new ConnectorError("invalid-request", { detail }),
+    ),
+  );
 
 const identifier = z
   .string()
@@ -231,7 +243,11 @@ export function createAirbyteAdapter(
       clearTimeout(timer);
       ctx.signal.removeEventListener("abort", abort);
     }
-    const text = await response.text();
+    const text = await readText(
+      response,
+      MAX_BODY_BYTES,
+      "airbyte.response.invalid",
+    );
     const body =
       text.length === 0
         ? undefined
@@ -303,9 +319,10 @@ export function createAirbyteAdapter(
       });
     const parsed = applicationTokenResponseSchema.safeParse(
       parseBoundedJson(
-        await response.text(),
+        // The token answer carries a credential: it is read under the OAuth ceiling.
+        await readText(response, MAX_RESPONSE_BYTES, "airbyte.token.invalid"),
         "airbyte.token.invalid",
-        MAX_BODY_BYTES,
+        MAX_RESPONSE_BYTES,
       ),
     );
     if (!parsed.success)

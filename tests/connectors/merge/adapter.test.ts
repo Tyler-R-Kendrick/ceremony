@@ -13,6 +13,11 @@ import {
   createMergeAdapter,
   mergeConfigurationNames,
 } from "../../../src/server/connectors/providers/merge/index.js";
+import {
+  assertReadUnder,
+  endlessFetch,
+  type Pulled,
+} from "../doubles/endless-body.js";
 import { startMergeApiDouble } from "../doubles/merge-api.js";
 import { fixtureActor, memoryPorts } from "../doubles/ports.js";
 import {
@@ -842,6 +847,27 @@ test("a missing API key is reported as configuration, not as a failure to connec
     if (start.kind !== "configuration-required") throw new Error("unreachable");
     assert.deepEqual(start.missing, ["MERGE_API_KEY"]);
     assert.equal(h.double.requests.length, 0);
+  } finally {
+    await h.close();
+  }
+});
+
+test("an answer from Merge that never ends is cut off at the body ceiling", async () => {
+  const h = await harness({
+    accountToken: ACCOUNT_A_TOKEN,
+    linkedAccountId: accountA.id,
+  });
+  try {
+    const seen: Pulled = { pulled: 0 };
+    const ctx = {
+      ...h.ctx,
+      environment: h.ports.environment({ fetch: endlessFetch(seen) }),
+    };
+    await assert.rejects(
+      () => h.adapter.verify!(ctx),
+      rejects("merge.response.too-large"),
+    );
+    assertReadUnder(assert, seen, 8 * 1024 * 1024, "merge");
   } finally {
     await h.close();
   }

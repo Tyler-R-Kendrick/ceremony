@@ -319,6 +319,33 @@ test("revocation answers 200 for any token and ends only the client's own", asyn
   assert.equal(fixture.accessTokenValid(tokens.access_token), false);
 });
 
+test("revoking a refresh token ends that token only, and a none client sends nothing that authenticates it", async (t) => {
+  const { fixture, form, signedIn } = await start(t);
+  const tokens = await signedIn();
+  assert.equal(
+    (
+      await form("/login/oauth/token/revoke", {
+        client_id: CLIENT_ID,
+        token: tokens.refresh_token!,
+        token_type_hint: "refresh_token",
+      })
+    ).status,
+    200,
+  );
+  assert.equal(fixture.refreshTokenUsable(tokens.refresh_token!), false);
+  // assumed: Vercel is not known to end the grant's access tokens with it, so
+  // the adapter presents the access token too.
+  assert.equal(fixture.accessTokenValid(tokens.access_token), true);
+  assert.deepEqual(fixture.violations, []);
+  // A client secret beside a none client's id is a deviation the double notes.
+  await form("/login/oauth/token/revoke", {
+    client_id: CLIENT_ID,
+    client_secret: "vcs_dummy_marker_0123456789abcdef",
+    token: "vca_dummy_unknown",
+  });
+  assert.equal(fixture.violations.length, 1);
+});
+
 test("the REST API answers 401 without a token, with an unknown one, after it lapsed and after the app was removed", async (t) => {
   const { fixture, advance, api, signedIn } = await start(t);
   const tokens = await signedIn();

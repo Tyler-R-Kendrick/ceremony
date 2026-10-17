@@ -1,7 +1,6 @@
 import { z } from "zod";
 import type {
   AdapterCallContext,
-  DisconnectResult,
   InvokeRequest,
   InvokeResult,
 } from "../../adapter.js";
@@ -19,14 +18,15 @@ import {
   roleTargetId,
   type AwsPortalOperation,
 } from "./contracts.js";
-import { rotateSession, withSession } from "./material.js";
-import { listAccountRoles, listAccounts, logout } from "./portal.js";
+import { withSession } from "./material.js";
+import { listAccountRoles, listAccounts } from "./portal.js";
 import { ensureCurrent } from "./refresh.js";
 
 /*
  * What a caller may do with a connection besides use it: read the accounts and
- * roles it may reach, and end the sign-in. Role credentials are never an
- * output; they are used by trusted host code through `withRoleCredentials`.
+ * roles it may reach. Role credentials are never an output; they are used by
+ * trusted host code through `withRoleCredentials`. Ending the sign-in is
+ * `release.ts`.
  */
 
 const code = (suffix: string) => `${AWS_IDENTITY_CENTER_ADAPTER_ID}.${suffix}`;
@@ -148,31 +148,4 @@ async function readRoles(
       truncated: listing.truncated,
     };
   });
-}
-
-/**
- * Ends the sign-in session at the portal (`Logout`). Role sessions already
- * issued keep running until their own expiry, which the reference says
- * outright, so this reports what it did and never "revoked the role".
- */
-export async function endSignIn(
-  ctx: AdapterCallContext,
-): Promise<DisconnectResult> {
-  const ref = ctx.connection?.credentialRef;
-  const result: DisconnectResult = {
-    local: "not-attempted",
-    broker: "not-attempted",
-    upstream: "not-attempted",
-  };
-  if (!ref) return result;
-  let ended = false;
-  try {
-    await rotateSession(ctx, ref, async (current) => {
-      if (current.accessToken) ended = await logout(ctx, current.accessToken);
-      return current;
-    });
-  } catch {
-    return { ...result, upstream: "failed" };
-  }
-  return { ...result, upstream: ended ? "applied" : "failed" };
 }

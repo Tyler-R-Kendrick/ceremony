@@ -1,6 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { Browser, CDPSession, Locator, Page } from "playwright-core";
 import { z } from "zod";
+import {
+  boundedResponseJson,
+  refuseIfTooLarge,
+} from "./connectors/auth/response-bound.js";
 import { chromium } from "./playwright.js";
 import { createWindowTracker, type WindowOpener } from "./browser-windows.js";
 import {
@@ -636,7 +640,11 @@ async function openRemote(options: {
           // Needed only for the live view; a session without one still runs.
           id: z.string().min(1).optional(),
         })
-        .parse(await response.json());
+        .parse(
+          await boundedResponseJson(response).catch(
+            refuseIfTooLarge(() => new Error("Remote browser unavailable")),
+          ),
+        );
       const browser = await chromium.connectOverCDP(session.connectUrl, {
         timeout: 20_000,
       });

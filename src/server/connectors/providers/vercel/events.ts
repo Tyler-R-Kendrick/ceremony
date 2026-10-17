@@ -4,6 +4,7 @@ import { z } from "zod";
 import { measureJsonValue } from "../../../../core/index.js";
 import type { AdapterCallContext, EventPort } from "../../adapter.js";
 import { destinationUrl } from "../../binding.js";
+import { readBoundedBody } from "../../bounded-body.js";
 import type { VerifiedEventEnvelope } from "../../ports.js";
 import {
   permitsTarget,
@@ -88,8 +89,13 @@ export function createVercelTriggerEvents(): EventPort {
       signal: AbortSignal.any([ctx.signal, AbortSignal.timeout(10_000)]),
     });
     if (!response.ok) return undefined;
-    const text = await response.text();
-    if (text.length > BODY_LIMIT) return undefined;
+    // Read under the ceiling, not after it: a key set that never ends is
+    // refused when it crosses the line (`verify` answers "no event").
+    const text = await readBoundedBody(
+      response,
+      BODY_LIMIT,
+      "vercel.events.jwks-too-large",
+    );
     const parsed = jwksSchema.safeParse(JSON.parse(text));
     if (!parsed.success) return undefined;
     const keys = parsed.data as JSONWebKeySet;

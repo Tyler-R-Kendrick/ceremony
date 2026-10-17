@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import type { TestContext } from "node:test";
 import type { ActorContext } from "../../../src/core/operation-contracts.js";
 import type { AdapterCallContext } from "../../../src/server/connectors/adapter.js";
@@ -21,8 +21,7 @@ import {
   vercelAccountConfigurationNames,
   vercelAccountIssuerPolicy,
 } from "../../../src/server/connectors/providers/vercel-account/index.js";
-import { createConnectorPorts } from "../../../src/server/connectors/state/index.js";
-import { SQLiteCeremonyStore } from "../../../src/server/persistence/index.js";
+import type { AsyncCeremonyStore } from "../../../src/server/persistence/index.js";
 import {
   memoryArtifactStore,
   memoryDefinitionStore,
@@ -36,6 +35,10 @@ import {
   type PersonSeed,
   type VercelAccountOptions,
 } from "../doubles/vercel-account.js";
+import {
+  ceremonyBackend,
+  type CeremonyBackend,
+} from "../doubles/ceremony-backend.js";
 import { buildDefinition, buildProfile } from "../fixtures/builders.js";
 
 /*
@@ -84,7 +87,7 @@ export const alice: PersonSeed = {
  * own.
  */
 async function delegateUntil(
-  store: SQLiteCeremonyStore,
+  store: AsyncCeremonyStore,
   actor: ActorContext,
   expiresAt: number,
 ): Promise<void> {
@@ -114,8 +117,10 @@ export type AccountSetupOptions = {
   /** Teams the binding permits; defaults to the first two of Alice's. */
   teams?: string[];
   settings?: Record<string, unknown>;
-  /** Turns RFC 7009 revocation on in the issuer policy. */
+  /** Pins RFC 7009 revocation off (false) in the issuer policy; on is the policy default. */
   revoke?: boolean;
+  /** The longest the service lets any adapter call run (its own default otherwise). */
+  callTimeoutMs?: number;
   /** Overrides the destination's origin and network. */
   apiOrigin?: string;
   apiNetwork?: "public" | "loopback-fixture";
@@ -123,6 +128,8 @@ export type AccountSetupOptions = {
   clientId?: string | null;
   /** The custody port refuses a record this close to its expiry; the default is its own. */
   expirySafetyMarginMs?: number;
+  /** Where the state lives (doubles/ceremony-backend.ts); SQLite by default. */
+  backend?: CeremonyBackend;
 };
 
 export async function accountSetup(
@@ -142,17 +149,7 @@ export async function accountSetup(
   });
   t.after(() => fixture.close());
 
-  const store = new SQLiteCeremonyStore(":memory:", {
-    current: "test",
-    keys: { test: randomBytes(32) },
-  });
-  t.after(() => store.close());
-  const ports = createConnectorPorts(store, {
-    now,
-    ...(options.expirySafetyMarginMs === undefined
-      ? {}
-      : { expirySafetyMarginMs: options.expirySafetyMarginMs }),
-  });
+  const { store, ports } = await ceremonyBackend(t, { ...options, now });
   // Every effect the adapter journals passes through here, so a test can sweep
   // the journal for a secret and read which operations were attempted.
   const journal: Array<EffectIntent | EffectOutcome> = [];
@@ -210,6 +207,9 @@ export async function accountSetup(
     origin: ORIGIN,
     importers: [],
     now,
+    ...(options.callTimeoutMs === undefined
+      ? {}
+      : { callTimeoutMs: options.callTimeoutMs }),
   });
 
   const definition = buildDefinition({

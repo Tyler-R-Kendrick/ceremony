@@ -6,6 +6,10 @@ import {
   verify as verifyBytes,
   type KeyObject,
 } from "node:crypto";
+import { readBoundedBytes } from "./bounded-body.js";
+
+/** The most a key directory may weigh: the OAuth ceiling, 1 MiB. */
+const DIRECTORY_LIMIT_BYTES = 1_048_576;
 
 /**
  * Signed agent identity, as `draft-meunier-webbotauth-httpsig-protocol-02`
@@ -178,7 +182,15 @@ export async function verifyRequestSignature(
     // The draft is explicit: anything but 200 is a discovery failure, and a
     // verifier must not follow redirects to find one.
     if (response.status !== 200) return { ok: false, why: "no-directory" };
-    keys = ((await response.json()) as { keys?: unknown[] }).keys as never[];
+    // The directory is a key set an address in the request chose: it is read
+    // under the same ceiling as any other OAuth answer.
+    const bytes = await readBoundedBytes(
+      response,
+      DIRECTORY_LIMIT_BYTES,
+      () => new Error("directory too large"),
+    );
+    keys = (JSON.parse(new TextDecoder().decode(bytes)) as { keys?: unknown[] })
+      .keys as never[];
   } catch {
     return { ok: false, why: "no-directory" };
   }

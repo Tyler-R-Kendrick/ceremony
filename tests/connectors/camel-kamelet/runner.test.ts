@@ -4,6 +4,11 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { fixtureActor, memoryPorts } from "../doubles/ports.js";
 import { startCamelRunnerFixture } from "../doubles/camel-runner.js";
+import {
+  assertReadUnder,
+  endlessFetch,
+  type Pulled,
+} from "../doubles/endless-body.js";
 import { buildBinding } from "../fixtures/builders.js";
 import type { AdapterCallContext } from "../../../src/server/connectors/adapter.js";
 import { ConnectorError } from "../../../src/server/connectors/errors.js";
@@ -427,4 +432,33 @@ test("the exported run descriptor carries configuration names and no credential 
     (error: unknown) =>
       error instanceof ConnectorError && error.code === "unsupported",
   );
+});
+
+test("a runner answer that never ends is cut off at the ceiling while it is read", async () => {
+  const { ctx, ports } = harness({ runnerOrigin: "http://127.0.0.1:8765" });
+  ports.configuration.set(RUNNER_SECRET_CONFIGURATION, SIGNING_SECRET);
+  const seen: Pulled = { pulled: 0 };
+  const endless = {
+    ...ctx,
+    environment: ports.environment({ fetch: endlessFetch(seen) }),
+  };
+  const runner = createRemoteKameletRunner(
+    {
+      runnerId: "fixture-runner",
+      operationRef: KAMELET_RUN_OPERATION,
+      signingSecretConfiguration: RUNNER_SECRET_CONFIGURATION,
+    },
+    { readConfiguration: (name) => ports.configuration.read(name) },
+  );
+  const outcome = await createCamelKameletAdapter({ runner }).invoke!(endless, {
+    operationRef: KAMELET_RUN_OPERATION,
+    input: { trigger: "manual" },
+    commandId: "command-endless",
+  }).then(
+    (result) => result.code,
+    (error: unknown) =>
+      error instanceof ConnectorError ? error.detail : String(error),
+  );
+  assert.equal(outcome, "kamelet.runner.response-oversized");
+  assertReadUnder(assert, seen, 256 * 1024, "camel runner");
 });

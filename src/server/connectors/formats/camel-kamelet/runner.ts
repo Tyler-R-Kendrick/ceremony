@@ -16,6 +16,7 @@ import {
   destinationFor,
   destinationUrl,
 } from "../../binding.js";
+import { readBoundedBytes } from "../../bounded-body.js";
 import { ConnectorError } from "../../errors.js";
 import {
   kameletNameSchema,
@@ -292,11 +293,15 @@ export function createRemoteKameletRunner(
           response.status >= 500 ? "upstream-unavailable" : "upstream-rejected",
           { detail: "kamelet.runner.failed" },
         );
-      const buffer = await response.arrayBuffer();
-      if (buffer.byteLength > maxBytes)
-        throw new ConnectorError("upstream-rejected", {
-          detail: "kamelet.runner.response-oversized",
-        });
+      // Refused at the first chunk past the ceiling, not after the whole answer.
+      const buffer = await readBoundedBytes(
+        response,
+        maxBytes,
+        () =>
+          new ConnectorError("upstream-rejected", {
+            detail: "kamelet.runner.response-oversized",
+          }),
+      );
       let parsed: unknown;
       try {
         parsed = JSON.parse(

@@ -1,7 +1,7 @@
 import * as oauth from "oauth4webapi";
 import { importJWK, type CryptoKey } from "jose";
 import { z } from "zod";
-import { publicAuthFetch } from "./public-auth-fetch.js";
+import { boundedAuthFetch, publicAuthFetch } from "./public-auth-fetch.js";
 
 export const dpopJwkSchema = z.object({
   kty: z.literal("EC"),
@@ -237,7 +237,7 @@ export async function dpopUserinfoRequest(
       {
         DPoP,
         [oauth.customFetch]: (url, { body: _body, ...init }) =>
-          fetcher(url, init),
+          boundedAuthFetch(fetcher)(url, init),
         signal: AbortSignal.timeout(15_000),
       },
     );
@@ -307,7 +307,7 @@ export async function pushedAuthorizationLocation(input: {
   const execute = () =>
     oauth.pushedAuthorizationRequest(as, client, clientAuth, parameters, {
       ...(DPoP ? { DPoP } : {}),
-      [oauth.customFetch]: input.fetch ?? publicAuthFetch,
+      [oauth.customFetch]: boundedAuthFetch(input.fetch ?? publicAuthFetch),
     });
   let response = await execute();
   try {
@@ -453,7 +453,7 @@ export async function exchangeAuthorizationCode(input: {
       input.verifier,
       {
         ...(DPoP ? { DPoP } : {}),
-        [oauth.customFetch]: input.fetch ?? publicAuthFetch,
+        [oauth.customFetch]: boundedAuthFetch(input.fetch ?? publicAuthFetch),
       },
     );
   let response = await execute();

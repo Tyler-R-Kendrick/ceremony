@@ -13,7 +13,8 @@ import { ConnectorError } from "../../errors.js";
 import type { AwsCredentials } from "../../aws-credentials.js";
 import { beginSignIn, pollSignIn } from "./device.js";
 import { roleClaims, roleTarget } from "./evidence.js";
-import { endSignIn, invokeAws } from "./invoke.js";
+import { invokeAws } from "./invoke.js";
+import { endSignIn, releaseSignIn } from "./release.js";
 import {
   AWS_IDENTITY_CENTER_ADAPTER_ID,
   AWS_IDENTITY_CENTER_ADAPTER_VERSION,
@@ -211,10 +212,10 @@ export function createAwsIdentityCenterAdapter(): ConnectorAdapter {
           "Reconnecting is a new sign-in; a different account or role needs an explicit account switch.",
         ]),
         status("disconnect", [
-          "Local release revokes the held tokens and role credentials; the upstream scope calls the portal's Logout.",
+          "A local disconnect first calls the portal's Logout for each sign-in the connection holds (its own, and one waiting for the role choice), best effort: the result says whether the portal acknowledged (`release`), and a failure never stops the disconnect; then it drops the held tokens and role credentials. The upstream scope calls Logout and reports it as the upstream outcome. Cancelling the role choice drops the sign-in held for it without telling the portal.",
         ]),
         status("revoke", [
-          "Logout ends the sign-in session; role sessions already issued run to their own expiry.",
+          "Logout ends the sign-in session; role sessions already issued run to their own expiry. The OIDC API has no operation that revokes a refresh token, so that token is dropped with custody and is not known to be ended.",
         ]),
         status("export", [], "unsupported"),
         status("delegate", [], "unsupported"),
@@ -226,6 +227,7 @@ export function createAwsIdentityCenterAdapter(): ConnectorAdapter {
     invoke: invokeAws,
     reconnect: (ctx, intent) => beginSignIn(ctx, intent),
     disconnect,
+    releaseSession: releaseSignIn,
     revoke: (ctx) => endSignIn(ctx),
   };
   return adapter;

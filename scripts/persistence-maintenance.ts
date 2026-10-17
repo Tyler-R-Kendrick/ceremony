@@ -7,6 +7,7 @@ import {
 } from "../src/server/persistence/maintenance.js";
 import { retainExpiredJiraSetup } from "../src/server/jira-setup.js";
 import { AsyncPrivateCollectionBroker } from "../src/server/persistence/collections.js";
+import { sweepDroppedCredentials } from "../src/server/connectors/state/index.js";
 
 async function main() {
   const [action, pathOrTenant, id] = process.argv.slice(2);
@@ -24,6 +25,7 @@ async function main() {
       "purge-collections",
       "delete-demonstration",
       "purge-jira-setup",
+      "sweep-credentials",
     ].includes(action ?? "")
   )
     throw new Error();
@@ -61,6 +63,8 @@ async function main() {
     }
     if (action === "purge-jira-setup")
       await retainExpiredJiraSetup(store, pathOrTenant);
+    if (action === "sweep-credentials")
+      await sweepDroppedCredentials(store, pathOrTenant);
     process.stdout.write("Persistence maintenance completed\n");
   } finally {
     await store.close();

@@ -10,7 +10,9 @@ import {
   assertHandoffCurrent,
   beginDeviceAuthorization,
   DEVICE_CODE_INTENT,
+  discardSuperseded,
   inputRequiredHandoff,
+  pendingSession,
   pollDeviceAuthorization,
   splitScope,
   type DevicePollState,
@@ -240,6 +242,7 @@ async function continueAfterSignIn(
   grant: CompletionResult,
 ): Promise<CompletionResult> {
   const ref = grant.credentialRef!;
+  await discardSuperseded(ctx, ref);
   const reported = reportedScopes(grant.claims);
   const listed = await withBearer(ctx, ref, async (bearer) => ({
     user: await readUser(ctx, bearer),
@@ -267,6 +270,7 @@ async function continueAfterSignIn(
     claims: [],
     code: code("selection.required"),
     handoff: selectionHandoff(ctx, ref, plan, reported),
+    adapterState: pendingSession(ref),
     handoffSettled: true,
   };
 }
@@ -374,6 +378,7 @@ export async function bindTeam(
           ? { expiresAt: described.expiresAt }
           : {}),
       },
+      ...pendingSession(null),
     },
     ...(handoffSettled ? { handoffSettled: true } : {}),
   };

@@ -3,7 +3,12 @@ import type { AdapterCallContext } from "../../adapter.js";
 import { beginAttempt } from "../../attempts.js";
 import { sha256Hex } from "../../auth/wire.js";
 import { ConnectorError } from "../../errors.js";
-import { callAws, oidcFailure, sentNothing } from "./client.js";
+import {
+  AWS_RESPONSE_TOO_LARGE,
+  callAws,
+  oidcFailure,
+  sentNothing,
+} from "./client.js";
 import {
   accountIdSchema,
   AWS_IDENTITY_CENTER_ADAPTER_ID,
@@ -123,6 +128,15 @@ export async function currentAccessToken(
         sentNothing(error) ? "refresh.unreachable" : "refresh.indeterminate",
       ),
     );
+    // An answer too large to read was sent and is unknown, as a lost one is.
+    if (
+      error instanceof ConnectorError &&
+      error.detail === AWS_RESPONSE_TOO_LARGE
+    )
+      throw new ConnectorError("indeterminate", {
+        detail: code("refresh.indeterminate"),
+        cause: error,
+      });
     throw error;
   }
   if (!reply.ok) {

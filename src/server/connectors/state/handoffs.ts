@@ -12,6 +12,11 @@ import type {
   HandoffRecord,
 } from "../ports.js";
 import {
+  assertNotClaimedByAnother,
+  createHandoffClaims,
+  withoutClaim,
+} from "./handoff-claims.js";
+import {
   SCHEMA_VERSION,
   checkActor,
   checkTenant,
@@ -73,11 +78,15 @@ const recordOf = (value: StoredHandoff): HandoffRecord => {
     schemaVersion: _schema,
     completedAt: _completed,
     reason: _reason,
+    claim: _claim,
+    settledBy: _settledBy,
     ...rest
   } = value;
   void _schema;
   void _completed;
   void _reason;
+  void _claim;
+  void _settledBy;
   return compact({ ...rest, private: { ...rest.private } });
 };
 
@@ -115,7 +124,7 @@ export async function settlePendingHandoffs(
     await tx.put(
       handoffKey(tenantId, handoffRef),
       {
-        ...record.value,
+        ...withoutClaim(record.value),
         state,
         reason,
         completedAt: at,
@@ -150,7 +159,7 @@ async function settleExpiry(
   if (!pending(record.value.state) || record.value.expiresAt > at)
     return record.value;
   const expired: StoredHandoff = {
-    ...record.value,
+    ...withoutClaim(record.value),
     state: "expired",
     reason: "handoff.expired",
     completedAt: at,
@@ -170,6 +179,7 @@ export function createHandoffPort(
 ): HandoffPort {
   const time = timeSource(options.now);
   return {
+    ...createHandoffClaims(store, time),
     async issue(input: HandoffIssue) {
       const actor = checkActor(input.actor);
       const { actor: _actor, ...rest } = input;
@@ -311,7 +321,7 @@ export function createHandoffPort(
       });
     },
 
-    async complete(handoffRef, expectedGeneration, state) {
+    async complete(handoffRef, expectedGeneration, state, attempt) {
       const target = z
         .enum(["completed", "denied", "expired", "cancelled", "superseded"])
         .safeParse(state);
@@ -331,6 +341,7 @@ export function createHandoffPort(
           throw new ConnectorError("not-found", { detail: "handoff.unknown" });
         const at = await time(tx);
         const current = await settleExpiry(tx, tenantId, record, at);
+        assertNotClaimedByAnother(current, attempt, at);
         if (current.generation !== expectedGeneration)
           throw new ConnectorError("conflict", {
             detail: "handoff.stale-generation",
@@ -356,7 +367,7 @@ export function createHandoffPort(
           await tx.put(
             key,
             {
-              ...current,
+              ...withoutClaim(current),
               state: "superseded",
               reason: "handoff.stale-generation",
               completedAt: at,
@@ -369,9 +380,10 @@ export function createHandoffPort(
           });
         }
         const completed: StoredHandoff = {
-          ...current,
+          ...withoutClaim(current),
           state: target.data,
           completedAt: at,
+          ...(attempt !== undefined ? { settledBy: attempt } : {}),
         };
         await tx.put(key, completed, record.revision);
         await dropCorrelation(tx, tenantId, current);

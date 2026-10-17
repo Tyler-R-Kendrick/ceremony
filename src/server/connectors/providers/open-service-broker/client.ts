@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { CompatibilityIssue } from "../../../../core/connectors/index.js";
 import type { ApprovedDestination } from "../../binding.js";
 import { destinationUrl } from "../../binding.js";
+import { readBoundedBytes } from "../../bounded-body.js";
 import { ConnectorError } from "../../errors.js";
 import {
   OSB_API_VERSION,
@@ -181,11 +182,16 @@ export function createOpenServiceBrokerClient(options: OsbClientOptions) {
         detail: "osb.response.oversized",
       });
     }
-    const buffer = await response.arrayBuffer();
-    if (buffer.byteLength > maxBytes)
-      throw new ConnectorError("upstream-rejected", {
-        detail: "osb.response.oversized",
-      });
+    // Refused at the first chunk past the ceiling; a binding's answer carries
+    // the credentials custody will hold.
+    const buffer = await readBoundedBytes(
+      response,
+      maxBytes,
+      () =>
+        new ConnectorError("upstream-rejected", {
+          detail: "osb.response.oversized",
+        }),
+    );
     let body: unknown;
     if (buffer.byteLength > 0) {
       let text: string;

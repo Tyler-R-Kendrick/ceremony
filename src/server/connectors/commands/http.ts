@@ -300,6 +300,7 @@ export function createConnectorHttp(
             segment(input[1]!),
             segment(input[2]!),
             values.values,
+            request.signal,
           ),
         );
       }

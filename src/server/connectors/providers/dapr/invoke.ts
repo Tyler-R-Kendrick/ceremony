@@ -10,6 +10,7 @@ import {
   destinationUrl,
   type BoundOperation,
 } from "../../binding.js";
+import { readBoundedBytes } from "../../bounded-body.js";
 import { ConnectorError } from "../../errors.js";
 import type { CredentialScope } from "../../ports.js";
 import {
@@ -288,17 +289,23 @@ export async function invokeDaprOutputBinding(
       detail: "dapr.response.oversized",
     });
   }
-  const buffer = await response.arrayBuffer();
-  if (buffer.byteLength > maxBytes) {
-    await ctx.environment.effects.complete(effectRef, {
-      status: "indeterminate",
-      code: "dapr.response.oversized",
-      at: ctx.environment.now(),
-    });
-    throw new ConnectorError("upstream-rejected", {
-      detail: "dapr.response.oversized",
-    });
-  }
+  // Refused at the first chunk past the ceiling, not after the whole answer.
+  const oversized = new ConnectorError("upstream-rejected", {
+    detail: "dapr.response.oversized",
+  });
+  const buffer = await readBoundedBytes(
+    response,
+    maxBytes,
+    () => oversized,
+  ).catch(async (error: unknown) => {
+    if (error === oversized)
+      await ctx.environment.effects.complete(effectRef, {
+        status: "indeterminate",
+        code: "dapr.response.oversized",
+        at: ctx.environment.now(),
+      });
+    throw error;
+  });
 
   if (response.status === 401 || response.status === 403) {
     await ctx.environment.effects.complete(effectRef, {

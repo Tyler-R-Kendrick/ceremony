@@ -29,6 +29,21 @@ export class CeremonyError extends Error {
     super(message);
   }
 }
+/**
+ * A request went out and its answer could not be read (it ran past the size
+ * ceiling), so whether it did what it asked (minted a token, registered an
+ * identity, spent a code) is unknown. The attempt ends here: nothing is
+ * stored, and nothing is sent again on its strength.
+ */
+export class IndeterminateAnswer extends CeremonyError {
+  readonly outcome = "indeterminate" as const;
+  constructor() {
+    super(
+      "The provider's answer was too large to read, so whether it completed the request is unknown. Nothing was stored; check at the provider before trying again.",
+      502,
+    );
+  }
+}
 export interface AdapterUpdate {
   step: Step;
   /** Trusted prerequisite fields, independent of the final authentication method. */

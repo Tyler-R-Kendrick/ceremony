@@ -92,6 +92,19 @@ export const handoffIssueInputSchema = z.strictObject({
   correlationKey: z.string().min(1).max(1024).regex(noControl).optional(),
   private: stringRecordSchema(32, 65536),
 });
+/**
+ * Which submission is working a pending handoff, which attempt of it holds the
+ * claim, and until when. The submission is a digest the caller computed (the
+ * values behind it never reach the store) and names what was submitted; the
+ * attempt is a random token, so two identical submissions are two holders and
+ * a lapsed one cannot release or settle on behalf of its successor. It exists
+ * only while the handoff is pending.
+ */
+export const handoffClaimSchema = z.strictObject({
+  submission: sha256HexSchema,
+  attempt: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/),
+  expiresAt: time,
+});
 export const storedHandoffSchema = handoffIssueInputSchema.safeExtend({
   schemaVersion,
   handoffRef: connectorReferenceSchema,
@@ -102,6 +115,16 @@ export const storedHandoffSchema = handoffIssueInputSchema.safeExtend({
   issuedAt: time,
   completedAt: time.optional(),
   reason: stateCodeSchema.optional(),
+  claim: handoffClaimSchema.optional(),
+  /**
+   * The attempt that settled the handoff (a random token, never a digest of
+   * what was submitted), kept so that a waiter that joined another attempt can
+   * tell whether it was that one that settled it.
+   */
+  settledBy: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{8,64}$/)
+    .optional(),
 });
 export type StoredHandoff = z.infer<typeof storedHandoffSchema>;
 export const correlationIndexSchema = z.strictObject({

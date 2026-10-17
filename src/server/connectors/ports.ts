@@ -89,6 +89,9 @@ export type HandoffIssue = {
   /** Protected transient material: destination URL, PKCE verifier, widget token, device code. */
   private: Record<string, string>;
 };
+/** What taking a claim came to: ours to run, or an identical submission's attempt that holds it. */
+export type ClaimOutcome = "claimed" | { shared: string };
+
 export type HandoffRecord = Omit<HandoffIssue, "actor"> & {
   handoffRef: HandoffRef;
   tenantId: string;
@@ -112,12 +115,53 @@ export interface HandoffPort {
     tenantId: string,
     correlationKey: string,
   ): Promise<HandoffRecord | undefined>;
-  /** One-use completion fenced by generation; a stale or repeated completion is refused. */
+  /**
+   * One-use completion fenced by generation; a stale or repeated completion is
+   * refused. With the `attempt` that claimed the handoff, it is also refused
+   * (`handoff.claim-lost`) while another attempt holds a live claim: a run
+   * whose claim lapsed and was taken over cannot settle what its successor is
+   * working. Without one it is not fenced by claims.
+   */
   complete(
     handoffRef: HandoffRef,
     expectedGeneration: number,
     state: Exclude<ConnectorHandoffSummary["state"], "issued" | "waiting">,
+    attempt?: string,
   ): Promise<HandoffRecord>;
+  /**
+   * Claims a pending handoff for one attempt of a submission, by
+   * compare-and-set on the handoff itself, before anything is run for it.
+   * `submission` is a digest of what was submitted (SHA-256 hex, computed by
+   * the caller; the values never reach the port) and `attempt` is a random
+   * token naming this run. `claimed` means this attempt runs the work and must
+   * `release` or settle; `shared` means an identical submission already holds
+   * the claim (named by the attempt that holds it), so this one is answered
+   * from that run. Another submission, a stale generation or a handoff that is
+   * no longer pending is refused (`handoff.already-claimed`,
+   * `handoff.stale-generation`, `handoff.already-completed`,
+   * `handoff.expired`). A claim older than `leaseMs` is no one's: a worker that
+   * died with one does not hold the handoff forever, and the attempt that
+   * takes it over replaces it. A caller that is waiting on a holder passes that
+   * attempt as `joining`: if the handoff was settled by some other attempt, it
+   * is refused as `handoff.settled-by-another` rather than
+   * `handoff.already-completed`, so a waiter is never answered from a run it
+   * did not join.
+   */
+  claim(
+    handoffRef: HandoffRef,
+    expectedGeneration: number,
+    submission: string,
+    attempt: string,
+    leaseMs: number,
+    joining?: string,
+  ): Promise<ClaimOutcome>;
+  /**
+   * Gives a claim back when its attempt ended without settling the handoff, so
+   * the person can submit again. Only the attempt's own claim is removed: a
+   * handoff that is gone, settled, unclaimed or claimed by another attempt
+   * (a successor after a lapse) is left alone.
+   */
+  release(handoffRef: HandoffRef, attempt: string): Promise<void>;
   cancelAll(connectionRef: ConnectionRef, reason: string): Promise<number>;
 }
 
@@ -165,11 +209,16 @@ export interface ConnectionStorePort {
       lifecycle?: ConnectionSummary["lifecycle"];
     },
   ): Promise<Array<{ record: ConnectionRecord; revision: number }>>;
-  /** Fences later callbacks, refreshes and invocations against the previous generation. */
+  /**
+   * Fences later callbacks, refreshes and invocations against the previous
+   * generation. `lastOutcome`, when given, is written in the same step, so a
+   * reader that finds a newer generation can tell who fenced it.
+   */
   advanceGeneration(
     actor: ActorContext,
     connectionRef: ConnectionRef,
     expectedRevision: number,
+    lastOutcome?: string,
   ): Promise<{ generation: number; revision: number }>;
   /** Exact match on authority instance and external id within one tenant; never a display-name match. */
   findByExternalId(
@@ -178,6 +227,13 @@ export interface ConnectionStorePort {
     name: string,
     value: string,
   ): Promise<{ record: ConnectionRecord; revision: number } | undefined>;
+  /** Every connection carrying that external id (several may share one grant), in the same scope as `findByExternalId`. */
+  listByExternalId(
+    tenantId: string,
+    authorityInstance: string,
+    name: string,
+    value: string,
+  ): Promise<Array<{ record: ConnectionRecord; revision: number }>>;
 }
 
 export interface EvidenceStorePort {

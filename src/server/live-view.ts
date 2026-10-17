@@ -1,5 +1,9 @@
 import type { Browser, Page } from "playwright-core";
 import { z } from "zod";
+import {
+  boundedResponseJson,
+  refuseIfTooLarge,
+} from "./connectors/auth/response-bound.js";
 
 /**
  * A remote browser a person can be handed, whichever provider runs it.
@@ -172,7 +176,11 @@ export function browserbaseLiveView(input: {
           .array(z.object({ id: z.string(), debuggerFullscreenUrl: z.url() }))
           .optional(),
       })
-      .parse(await response.json());
+      .parse(
+        await boundedResponseJson(response).catch(
+          refuseIfTooLarge(() => new Error("Live view unavailable")),
+        ),
+      );
     // Browserbase names each page by its CDP target id; the tab the person
     // is meant to act in is preferred over the whole-browser view.
     const targetId = await targetIdOf(page).catch(() => undefined);
@@ -257,7 +265,11 @@ export async function openLiveBrowser(
     if (!response.ok) throw new Error("Remote browser unavailable");
     const session = z
       .object({ id: z.string().min(1), connectUrl: z.url() })
-      .parse(await response.json());
+      .parse(
+        await boundedResponseJson(response).catch(
+          refuseIfTooLarge(() => new Error("Remote browser unavailable")),
+        ),
+      );
     const browser = await chromium.connectOverCDP(session.connectUrl, {
       timeout: 20_000,
     });

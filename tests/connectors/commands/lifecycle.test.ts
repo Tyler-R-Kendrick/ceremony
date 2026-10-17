@@ -294,7 +294,7 @@ test("a connector reaches a verified, usable connection through the public API",
       broker: "not-attempted",
       upstream: "not-attempted",
     },
-    "a local unlink attempts nothing upstream (AC-STATE-03)",
+    "a local unlink of a connector with no session of its own attempts nothing upstream (AC-STATE-03)",
   );
   assert.equal(
     (outcome.connection as Record<string, unknown>).lifecycle,
