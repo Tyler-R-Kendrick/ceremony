@@ -69,6 +69,31 @@ export async function boundedResponseJson(
   return (await boundResponse(response, limitBytes)).json();
 }
 
+/**
+ * What a request whose answer was too large to read came to, for a caller
+ * with no error type of its own to say it in: the request was sent, so what
+ * it did (a token minted, a client registered, a code spent) is unknown.
+ */
+export const INDETERMINATE = Object.freeze({
+  status: "indeterminate" as const,
+});
+export type Indeterminate = typeof INDETERMINATE;
+
+/** For `.catch` on `boundedResponseJson` when the request may have changed something: an answer too large to read is `INDETERMINATE`. */
+export function unknownIfTooLarge(error: unknown): Indeterminate {
+  if (error instanceof ResponseTooLargeError) return INDETERMINATE;
+  throw error;
+}
+
+/** Whether a failure is, or was caused by, an answer too large to read: the request was sent, so what it did is unknown. */
+export function tooLargeAfterSend(error: unknown): boolean {
+  for (let depth = 0; error && depth < 5; depth++) {
+    if (error instanceof ResponseTooLargeError) return true;
+    error = (error as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 /** For `.catch` on `boundedResponseJson`: an answer too large to read is no answer at all; anything else is the caller's to see. */
 export function noAnswerIfTooLarge(error: unknown): undefined {
   if (error instanceof ResponseTooLargeError) return undefined;

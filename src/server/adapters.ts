@@ -4,11 +4,15 @@ import { z } from "zod";
 import type { AuthMethod, AuthOutcome } from "../core/index.js";
 import {
   CeremonyError,
+  IndeterminateAnswer,
   type AdapterUpdate,
   type AuthAdapter,
 } from "./controller.js";
 import type { SignatureAgent } from "../core/web-bot-auth.js";
-import { boundResponse } from "./connectors/auth/response-bound.js";
+import {
+  boundResponse,
+  tooLargeAfterSend,
+} from "./connectors/auth/response-bound.js";
 import { boundedAuthFetch } from "./public-auth-fetch.js";
 
 export interface CredentialStore {
@@ -220,7 +224,7 @@ export function createProtocolAdapter(
         : "The provider could not complete this request.",
     );
   };
-  return {
+  const adapter: AuthAdapter = {
     async begin() {
       stopped = false;
       if (method.kind === "oauth-code") {
@@ -491,5 +495,24 @@ export function createProtocolAdapter(
       deviceCode = "";
       claiming = false;
     },
+  };
+  // Every request here is sent before its answer is read; an answer too large
+  // to read leaves what it did unknown, which is what the attempt reports.
+  const unknownIfUnread =
+    <A extends unknown[], R>(run: (...args: A) => Promise<R>) =>
+    async (...args: A): Promise<R> => {
+      try {
+        return await run(...args);
+      } catch (error) {
+        if (tooLargeAfterSend(error)) throw new IndeterminateAnswer();
+        throw error;
+      }
+    };
+  return {
+    ...adapter,
+    begin: unknownIfUnread(adapter.begin),
+    submit: unknownIfUnread(adapter.submit),
+    callback: unknownIfUnread(adapter.callback),
+    poll: unknownIfUnread(adapter.poll),
   };
 }

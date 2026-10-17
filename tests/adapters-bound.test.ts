@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createProtocolAdapter } from "../src/server/adapters.js";
+import { IndeterminateAnswer } from "../src/server/controller.js";
 import { createMcpIdentity } from "../src/server/mcp-identity.js";
 import { createOidcIdentity } from "../src/server/oidc-identity.js";
 import { MAX_RESPONSE_BYTES } from "../src/server/connectors/auth/response-bound.js";
@@ -35,11 +36,11 @@ const store = {
   delete: async () => {},
 };
 
-/** `fetch` replaced for the length of `work`, answering every request without end. */
+/** `fetch` replaced for the length of `work`, answering every request without end; what `work` failed with. */
 async function againstEndlessProvider(
   work: () => Promise<unknown>,
   status = 200,
-) {
+): Promise<unknown> {
   const seen = { pulled: 0 };
   const chunk = new Uint8Array(CHUNK).fill(0x20);
   const original = globalThis.fetch;
@@ -54,10 +55,11 @@ async function againstEndlessProvider(
       }),
       { status, headers: { "content-type": "application/json" } },
     )) as typeof fetch;
+  let failure: unknown;
   try {
-    await work().then(
+    failure = await work().then(
       () => undefined,
-      () => undefined,
+      (error: unknown) => error,
     );
   } finally {
     globalThis.fetch = original;
@@ -67,7 +69,15 @@ async function againstEndlessProvider(
     seen.pulled <= MAX_RESPONSE_BYTES + SLACK,
     `read ${seen.pulled} bytes of a provider's answer; the ceiling is ${MAX_RESPONSE_BYTES}`,
   );
+  return failure;
 }
+
+/** The request went out and its answer could not be read: what it did is unknown, and the adapter says so. */
+const unknownOutcome = (failure: unknown) =>
+  assert.ok(
+    failure instanceof IndeterminateAnswer,
+    `expected the typed unknown, got ${String(failure)}`,
+  );
 
 const formMethod = {
   kind: "form" as const,
@@ -89,12 +99,12 @@ test("a device authorization answer that never ends is cut off at the ceiling", 
     config,
     store,
   );
-  await againstEndlessProvider(() => adapter.begin());
+  unknownOutcome(await againstEndlessProvider(() => adapter.begin()));
 });
 
 test("a credential answer that never ends is cut off at the ceiling", async () => {
   const adapter = createProtocolAdapter(formMethod as never, config, store);
-  await againstEndlessProvider(() => adapter.submit({}, false));
+  unknownOutcome(await againstEndlessProvider(() => adapter.submit({}, false)));
 });
 
 test("an anonymous registration answer that never ends is cut off at the ceiling", async () => {
@@ -108,7 +118,38 @@ test("an anonymous registration answer that never ends is cut off at the ceiling
     config,
     store,
   );
-  await againstEndlessProvider(() => adapter.begin());
+  unknownOutcome(await againstEndlessProvider(() => adapter.begin()));
+});
+
+test("a device token answer that never ends is the typed unknown, not an unreachable provider the controller polls again", async () => {
+  const adapter = createProtocolAdapter(
+    {
+      kind: "device",
+      id: "device",
+      label: "Device",
+      scopes: ["openid"],
+    } as never,
+    config,
+    store,
+    () => clock,
+  );
+  let clock = 1_770_000_000_000;
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    Response.json({
+      device_code: "dummy_device_code_0123456789",
+      user_code: "ABCD-EFGH",
+      verification_uri: "http://127.0.0.1:4174/activate",
+      expires_in: 600,
+      interval: 5,
+    })) as typeof fetch;
+  try {
+    await adapter.begin();
+  } finally {
+    globalThis.fetch = original;
+  }
+  clock += 6_000;
+  unknownOutcome(await againstEndlessProvider(() => adapter.poll()));
 });
 
 /*

@@ -11,6 +11,8 @@ import {
 } from "../src/server/authored-oauth.js";
 import {
   pollDeviceToken,
+  saveAuthoredAuthorizationSession,
+  saveAuthoredDeviceSession,
   tokenRequest,
 } from "../src/server/authored-operations.js";
 import { MAX_RESPONSE_BYTES } from "../src/server/connectors/auth/response-bound.js";
@@ -126,29 +128,30 @@ test("an author's device authorization answer that never ends is cut off and sta
   within(seen.pulled);
 });
 
-test("an author's device-grant token answer that never ends is cut off and is not a token", async () => {
+test("an author's device-grant token answer that never ends is cut off, and what it did is unknown", async () => {
   const { seen, fetcher } = endlessFetch();
   const answer = await pollDeviceToken(
     `${provider}/token`,
     { deviceCode: "dummy_device_code_0123456789", clientId: "client" },
     fetcher,
   );
-  assert.deepEqual(answer, { status: "denied" });
+  // The device code was presented, so a token may have been minted: not "denied".
+  assert.deepEqual(answer, { status: "indeterminate" });
   within(seen.pulled);
 });
 
-test("an author's authorization-code token answer that never ends is cut off and is not a token", async () => {
+test("an author's authorization-code token answer that never ends is cut off, and what it did is unknown", async () => {
   const { seen, fetcher } = endlessFetch();
   const answer = await tokenRequest(
     `${provider}/token`,
     new URLSearchParams({ grant_type: "authorization_code", client_id: "c" }),
     fetcher,
   );
-  assert.equal(answer, undefined);
+  assert.deepEqual(answer, { status: "indeterminate" });
   within(seen.pulled);
 });
 
-test("an author's dynamic client registration answer that never ends is cut off and registers nothing", async () => {
+test("an author's dynamic client registration answer that never ends is cut off, and whether a client exists is unknown", async () => {
   const { seen, fetcher } = endlessFetch(201);
   const registered = await registerDynamicClient(
     `${provider}/register`,
@@ -157,8 +160,47 @@ test("an author's dynamic client registration answer that never ends is cut off 
     fetcher,
     ["authorization_code"],
   );
-  assert.equal(registered, undefined);
+  assert.deepEqual(registered, { status: "indeterminate" });
   within(seen.pulled);
+});
+
+test("the authored sign-in passes the unknown on, and stores nothing", async () => {
+  // Neither touches the store before the token answer is read.
+  const store = {} as never;
+  const actor = {} as never;
+  const authored = {
+    origin: provider,
+    tokenEndpoint: `${provider}/token`,
+  } as never;
+  const device = endlessFetch();
+  assert.deepEqual(
+    await saveAuthoredDeviceSession(
+      store,
+      actor,
+      "run",
+      authored,
+      { deviceCode: "dummy_device_code_0123456789", clientId: "client" },
+      device.fetcher,
+    ),
+    { status: "indeterminate" },
+  );
+  const code = endlessFetch();
+  assert.deepEqual(
+    await saveAuthoredAuthorizationSession(
+      store,
+      actor,
+      "run",
+      authored,
+      {
+        code: "dummy-code",
+        redirectUri: `${origin}/return`,
+        verifier: "dummy-verifier-0123456789-0123456789-0123456789",
+        clientId: "client",
+      },
+      code.fetcher,
+    ),
+    { status: "indeterminate" },
+  );
 });
 
 test("a disposable inbox's mailbox token that never ends is cut off and the inbox is unavailable", async () => {

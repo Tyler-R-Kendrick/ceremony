@@ -2,7 +2,9 @@ import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import {
   boundedResponseJson,
-  noAnswerIfTooLarge,
+  INDETERMINATE,
+  ResponseTooLargeError,
+  unknownIfTooLarge,
 } from "./connectors/auth/response-bound.js";
 import { publicAuthFetch } from "./public-auth-fetch.js";
 import { accountIdentifierSchema } from "../core/teaching-contracts.js";
@@ -796,9 +798,10 @@ export async function tokenRequest(
     body,
   });
   if (!response.ok) return undefined;
-  const json = z
-    .record(z.string(), z.unknown())
-    .safeParse(await boundedResponseJson(response).catch(noAnswerIfTooLarge));
+  const answer = await boundedResponseJson(response).catch(unknownIfTooLarge);
+  // The code was presented: a token may have been minted that was not read.
+  if (answer === INDETERMINATE) return INDETERMINATE;
+  const json = z.record(z.string(), z.unknown()).safeParse(answer);
   if (!json.success) return undefined;
   const access =
     typeof json.data.access_token === "string"
@@ -853,9 +856,12 @@ export async function pollDeviceToken(
         : 0,
     };
   }
-  const json = z
-    .record(z.string(), z.unknown())
-    .safeParse(await boundedResponseJson(response).catch(() => null));
+  const answer = await boundedResponseJson(response).catch((error: unknown) =>
+    error instanceof ResponseTooLargeError ? INDETERMINATE : null,
+  );
+  // The device code was presented: a token may have been minted that was not read.
+  if (answer === INDETERMINATE) return INDETERMINATE;
+  const json = z.record(z.string(), z.unknown()).safeParse(answer);
   if (!json.success) return { status: "denied" as const };
   if (
     response.ok &&
@@ -1064,7 +1070,7 @@ export async function saveAuthoredAuthorizationSession(
     fetcher,
     clientAuth,
   );
-  if (!token) return undefined;
+  if (!token || "status" in token) return token;
   return saveAuthoredGrantSession(
     store,
     actor,
