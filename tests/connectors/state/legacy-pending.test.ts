@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { sweepDroppedCredentials } from "../../../src/server/connectors/state/index.js";
 import { connectionKey } from "../../../src/server/connectors/state/keys.js";
 import type { StoredConnectionValue } from "../../../src/server/connectors/state/schemas.js";
 import type { AsyncCeremonyStore } from "../../../src/server/persistence/index.js";
@@ -25,6 +26,8 @@ type Setup = {
   person: aws.AwsSetup["person"];
   agent: aws.AwsSetup["agent"];
   stored: string[];
+  clock: () => number;
+  advance: (ms: number) => void;
 };
 
 const PROVIDERS = [
@@ -124,5 +127,19 @@ for (const provider of PROVIDERS) {
     ))!.record;
     assert.equal(record.state["pendingSession"], null);
     assert.deepEqual(record.state["droppedCredentials"], [waiting]);
+  });
+
+  test(`${provider.name}: the sweep drops the sign-in of such a choice once it has expired`, async (t) => {
+    const setup = (await provider.setup(t)) as unknown as Setup;
+    const { connectionRef } = await provider.approve(setup);
+    await asWrittenBefore(setup, connectionRef);
+    setup.advance(11 * 60_000);
+    assert.deepEqual(
+      await sweepDroppedCredentials(setup.store, setup.person.tenantId, {
+        now: setup.clock,
+      }),
+      { swept: 1 },
+    );
+    assert.deepEqual(await leftInCustody(setup, connectionRef), []);
   });
 }

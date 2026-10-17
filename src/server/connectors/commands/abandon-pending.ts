@@ -1,5 +1,5 @@
 import { PENDING_SESSION_STATE } from "../auth/pending-session.js";
-import { noteDropped } from "../dropped-credentials.js";
+export { abandonedSession } from "../dropped-credentials.js";
 import type {
   ConnectionRecord,
   CredentialCustodyPort,
@@ -23,26 +23,6 @@ import type {
  * after that write has landed and only if the connection does not carry it.
  * A cancel that loses the race to a submission revokes nothing.
  */
-
-/** The waiting sign-in's reference, and the state patch that stops pointing at it. */
-export function abandonedSession(record: ConnectionRecord): {
-  ref?: string;
-  patch: Pick<Partial<ConnectionRecord>, "state">;
-} {
-  const waiting = record.state[PENDING_SESSION_STATE];
-  if (typeof waiting !== "string") return { patch: {} };
-  return {
-    ref: waiting,
-    // The same write notes the drop, so a drop that fails is retried by the
-    // sweep (dropped-credentials.ts).
-    patch: {
-      state: noteDropped(
-        { ...record.state, [PENDING_SESSION_STATE]: null },
-        waiting,
-      ),
-    },
-  };
-}
 
 /**
  * Drops `ref` from custody, unless the record that was written still names it

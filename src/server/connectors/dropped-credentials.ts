@@ -74,3 +74,23 @@ export async function sweepDropped(
     }
   return swept;
 }
+
+/** The waiting sign-in's reference, and the state patch that stops pointing at it. */
+export function abandonedSession(record: ConnectionRecord): {
+  ref?: string;
+  patch: Pick<Partial<ConnectionRecord>, "state">;
+} {
+  const waiting = record.state[PENDING_SESSION_STATE];
+  if (typeof waiting !== "string") return { patch: {} };
+  return {
+    ref: waiting,
+    // The same write notes the drop, so a drop that fails is retried by the
+    // sweep (state/custody-sweep.ts).
+    patch: {
+      state: noteDropped(
+        { ...record.state, [PENDING_SESSION_STATE]: null },
+        waiting,
+      ),
+    },
+  };
+}
