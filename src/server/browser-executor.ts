@@ -1,10 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { Browser, CDPSession, Locator, Page } from "playwright-core";
 import { z } from "zod";
-import {
-  boundedResponseJson,
-  refuseIfTooLarge,
-} from "./connectors/auth/response-bound.js";
+import { boundedResponseJson } from "./connectors/auth/response-bound.js";
+import { indeterminateIfTooLarge, unknownOr } from "./ceremony-errors.js";
 import { chromium } from "./playwright.js";
 import { createWindowTracker, type WindowOpener } from "./browser-windows.js";
 import {
@@ -641,9 +639,7 @@ async function openRemote(options: {
           id: z.string().min(1).optional(),
         })
         .parse(
-          await boundedResponseJson(response).catch(
-            refuseIfTooLarge(() => new Error("Remote browser unavailable")),
-          ),
+          await boundedResponseJson(response).catch(indeterminateIfTooLarge),
         );
       const browser = await chromium.connectOverCDP(session.connectUrl, {
         timeout: 20_000,
@@ -1592,8 +1588,11 @@ export function createAuthorizationBrowser(
       let opened: Opened & Pick<BrowserOptions, "remoteProxy">;
       try {
         opened = await openBrowser(options);
-      } catch {
-        return { status: "blocked", reason: "browser-unavailable" };
+      } catch (error) {
+        return {
+          status: "blocked",
+          reason: unknownOr(error, "browser-unavailable"),
+        };
       }
       let credentials: IsolatedAccount | undefined;
       let accountStored = false;
