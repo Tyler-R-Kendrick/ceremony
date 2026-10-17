@@ -86,7 +86,7 @@ Missing app configuration offers an administrator-only native private form withi
 
 ### Database maintenance and recovery
 
-The hosted keyring accepts `CEREMONY_VAULT_KEY_ID` and `CEREMONY_VAULT_KEY` for new writes plus optional `CEREMONY_VAULT_PREVIOUS_KEYS`: a protected JSON object mapping at most four previous key IDs to 64-character hex keys. Duplicate current IDs, malformed keys, and oversized keyrings fail closed. Keep these values in the operator secret store, separate from the database and backups. Never paste them into a terminal command, issue, model prompt or evidence file.
+The hosted keyring accepts `CEREMONY_VAULT_KEY_ID` and `CEREMONY_VAULT_KEY` for new writes plus optional `CEREMONY_VAULT_PREVIOUS_KEYS`: a protected JSON object mapping at most four previous key IDs to 64-character hex keys. Duplicate current IDs, malformed keys, and oversized keyrings fail closed. The same keys also key the digests a record keeps to recognise a value it does not hold (a submission to a handoff): an HMAC under a key derived from each vault key for that purpose, so no other secret is needed, and a digest written just before a rotation is still recognised while its key is in `CEREMONY_VAULT_PREVIOUS_KEYS`. Keep these values in the operator secret store, separate from the database and backups. Never paste them into a terminal command, issue, model prompt or evidence file.
 
 Run the repository's maintenance tool only with an explicitly configured `CEREMONY_DATABASE_URL`, keyring and `CEREMONY_MAINTENANCE_AUTHORIZED=true`. Stop application traffic and workers for backup, restore and rotation. These commands are operator tooling, not end-user ceremony steps:
 
