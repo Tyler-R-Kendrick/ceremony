@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import {
   PersistenceConflict,
   type AsyncCeremonyStore,
@@ -26,11 +27,38 @@ import {
  * one transaction, so two submissions with different values would both run
  * and the faster one could be answered from the slower one's work. The claim
  * is taken first, as a compare-and-set on the handoff record, and names the
- * submission by a digest only: the values are never stored here. It is given
- * back when the attempt fails, goes with the handoff when it settles, and is
- * void after its lease, so a worker that died holding it does not hold the
- * handoff.
+ * submission by a digest only: the values are never stored here. The caller's
+ * digest is a plain SHA-256 and is not what is kept: the record keeps an
+ * HMAC of it under a key derived from the vault key (persistence/sealing.ts),
+ * so a short submitted code cannot be guessed back from the record without
+ * that key. It is given back when the attempt fails, goes with the handoff
+ * when it settles, and is void after its lease, so a worker that died holding
+ * it does not hold the handoff.
  */
+
+/** What the keyed digest of a submission is for; it keys nothing else. */
+export const SUBMISSION_DIGEST = "handoff.submission";
+
+/**
+ * Whether a held claim names this submission. A claim written before claims
+ * were keyed holds the plain digest itself; it is still recognised until its
+ * lease runs out (twice the call timeout), and nothing writes that form now.
+ */
+export const names = (
+  held: string,
+  plain: string,
+  keyed: readonly string[],
+): boolean => {
+  // Every candidate is compared, in constant time, and none ends the loop:
+  // which of them matched is not told by how long this took.
+  let found = false;
+  for (const candidate of [...keyed, plain])
+    found = same(held, candidate) || found;
+  return found;
+};
+
+const same = (a: string, b: string): boolean =>
+  a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
 /** Reads again, this many times, when another worker changed the handoff between our read and our write. */
 const ATTEMPTS = 5;
@@ -154,9 +182,11 @@ export function createHandoffClaims(
           throw new ConnectorError("conflict", {
             detail: "handoff.stale-generation",
           });
+        const keyed = tx.keyedDigests(SUBMISSION_DIGEST, submission);
         const held = current.claim;
         if (held && at < held.expiresAt) {
-          if (held.submission === submission) return { shared: held.attempt };
+          if (names(held.submission, submission, keyed))
+            return { shared: held.attempt };
           throw new ConnectorError("conflict", {
             detail: "handoff.already-claimed",
           });
@@ -165,7 +195,11 @@ export function createHandoffClaims(
           key,
           {
             ...current,
-            claim: { submission, attempt, expiresAt: at + leaseMs },
+            claim: {
+              submission: keyed[0]!,
+              attempt,
+              expiresAt: at + leaseMs,
+            },
           },
           record.revision,
         );

@@ -22,6 +22,7 @@ import {
   type BoundOperation,
 } from "../../binding.js";
 import { readBoundedBytes } from "../../bounded-body.js";
+import { withinDeadline } from "../../request-deadline.js";
 import { ConnectorError } from "../../errors.js";
 import {
   mergeAccountDetailsSchema,
@@ -61,6 +62,8 @@ import {
 export const MERGE_ADAPTER_VERSION = "2026.09.18";
 
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
+const tooLarge = () =>
+  new ConnectorError("invalid-request", { detail: "merge.response.too-large" });
 const REQUEST_TIMEOUT_MS = 30_000;
 
 const reservedKeys = new Set(["__proto__", "prototype", "constructor"]);
@@ -243,53 +246,45 @@ export function createMergeAdapter(
       throw new ConnectorError("cancelled", {
         detail: "merge.request.aborted",
       });
-    const controller = new AbortController();
-    const abort = () => controller.abort();
-    ctx.signal.addEventListener("abort", abort, { once: true });
-    const timer = setTimeout(abort, timeoutMs);
-    let response: Response;
-    try {
-      response = await ctx.environment.fetch(url, {
-        method: input.method,
-        redirect: "error",
-        signal: controller.signal,
-        headers: {
-          authorization: `Bearer ${apiKey}`,
-          accept: "application/json",
-          ...(input.accountToken
-            ? { "x-account-token": input.accountToken }
-            : {}),
+    // One deadline for the headers and the whole body (request-deadline.ts).
+    const { status, text } = await withinDeadline(
+      ctx.signal,
+      timeoutMs,
+      (error) =>
+        ctx.signal.aborted
+          ? new ConnectorError("cancelled", {
+              detail: "merge.request.cancelled",
+            })
+          : new ConnectorError("upstream-unavailable", {
+              detail: "merge.request.failed",
+              cause: error,
+            }),
+      (signal) =>
+        ctx.environment.fetch(url, {
+          method: input.method,
+          redirect: "error",
+          signal,
+          headers: {
+            authorization: `Bearer ${apiKey}`,
+            accept: "application/json",
+            ...(input.accountToken
+              ? { "x-account-token": input.accountToken }
+              : {}),
+            ...(input.body === undefined
+              ? {}
+              : { "content-type": "application/json" }),
+          },
           ...(input.body === undefined
             ? {}
-            : { "content-type": "application/json" }),
-        },
-        ...(input.body === undefined
-          ? {}
-          : { body: JSON.stringify(input.body) }),
-      });
-    } catch (error) {
-      if (ctx.signal.aborted)
-        throw new ConnectorError("cancelled", {
-          detail: "merge.request.cancelled",
-        });
-      throw new ConnectorError("upstream-unavailable", {
-        detail: "merge.request.failed",
-        cause: error,
-      });
-    } finally {
-      clearTimeout(timer);
-      ctx.signal.removeEventListener("abort", abort);
-    }
-    // Refused at the first chunk past the ceiling, not after the whole answer was held.
-    const text = new TextDecoder().decode(
-      await readBoundedBytes(
-        response,
-        MAX_BODY_BYTES,
-        () =>
-          new ConnectorError("invalid-request", {
-            detail: "merge.response.too-large",
-          }),
-      ),
+            : { body: JSON.stringify(input.body) }),
+        }),
+      // Refused at the first chunk past the ceiling, not after the whole answer was held.
+      async (response, signal) => ({
+        status: response.status,
+        text: new TextDecoder().decode(
+          await readBoundedBytes(response, MAX_BODY_BYTES, tooLarge, signal),
+        ),
+      }),
     );
     let body: unknown;
     if (text.length) {
@@ -302,7 +297,7 @@ export function createMergeAdapter(
       }
       assertPlainJson(body, "merge.response.invalid");
     }
-    return { status: response.status, body };
+    return { status, body };
   };
 
   const requireOk = (result: { status: number; body: unknown }) => {

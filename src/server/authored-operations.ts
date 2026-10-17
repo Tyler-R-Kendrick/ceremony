@@ -7,6 +7,7 @@ import {
   unknownIfTooLarge,
 } from "./connectors/auth/response-bound.js";
 import { publicAuthFetch } from "./public-auth-fetch.js";
+import { progressLog } from "./authored-log.js";
 import { accountIdentifierSchema } from "../core/teaching-contracts.js";
 import { manifestSchema, type ConnectorManifest } from "../core/schema.js";
 import type { ConnectorDraft } from "../core/connector-authoring.js";
@@ -2612,6 +2613,9 @@ export function registerAuthoredOperations(
             diagnosticCode: "awaiting-human" as const,
           };
         }
+        const progress = progressLog((text) =>
+          appendAuthoredLog(options.store, context.actor, context.runId, text),
+        );
         try {
           const clientAuth = await authoredClientAuthentication(
             options.store,
@@ -2633,19 +2637,7 @@ export function registerAuthoredOperations(
           discovery = started.discovery;
           const attemptDiscovery = discovery;
           const origin = discovery.origin || discovery.issuer || "";
-          let logQueue = Promise.resolve();
-          const log = (text: string) => {
-            logQueue = logQueue
-              .then(() =>
-                appendAuthoredLog(
-                  options.store,
-                  context.actor,
-                  context.runId,
-                  text,
-                ),
-              )
-              .catch(() => {});
-          };
+          const log = progress.log;
           log(`Running the ${selected} ceremony in the isolated browser`);
           const prepareAccountAttempt = async () => {
             const accountIntent = await readAuthoredAccountIntent(
@@ -2954,6 +2946,9 @@ export function registerAuthoredOperations(
             );
           }
           /* Isolated browser failure falls through to a human fallback. */
+        } finally {
+          // The run's stream reads the log after the run settles (authored-log.ts).
+          await progress.settled();
         }
         return {
           state: "awaiting-human" as const,

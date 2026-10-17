@@ -23,6 +23,7 @@ import type { ConnectorOAuthOptions } from "../../auth/connector-oauth.js";
 import { beginAttempt } from "../../attempts.js";
 import { boundOperation, destinationFor } from "../../binding.js";
 import { ConnectorError } from "../../errors.js";
+import { withinDeadline } from "../../request-deadline.js";
 import type { CredentialScope } from "../../ports.js";
 import {
   acquireForVerification,
@@ -599,28 +600,29 @@ export function createOpenApiHttpAdapter(
                 effectRef,
               };
 
-            const controller = new AbortController();
-            const onAbort = () => controller.abort();
-            ctx.signal.addEventListener("abort", onAbort, { once: true });
-            const timer = setTimeout(
-              () => controller.abort(),
+            // One deadline for the headers and the whole body (request-deadline.ts).
+            const answer = await withinDeadline(
+              ctx.signal,
               requestTimeoutMs,
-            );
-            let response: Response;
-            try {
-              response = await ctx.environment.fetch(url, {
-                method: plan.method,
-                headers,
-                ...(serialized.body === undefined
-                  ? {}
-                  : { body: serialized.body }),
-                redirect: "error",
-                signal: controller.signal,
-              });
-            } catch {
-              clearTimeout(timer);
-              ctx.signal.removeEventListener("abort", onAbort);
-              // A request that never produced a response may still have been applied.
+              (error) =>
+                new ConnectorError("upstream-unavailable", { cause: error }),
+              (signal) =>
+                ctx.environment.fetch(url, {
+                  method: plan.method,
+                  headers,
+                  ...(serialized.body === undefined
+                    ? {}
+                    : { body: serialized.body }),
+                  redirect: "error",
+                  signal,
+                }),
+              async (response, signal) => ({
+                response,
+                ...(await readBoundedBody(response, limit, signal)),
+              }),
+            ).catch(() => undefined);
+            if (!answer) {
+              // An answer that did not arrive whole may still have been applied.
               const lost = bound.effect !== "read";
               await ctx.environment.effects.complete(effectRef, {
                 status: lost ? "indeterminate" : "not-applied",
@@ -635,10 +637,7 @@ export function createOpenApiHttpAdapter(
                 effectRef,
               };
             }
-            clearTimeout(timer);
-            ctx.signal.removeEventListener("abort", onAbort);
-
-            const { bytes, exceeded } = await readBoundedBody(response, limit);
+            const { response, bytes, exceeded } = answer;
             // A body over the bound is a failure, never a truncation: half a JSON
             // document is not the response the operation described. The upstream
             // still acted, though, so a successful status is journalled as applied.

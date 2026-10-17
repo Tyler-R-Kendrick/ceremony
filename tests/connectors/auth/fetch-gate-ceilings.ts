@@ -1,6 +1,5 @@
 import ts from "typescript";
-import { FileFacts } from "./fetch-gate-facts.js";
-import type { GateProgram } from "./fetch-gate-program.js";
+import type { FileFacts } from "./fetch-gate-facts.js";
 import { MAX_CEILING, NAMED_CEILINGS, unwrap } from "./fetch-gate-syntax.js";
 
 /*
@@ -20,13 +19,20 @@ export type Forward = {
   index: number;
   path: string[];
 };
-export type Verdict = { problems: string[]; forwards: Forward[] };
+export type Verdict = {
+  problems: string[];
+  forwards: Forward[];
+  /** A ceiling was fixed here (a constant, a default or a fallback), not only taken from a parameter. */
+  fixed?: boolean;
+};
 
 const OK: Verdict = { problems: [], forwards: [] };
+const FIXED: Verdict = { problems: [], forwards: [], fixed: true };
 const problem = (text: string): Verdict => ({ problems: [text], forwards: [] });
 const join = (...verdicts: Verdict[]): Verdict => ({
   problems: verdicts.flatMap((verdict) => verdict.problems),
   forwards: verdicts.flatMap((verdict) => verdict.forwards),
+  fixed: verdicts.some((verdict) => verdict.fixed),
 });
 const DEPTH = 16;
 const isFallback = (kind: ts.SyntaxKind) =>
@@ -131,7 +137,7 @@ function judgeLeaf(
 ): Verdict {
   if (depth > DEPTH) return problem("a ceiling too deep to follow");
   const target = unwrap(node);
-  if (ts.isIdentifier(target) && target.text === "undefined") return OK;
+  if (ts.isIdentifier(target) && target.text === "undefined") return FIXED;
   const parameter = ts.isIdentifier(target)
     ? parameterOf(facts, target)
     : undefined;
@@ -165,7 +171,7 @@ function judgeLeaf(
     constant && named !== undefined ? { ...constant, bound: named } : constant;
   if (value)
     return value.bytes > 0 && value.bytes <= value.bound
-      ? OK
+      ? FIXED
       : problem(
           `hands the reader a ceiling of ${value.bytes} bytes; the most is ${value.bound}`,
         );
@@ -268,43 +274,10 @@ export function calleeName(node: ts.Node): string | undefined {
   const target = unwrap(node);
   if (ts.isIdentifier(target)) return target.text;
   if (ts.isPropertyAccessExpression(target)) return target.name.text;
+  if (
+    ts.isElementAccessExpression(target) &&
+    ts.isStringLiteralLike(target.argumentExpression)
+  )
+    return target.argumentExpression.text;
   return undefined;
-}
-
-/** The name a function is called by: its own, or the `const` it is assigned to. */
-function nameOf(fn: ts.SignatureDeclaration): string | undefined {
-  if (fn.name && ts.isIdentifier(fn.name)) return fn.name.text;
-  if (ts.isVariableDeclaration(fn.parent) && ts.isIdentifier(fn.parent.name))
-    return fn.parent.name.text;
-  return undefined;
-}
-
-/** Every call, in the given files, to the function `fn`. */
-export function callsTo(
-  gate: GateProgram,
-  files: readonly string[],
-  fn: ts.SignatureDeclaration,
-): Array<{ facts: FileFacts; call: ts.CallExpression }> {
-  const name = nameOf(fn);
-  if (!name) return [];
-  const found: Array<{ facts: FileFacts; call: ts.CallExpression }> = [];
-  for (const file of files) {
-    const sf = gate.sourceFile(file);
-    if (!sf || !sf.text.includes(name)) continue;
-    const facts = new FileFacts(gate, file);
-    // Only a callee spelled with the name, or a file that imports it under
-    // another, can be a call to it; the checker decides which are.
-    const renamed = sf.text.includes(`${name} as `);
-    const walk = (node: ts.Node): void => {
-      if (
-        ts.isCallExpression(node) &&
-        (renamed || calleeName(node.expression) === name) &&
-        facts.functionsOf(node.expression)?.includes(fn)
-      )
-        found.push({ facts, call: node });
-      ts.forEachChild(node, walk);
-    };
-    walk(sf);
-  }
-  return found;
 }

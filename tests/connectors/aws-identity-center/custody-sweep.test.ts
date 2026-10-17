@@ -46,6 +46,7 @@ test("a cancelled choice whose drop failed is swept, and nothing else is", async
 
   assert.deepEqual(await sweepDroppedCredentials(setup.store, TENANT), {
     swept: 1,
+    failed: 0,
   });
   const after = await custodyAudit(
     setup.ports.credentials,
@@ -55,6 +56,7 @@ test("a cancelled choice whose drop failed is swept, and nothing else is", async
   assert.deepEqual(after.leaked, [kept], "only the noted drop was swept");
   assert.deepEqual(await sweepDroppedCredentials(setup.store, TENANT), {
     swept: 0,
+    failed: 0,
   });
 });
 
@@ -86,6 +88,7 @@ test("a replaced credential whose drop failed is swept; the new one is not", asy
 
   assert.deepEqual(await sweepDroppedCredentials(setup.store, TENANT), {
     swept: 1,
+    failed: 0,
   });
   const after = await custodyAudit(
     setup.ports.credentials,

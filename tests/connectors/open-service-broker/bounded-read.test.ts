@@ -22,7 +22,9 @@ test("a binding answer that never ends is cut off at the client's ceiling", asyn
       origin: "https://broker.example",
       network: "public",
     } as never,
-    fetch: endlessFetch(seen),
+    fetch: endlessFetch(seen, [
+      "src/server/connectors/providers/open-service-broker/client.ts#get",
+    ]),
     authorization: async () => undefined,
   });
   await assert.rejects(

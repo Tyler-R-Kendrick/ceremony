@@ -2,18 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { fixtureActor, memoryPorts } from "../doubles/ports.js";
+import { fixtureActor } from "../doubles/ports.js";
 import { startCamelRunnerFixture } from "../doubles/camel-runner.js";
-import {
-  assertReadUnder,
-  endlessFetch,
-  type Pulled,
-} from "../doubles/endless-body.js";
-import { buildBinding } from "../fixtures/builders.js";
 import type { AdapterCallContext } from "../../../src/server/connectors/adapter.js";
 import { ConnectorError } from "../../../src/server/connectors/errors.js";
 import {
-  CAMEL_KAMELET_ADAPTER_ID,
   KAMELET_BROWSER_DEPLOYMENT_REASON,
   KAMELET_NO_RUNNER_CONFIGURED,
   KAMELET_RUN_DESCRIPTOR_FORMAT,
@@ -23,75 +16,19 @@ import {
   importKamelet,
   kameletRunDescriptor,
   unavailableKameletRunner,
-  type KameletHostRunnerPort,
 } from "../../../src/server/connectors/formats/camel-kamelet/index.js";
+import {
+  SIGNING_SECRET,
+  RUNNER_SECRET_CONFIGURATION,
+  kameletSettings,
+  harness,
+} from "./harness.js";
 
 /*
  * Runtime availability is the whole point of these tests: a deployment that
  * has no runner says so with the exact reason and runs nothing, and a browser
  * deployment cannot acquire one at all.
  */
-
-const SIGNING_SECRET = "CEREMONY_FIXTURE_RUNNER_SECRET";
-const RUNNER_SECRET_CONFIGURATION = "CAMEL_RUNNER_SIGNING_SECRET";
-
-const kameletSettings = {
-  kameletName: "fixture-object-store-source",
-  kameletType: "source" as const,
-  catalogVersion: "4.22.0",
-  scheme: "aws2-s3",
-  dependencies: ["camel:core", "camel:aws2-s3", "camel:kamelet"],
-  parameters: { bucketName: "fixture-bucket", region: "eu-west-1", delay: 500 },
-  secretParameters: {
-    accessKey: "FIXTURE_OBJECT_STORE_ACCESS_KEY",
-    secretKey: "FIXTURE_OBJECT_STORE_SECRET_KEY",
-  },
-};
-
-function harness(options: {
-  runnerOrigin?: string;
-  runner?: KameletHostRunnerPort;
-  deploymentRuntime?: "browser" | "hosted-server";
-}) {
-  const ports = memoryPorts();
-  const binding = buildBinding({
-    adapterId: CAMEL_KAMELET_ADAPTER_ID,
-    destinations: options.runnerOrigin
-      ? [
-          {
-            id: "runner",
-            origin: options.runnerOrigin,
-            network: "loopback-fixture",
-          },
-        ]
-      : [{ id: "runner", origin: "https://runner.invalid", network: "public" }],
-    operations: [
-      {
-        operationRef: KAMELET_RUN_OPERATION,
-        nativeId: kameletSettings.kameletName,
-        destinationId: "runner",
-        transport: { kind: "http", method: "POST", pathTemplate: "/run" },
-        effect: "write",
-        outputClassification: "personal",
-        cost: "unknown",
-        consent: "confirm",
-        replay: "none",
-        targetParameters: [],
-      },
-    ],
-    configuration: [],
-    settings: { kamelet: kameletSettings },
-    profileId: undefined,
-  });
-  const ctx: AdapterCallContext = {
-    actor: fixtureActor,
-    binding,
-    generation: 0,
-    signal: AbortSignal.timeout(10_000),
-    environment: ports.environment({ fetch: globalThis.fetch }),
-  };
-  return { ports, binding, ctx };
-}
 
 test("AC-EXT-18: a Kamelet that requests a local runtime installs nothing", async () => {
   // The clause of AC-EXT-18 this swarm owns for Camel: asking for execution
@@ -432,33 +369,4 @@ test("the exported run descriptor carries configuration names and no credential 
     (error: unknown) =>
       error instanceof ConnectorError && error.code === "unsupported",
   );
-});
-
-test("a runner answer that never ends is cut off at the ceiling while it is read", async () => {
-  const { ctx, ports } = harness({ runnerOrigin: "http://127.0.0.1:8765" });
-  ports.configuration.set(RUNNER_SECRET_CONFIGURATION, SIGNING_SECRET);
-  const seen: Pulled = { pulled: 0 };
-  const endless = {
-    ...ctx,
-    environment: ports.environment({ fetch: endlessFetch(seen) }),
-  };
-  const runner = createRemoteKameletRunner(
-    {
-      runnerId: "fixture-runner",
-      operationRef: KAMELET_RUN_OPERATION,
-      signingSecretConfiguration: RUNNER_SECRET_CONFIGURATION,
-    },
-    { readConfiguration: (name) => ports.configuration.read(name) },
-  );
-  const outcome = await createCamelKameletAdapter({ runner }).invoke!(endless, {
-    operationRef: KAMELET_RUN_OPERATION,
-    input: { trigger: "manual" },
-    commandId: "command-endless",
-  }).then(
-    (result) => result.code,
-    (error: unknown) =>
-      error instanceof ConnectorError ? error.detail : String(error),
-  );
-  assert.equal(outcome, "kamelet.runner.response-oversized");
-  assertReadUnder(assert, seen, 256 * 1024, "camel runner");
 });

@@ -101,7 +101,11 @@ const openHandoff: HumanHandoffContract = {
  * scraped from the page being driven, so the agent is doing what a person with
  * an inbox does rather than reading its own answer off the screen.
  */
-async function codeFrom(issuer: string, address: string): Promise<string> {
+/** Exported for the bound test, which serves it a mailbox that never ends. */
+export async function codeFrom(
+  issuer: string,
+  address: string,
+): Promise<string> {
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const page = await fetch(`${issuer}/inbox`).then((response) =>
       // The page carries a verification code: read under the OAuth ceiling.
@@ -124,7 +128,8 @@ async function codeFrom(issuer: string, address: string): Promise<string> {
 }
 
 /** Provider-side proof: the account is real only if the provider issues against it. */
-async function issuedBy(
+/** Exported for the bound test, which serves it a credential answer that never ends. */
+export async function issuedBy(
   issuer: string,
   email: string,
   password: string,

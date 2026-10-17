@@ -4,6 +4,12 @@ import {
   createSignatureAgent,
   verifyRequestSignature,
 } from "../src/core/web-bot-auth.js";
+import { MAX_RESPONSE_BYTES } from "../src/server/connectors/auth/response-bound.js";
+import {
+  assertReadUnder,
+  endlessFetch,
+  type Pulled,
+} from "./connectors/doubles/endless-body.js";
 
 /*
  * A gate fetches the agent's key directory from an address the request itself
@@ -12,25 +18,12 @@ import {
  * directory that never ends is "no directory", not a body held in memory.
  */
 
-const CHUNK = 64 * 1024;
-const ENDLESS = 64 * 1024 * 1024;
-const MAX = 1_048_576;
-
 test("a key directory that never ends is cut off at the ceiling and reads as no directory", async () => {
   const agent = createSignatureAgent("https://agent.example");
-  let pulled = 0;
-  const chunk = new Uint8Array(CHUNK).fill(0x20);
-  const endless = (async () =>
-    new Response(
-      new ReadableStream<Uint8Array>({
-        pull(controller) {
-          if (pulled >= ENDLESS) return controller.close();
-          pulled += CHUNK;
-          controller.enqueue(chunk);
-        },
-      }),
-      { status: 200 },
-    )) as unknown as typeof fetch;
+  const seen: Pulled = { pulled: 0 };
+  const endless = endlessFetch(seen, [
+    "src/core/web-bot-auth.ts#verifyRequestSignature",
+  ]);
 
   const verdict = await verifyRequestSignature(
     agent.headers("https://provider.example/signin"),
@@ -39,9 +32,5 @@ test("a key directory that never ends is cut off at the ceiling and reads as no 
   );
 
   assert.deepEqual(verdict, { ok: false, why: "no-directory" });
-  assert.ok(pulled > 0, "the endless directory was in fact served");
-  assert.ok(
-    pulled <= MAX + 2 * CHUNK,
-    `read ${pulled} bytes of a key directory; the ceiling is ${MAX}`,
-  );
+  assertReadUnder(assert, seen, MAX_RESPONSE_BYTES, "a key directory");
 });

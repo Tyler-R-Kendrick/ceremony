@@ -11,6 +11,11 @@ import { ConnectorError } from "../../../src/server/connectors/errors.js";
 import { createSupabaseManagementAdapter } from "../../../src/server/connectors/providers/supabase/index.js";
 import { fixtureActor } from "../doubles/ports.js";
 import {
+  assertReadUnder,
+  endlessResponse,
+  type Sites,
+} from "../doubles/endless-body.js";
+import {
   managementOrganization,
   managementProject,
   startSupabaseManagementDouble,
@@ -41,8 +46,9 @@ const CONFIGURATION = {
 };
 const REDIRECT_URI = `${HOST_ORIGIN}${CALLBACK_PATH}`;
 const adapter = createSupabaseManagementAdapter();
-const CHUNK = 64 * 1024;
-const ENDLESS = 64 * 1024 * 1024;
+const TOKEN: Sites = [
+  "src/server/connectors/providers/supabase/management.ts#tokenRequestOptions",
+];
 
 const intent: AuthorizationIntent = {
   ownerKind: "user",
@@ -64,18 +70,7 @@ function streamingTokenEndpoint(real: typeof fetch) {
     );
     if (!state.endless || url.pathname !== "/v1/oauth/token")
       return real(input, init);
-    const chunk = new Uint8Array(CHUNK).fill(0x20);
-    const body = new ReadableStream<Uint8Array>({
-      pull(controller) {
-        if (state.pulled >= ENDLESS) return controller.close();
-        state.pulled += CHUNK;
-        controller.enqueue(chunk);
-      },
-    });
-    return new Response(body, {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
+    return endlessResponse(state, TOKEN);
   };
   return { state, fetch: wrapped };
 }
@@ -150,11 +145,7 @@ test("an endless token answer to the authorization-code exchange is cut off, unk
   assert.equal(result.code, "supabase.oauth.exchange-indeterminate");
   assert.equal(result.credentialRef, undefined);
   assert.deepEqual(h.ports.inspect.credentialRefs(), []);
-  assert.ok(
-    stream.state.pulled <= 2 * MAX_RESPONSE_BYTES,
-    `read ${stream.state.pulled} bytes of a token answer; the ceiling is ${MAX_RESPONSE_BYTES}`,
-  );
-  assert.ok(stream.state.pulled > 0, "the endless answer was in fact served");
+  assertReadUnder(assert, stream.state, MAX_RESPONSE_BYTES, "a token answer");
 });
 
 test("an endless token answer to a refresh is cut off, the refresh is journaled as unknown, and the connection is not told to reconnect", async (t) => {
@@ -180,11 +171,7 @@ test("an endless token answer to a refresh is cut off, the refresh is journaled 
   assert.ok(failure instanceof ConnectorError, String(failure));
   assert.equal(failure.code, "upstream-unavailable");
   assert.equal(failure.detail, "supabase.oauth.refresh-unavailable");
-  assert.ok(
-    stream.state.pulled <= 2 * MAX_RESPONSE_BYTES,
-    `read ${stream.state.pulled} bytes of a token answer; the ceiling is ${MAX_RESPONSE_BYTES}`,
-  );
-  assert.ok(stream.state.pulled > 0, "the endless answer was in fact served");
+  assertReadUnder(assert, stream.state, MAX_RESPONSE_BYTES, "a token answer");
   const refresh = h.ports.inspect
     .effects()
     .find(
