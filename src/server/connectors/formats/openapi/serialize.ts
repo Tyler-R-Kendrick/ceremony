@@ -312,34 +312,55 @@ export function responseIsJson(contentType: string | null): boolean {
 }
 
 /**
- * Reads at most `limit` bytes of a response body. Exceeding the limit is a
- * failure, not a truncation: a truncated JSON document is not the response the
- * operation described.
+ * Reads at most `limit` bytes of a response body, under `signal` when given
+ * (the request's one deadline, request-deadline.ts: when it aborts the body is
+ * cancelled and the read rejects). Exceeding the limit is a failure, not a
+ * truncation: a truncated JSON document is not the response the operation
+ * described. The limit is the operation plan's own (up to what plan.ts allows),
+ * a number only a binding's settings know, which is why this reader is not
+ * `readBoundedBytes`, whose ceilings are constants the fetch gate can see.
  */
 export async function readBoundedBody(
   response: Response,
   limit: number,
+  signal?: AbortSignal,
 ): Promise<{ bytes: Uint8Array; exceeded: boolean }> {
+  const over = { bytes: new Uint8Array(0), exceeded: true };
   const declared = response.headers.get("content-length");
   if (
     declared !== null &&
     /^\d{1,20}$/.test(declared) &&
     Number(declared) > limit
-  )
-    return { bytes: new Uint8Array(0), exceeded: true };
+  ) {
+    await response.body?.cancel().catch(() => {});
+    return over;
+  }
   const reader = response.body?.getReader();
   if (!reader) return { bytes: new Uint8Array(0), exceeded: false };
+  // Cancelling settles a read that is waiting on the provider, so the check
+  // after each read is what turns an abort into a rejection.
+  const stop = () => void reader.cancel(signal?.reason).catch(() => {});
+  signal?.addEventListener("abort", stop, { once: true });
   const chunks: Uint8Array[] = [];
   let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > limit) {
-      await reader.cancel();
-      return { bytes: new Uint8Array(0), exceeded: true };
+  try {
+    for (;;) {
+      signal?.throwIfAborted();
+      const { done, value } = await reader.read();
+      signal?.throwIfAborted();
+      if (done) break;
+      size += value.byteLength;
+      if (size > limit) {
+        await reader.cancel();
+        return over;
+      }
+      chunks.push(value);
     }
-    chunks.push(value);
+  } catch (error) {
+    await reader.cancel().catch(() => {});
+    throw error;
+  } finally {
+    signal?.removeEventListener("abort", stop);
   }
   const bytes = new Uint8Array(size);
   let offset = 0;
