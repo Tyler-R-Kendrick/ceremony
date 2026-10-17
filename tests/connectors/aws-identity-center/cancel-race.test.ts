@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ConnectorError } from "../../../src/server/connectors/errors.js";
+import { hold, settle } from "../doubles/interleave.js";
 import { awsSetup, connectAndApprove, handoffRefOf } from "./harness.js";
 
 /*
@@ -18,29 +19,15 @@ type View = { lifecycle: string; revision: number };
 test("a cancel that loses the race to a submission leaves the credential the submission bound", async (t) => {
   const setup = await awsSetup(t);
   const { connectionRef, polled } = await connectAndApprove(setup);
-  const ports = (
-    setup.service as unknown as {
-      ports: {
-        handoffs: { cancelAll: (...args: unknown[]) => Promise<unknown> };
-      };
-    }
-  ).ports;
-  const realCancelAll = ports.handoffs.cancelAll.bind(ports.handoffs);
-  const reached = Promise.withResolvers<void>();
-  const gate = Promise.withResolvers<void>();
-  // The cancel has read the connection and is about to cancel the handoff.
-  ports.handoffs.cancelAll = async (...args: unknown[]) => {
-    reached.resolve();
-    await gate.promise;
-    return realCancelAll(...args);
+  const service = setup.service as unknown as {
+    ports: { connections: object };
   };
-  const cancelling = setup.service
-    .cancelPending(setup.person, connectionRef)
-    .then(
-      (value) => ({ value }),
-      (error: unknown) => ({ error }),
-    );
-  await reached.promise;
+  // The cancel has read the connection and is about to write it.
+  const held = hold(service.ports.connections, "update");
+  const cancelling = settle(
+    setup.service.cancelPending(setup.person, connectionRef),
+  );
+  await held.reached;
   const done = await setup.service.provideInput(
     setup.person,
     connectionRef,
@@ -48,12 +35,11 @@ test("a cancel that loses the race to a submission leaves the credential the sub
     { accountId: "111122223333", roleName: "ReadOnlyAccess" },
   );
   assert.equal((done as View).lifecycle, "active");
-  gate.resolve();
+  held.release();
   const outcome = await cancelling;
 
   assert.ok(
-    "error" in outcome &&
-      outcome.error instanceof ConnectorError &&
+    outcome.error instanceof ConnectorError &&
       outcome.error.code === "conflict",
     "the cancel lost on revision and says so",
   );

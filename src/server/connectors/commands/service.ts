@@ -2712,8 +2712,9 @@ export class ConnectorCommandService {
     const entry = await this.connection(actor, connectionRef);
     const summary = pending(entry.record);
     if (!summary) return this.project(actor, entry);
-    await this.ports.handoffs.cancelAll(connectionRef, "cancelled");
-    // Write first, drop second (abandon-pending.ts).
+    // Write first; cancel the handoff and drop the waiting sign-in second
+    // (abandon-pending.ts). A cancel that loses on revision has then changed
+    // nothing, and the record and the handoff store still agree.
     const abandoned = abandonedSession(entry.record);
     const cancelled = await this.update(actor, entry, {
       handoff: { ...summary, state: "cancelled" },
@@ -2724,6 +2725,7 @@ export class ConnectorCommandService {
           : entry.record.lifecycle,
       ...abandoned.patch,
     });
+    await this.ports.handoffs.cancelAll(connectionRef, "cancelled");
     await dropAbandoned(
       this.ports.credentials,
       this.scope(cancelled.record),
