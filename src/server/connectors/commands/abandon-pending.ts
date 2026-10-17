@@ -36,13 +36,22 @@ export function abandonedSession(record: ConnectionRecord): {
   };
 }
 
-/** Drops `ref` from custody, unless the record that was written carries it as its own credential. */
+/**
+ * Drops `ref` from custody, unless the record that was written still names it
+ * (as its credential or as the sign-in a choice is waiting on). The same shape
+ * serves a completion that replaced the connection's credential: the old one
+ * is dropped after the new one was written, never before.
+ */
 export async function dropAbandoned(
   credentials: CredentialCustodyPort,
   scope: CredentialScope,
   ref: string | undefined,
   written: ConnectionRecord,
 ): Promise<void> {
-  if (ref !== undefined && ref !== written.credentialRef)
+  if (
+    ref !== undefined &&
+    ref !== written.credentialRef &&
+    ref !== written.state[PENDING_SESSION_STATE]
+  )
     await credentials.revoke(scope, ref).catch(() => {});
 }

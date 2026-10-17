@@ -233,6 +233,12 @@ type Disconnected = Omit<DisconnectResult, "local"> & {
   local: LocalDisconnectOutcome;
 };
 type ConnectionPatch = Parameters<ConnectionStorePort["update"]>[3];
+/** What a completion decided: the patch to write, and the credential it replaces (dropped after the write). */
+type Applied = {
+  patch: ConnectionPatch;
+  presentation?: HumanPresentation | undefined;
+  replaced?: string | undefined;
+};
 type HandoffHandle = {
   handoffRef: string;
   generation: number;
@@ -1529,7 +1535,7 @@ export class ConnectorCommandService {
       start,
       input.intent,
     );
-    entry = await this.update(actor, entry, applied.patch);
+    entry = await this.commit(actor, entry, applied);
     if (applied.unsupported)
       throw new ConnectorError("unsupported", { detail: applied.unsupported });
     return this.project(actor, entry, applied.presentation);
@@ -1542,11 +1548,7 @@ export class ConnectorCommandService {
     adapter: ConnectorAdapter,
     start: AuthorizationStart,
     intent: IntentInput,
-  ): Promise<{
-    patch: ConnectionPatch;
-    presentation?: HumanPresentation | undefined;
-    unsupported?: string | undefined;
-  }> {
+  ): Promise<Applied & { unsupported?: string | undefined }> {
     const record = entry.record;
     switch (start.kind) {
       case "handoff":
@@ -1655,6 +1657,27 @@ export class ConnectorCommandService {
    * only when the claims satisfy the recorded intent, and a verified account
    * is never silently replaced by a different one.
    */
+  /**
+   * Writes what a completion decided, then drops the credential it replaced:
+   * only once the write has landed, and only if the record as written no
+   * longer names it. A write that loses (a cancel, a disconnect) drops
+   * nothing, so the record never names a credential custody let go of.
+   */
+  private async commit(
+    actor: ActorContext,
+    entry: ConnectionEntry,
+    applied: Applied,
+  ): Promise<ConnectionEntry> {
+    const written = await this.update(actor, entry, applied.patch);
+    await dropAbandoned(
+      this.ports.credentials,
+      this.scope(written.record),
+      applied.replaced,
+      written.record,
+    );
+    return written;
+  }
+
   private async applyCompletion(
     actor: ActorContext,
     entry: ConnectionEntry,
@@ -1662,10 +1685,7 @@ export class ConnectorCommandService {
     handoff: HandoffHandle | undefined,
     intent: IntentInput,
     mode: "authorize" | "verify",
-  ): Promise<{
-    patch: ConnectionPatch;
-    presentation?: HumanPresentation | undefined;
-  }> {
+  ): Promise<Applied> {
     const record = entry.record;
     const patch: ConnectionPatch = {};
     const finish = async (
@@ -1731,14 +1751,14 @@ export class ConnectorCommandService {
               this.ports.evidence.append(actor, record.connectionRef, claim),
             ),
           );
-        if (
+        // The credential this one replaces is dropped by `commit`, after the
+        // write: a write that loses leaves the record naming it.
+        const replaced =
           record.credentialRef &&
           result.credentialRef &&
           result.credentialRef !== record.credentialRef
-        )
-          await this.ports.credentials
-            .revoke(scope, record.credentialRef)
-            .catch(() => {});
+            ? { replaced: record.credentialRef }
+            : {};
         patch.evidenceRefs = evidenceRefs.slice(-256);
         if (result.credentialRef) patch.credentialRef = result.credentialRef;
         patch.externalIds = this.externalIds(record, result.externalIds);
@@ -1750,7 +1770,7 @@ export class ConnectorCommandService {
           await finish("completed");
           patch.lifecycle = "human-required";
           patch.lastOutcome = "verification.target-unverified";
-          return { patch };
+          return { patch, ...replaced };
         }
         if (verified) patch.target = { kind: verified.kind, id: verified.id };
         if (claims.length) {
@@ -1776,7 +1796,7 @@ export class ConnectorCommandService {
           mode === "verify"
             ? "verification.complete"
             : "authorization.complete";
-        return { patch };
+        return { patch, ...replaced };
       }
       case "pending":
         // A pending answer can still carry state the next poll needs (a
@@ -2060,7 +2080,7 @@ export class ConnectorCommandService {
     await this.ports.effects
       .complete(journal.effectRef, this.effectOutcome(result))
       .catch(() => {});
-    const updated = await this.update(actor, entry, applied.patch);
+    const updated = await this.commit(actor, entry, applied);
     return this.project(actor, updated, applied.presentation);
   }
 
@@ -2181,7 +2201,7 @@ export class ConnectorCommandService {
       intentOf(record),
       "authorize",
     );
-    const updated = await this.update(actor, entry, applied.patch);
+    const updated = await this.commit(actor, entry, applied);
     const presentation =
       applied.presentation ??
       (result.state === "pending"
@@ -2294,7 +2314,7 @@ export class ConnectorCommandService {
       intentOf(record),
       "verify",
     );
-    return this.project(actor, await this.update(actor, entry, applied.patch));
+    return this.project(actor, await this.commit(actor, entry, applied));
   }
 
   // ----------------------------------------------------------------- invoke
@@ -2677,7 +2697,7 @@ export class ConnectorCommandService {
       outcome,
       intent,
     );
-    current = await this.update(actor, current, applied.patch);
+    current = await this.commit(actor, current, applied);
     if (applied.unsupported)
       throw new ConnectorError("unsupported", { detail: applied.unsupported });
     return this.project(actor, current, applied.presentation);
