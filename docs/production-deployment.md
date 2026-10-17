@@ -97,7 +97,10 @@ npx tsx scripts/persistence-maintenance.ts rotate TENANT_ID
 npx tsx scripts/persistence-maintenance.ts purge-collections TENANT_ID
 npx tsx scripts/persistence-maintenance.ts delete-demonstration TENANT_ID DEMONSTRATION_ID
 npx tsx scripts/persistence-maintenance.ts purge-jira-setup TENANT_ID
+npx tsx scripts/persistence-maintenance.ts sweep-credentials TENANT_ID
 ```
+
+`sweep-credentials` retries the custody drops that did not happen. A connector replaces or abandons a sign-in by writing the connection first and dropping the old custody record second, noting the reference in the same write; a drop that fails, or a process that stops between the two, leaves the record in custody. The sweep drops only what a connection noted and no longer names (never a record nothing noted, such as a trigger's signing key), tells no provider, and can run beside live traffic.
 
 Backup uses an exclusive PostgreSQL snapshot of the actual encrypted record tables, not a decrypted application export. It refuses active leases, more than 10,000 records/claims, or over 16 MB of ciphertext; larger deployments need separately tested native database backup tooling. Files are created exclusively with mode 0600 and are never overwritten. Metadata includes tenant/record identifiers; treat the backup as confidential even though values are encrypted. The tool prints no records, keys or connection URLs.
 

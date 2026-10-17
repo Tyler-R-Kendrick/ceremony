@@ -1,4 +1,5 @@
 import { PENDING_SESSION_STATE } from "../auth/pending-session.js";
+import { noteDropped } from "../dropped-credentials.js";
 import type {
   ConnectionRecord,
   CredentialCustodyPort,
@@ -32,7 +33,14 @@ export function abandonedSession(record: ConnectionRecord): {
   if (typeof waiting !== "string") return { patch: {} };
   return {
     ref: waiting,
-    patch: { state: { ...record.state, [PENDING_SESSION_STATE]: null } },
+    // The same write notes the drop, so a drop that fails is retried by the
+    // sweep (dropped-credentials.ts).
+    patch: {
+      state: noteDropped(
+        { ...record.state, [PENDING_SESSION_STATE]: null },
+        waiting,
+      ),
+    },
   };
 }
 

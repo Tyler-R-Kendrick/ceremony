@@ -1,5 +1,6 @@
 import type { HumanPresentation } from "../../../core/connectors/index.js";
 import type { AuthorizationIntent } from "../adapter.js";
+import { DROPPED_CREDENTIALS_STATE } from "../dropped-credentials.js";
 import { ConnectorError } from "../errors.js";
 import type { ConnectionRecord } from "../ports.js";
 import { intentInputSchema, type IntentInput } from "./inputs.js";
@@ -89,9 +90,14 @@ export function boundedState(
   for (const [key, value] of Object.entries(extra ?? {}))
     if (
       /^[^\p{Cc}]{1,120}$/u.test(key) &&
-      !["__proto__", "prototype", "constructor", "intent", "deleted"].includes(
-        key,
-      )
+      ![
+        "__proto__",
+        "prototype",
+        "constructor",
+        "intent",
+        "deleted",
+        DROPPED_CREDENTIALS_STATE,
+      ].includes(key)
     )
       merged[key] = value;
   if (

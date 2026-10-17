@@ -191,6 +191,7 @@ export {
   type CredentialCustodyOptions,
 } from "./credentials.js";
 export { createHandoffPort, type HandoffOptions } from "./handoffs.js";
+export { sweepDroppedCredentials } from "./custody-sweep.js";
 export {
   createEffectJournalPort,
   type ConnectorEffectJournal,

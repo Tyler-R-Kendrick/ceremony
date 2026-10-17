@@ -98,6 +98,7 @@ import {
   type ReconnectInput,
 } from "./inputs.js";
 import { abandonedSession, dropAbandoned } from "./abandon-pending.js";
+import { noteDropped } from "../dropped-credentials.js";
 import {
   boundOperationTransport,
   declaredOAuthOrigins,
@@ -1763,6 +1764,8 @@ export class ConnectorCommandService {
         if (result.credentialRef) patch.credentialRef = result.credentialRef;
         patch.externalIds = this.externalIds(record, result.externalIds);
         patch.state = boundedState(record.state, result.adapterState);
+        if (replaced.replaced)
+          patch.state = noteDropped(patch.state, replaced.replaced);
         patch.configurationRevision = await this.options
           .configuration(actor)
           .revision();
