@@ -6,6 +6,7 @@ import {
   checkAt,
   type Forward,
 } from "./fetch-gate-ceilings.js";
+import { aliasProblems } from "./fetch-gate-aliases.js";
 import { Evaluator } from "./fetch-gate-evaluator.js";
 import type { GateProgram } from "./fetch-gate-program.js";
 import { readsIn } from "./fetch-gate-reads.js";
@@ -80,6 +81,8 @@ function ceilingProblems(
       ts.forEachChild(node, walk);
     };
     walk(sf);
+    aliasProblems(facts, sf);
+    for (const text of facts.problems) problems.add(text);
   }
   while (queue.length) {
     const next = queue.shift()!;

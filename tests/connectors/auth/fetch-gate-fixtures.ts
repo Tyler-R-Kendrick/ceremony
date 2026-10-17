@@ -194,6 +194,47 @@ declare const wire: Parameters<typeof wireFetch>[0];
 const send = wireFetch({ ...wire });
 await oauth.refreshTokenGrantRequest(as, client, auth, token, { [oauth.customFetch]: (url, init) => send(url, init) });`,
   },
+  {
+    name: "a ceiling given as a shorthand property",
+    expect: /cannot see into/,
+    source: `${HEAD}
+const maxResponseBytes = 2 ** 40;
+await oauth.refreshTokenGrantRequest(as, client, auth, token, requestOptions({ fetch, allowLoopbackHttp: false, maxResponseBytes }));`,
+  },
+  {
+    // The relay is in `modules`; this file never spells a bounder's name.
+    name: "a ceiling raised on a bounder another module renamed",
+    expect: UNBOUNDED,
+    source: `import * as oauth from "oauth4webapi";
+import { bounded } from "./gate-fixture-relay.js";
+declare const as: oauth.AuthorizationServer, client: oauth.Client, auth: oauth.ClientAuth, token: string;
+await oauth.refreshTokenGrantRequest(as, client, auth, token, { [oauth.customFetch]: async (url, init) => bounded(await fetch(url, init), 2 ** 40) });`,
+  },
+  // A bounder is called, imported or re-exported under its own name, or named in a type.
+  {
+    name: "a bounder re-exported under another name",
+    expect: /re-exports readBoundedBytes as readBytes/,
+    source: `export { readBoundedBytes as readBytes } from "../../core/bounded-body.js";`,
+  },
+  {
+    name: "a bounder held in a variable",
+    expect: /takes readBoundedBytes as a value/,
+    source: `import { readBoundedBytes } from "../../core/bounded-body.js";
+const readBytes = readBoundedBytes;
+export const bytes = async (url: string) => readBytes(await fetch(url), 2 ** 40, () => new Error("too large"));`,
+  },
+  {
+    name: "a bounder imported under another name and handed on",
+    expect: /takes boundResponse as a value/,
+    source: `import { boundResponse as bound } from "./auth/response-bound.js";
+export const relay = { bound };`,
+  },
+  {
+    name: "a bounder read by a computed name",
+    expect: /reads readBoundedBytes by a computed name/,
+    source: `import * as bodies from "../../core/bounded-body.js";
+export const bytes = async (url: string) => bodies["readBoundedBytes"](await fetch(url), 2 ** 40, () => new Error("too large"));`,
+  },
   // Uses that hide calls.
   {
     name: "a default import",
@@ -297,7 +338,29 @@ createRequire(import.meta.url).resolve("oauth4webapi");
 const relative = await import(\`./auth/wire.js?probe=\${Date.now()}\`);
 void relative;`,
   },
+  {
+    name: "the library named in type positions only",
+    source: `import * as oauth from "oauth4webapi";
+import { refreshTokenGrantRequest } from "oauth4webapi";
+export type Library = typeof oauth;
+export type Refresh = typeof refreshTokenGrantRequest;
+export type Grant = Awaited<ReturnType<typeof oauth.refreshTokenGrantRequest>>;`,
+  },
+  {
+    name: "a bounder re-exported under its own name, named in a type and called through a namespace",
+    source: `import * as bodies from "../../core/bounded-body.js";
+import { readBoundedBytes } from "../../core/bounded-body.js";
+export { boundResponse } from "./auth/response-bound.js";
+export type Reader = typeof readBoundedBytes;
+export type Qualified = typeof bodies.readBoundedBytes;
+export const bytes = async (url: string) => bodies.readBoundedBytes(await fetch(url), 65536, () => new Error("too large"));`,
+  },
 ];
+
+/** Modules the fixtures import, served beside them and never judged themselves. */
+export const modules: Record<string, string> = {
+  "src/server/connectors/gate-fixture-relay.ts": `export { boundResponse as bounded } from "./auth/response-bound.js";`,
+};
 
 /** Hand reads Part B must count beyond the review's seven. */
 export const extraReads: Array<[string, string]> = [

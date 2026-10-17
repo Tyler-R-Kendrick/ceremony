@@ -19,6 +19,7 @@ import {
   accepted,
   extraReads,
   fixturePath,
+  modules,
   refused,
 } from "./fetch-gate-fixtures.js";
 
@@ -41,7 +42,7 @@ import {
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 const files = trackedSources(ROOT);
-const virtual: Record<string, string> = {};
+const virtual: Record<string, string> = { ...modules };
 const refusedAt = refused.map((fixture, n) => {
   virtual[fixturePath(n)] = fixture.source;
   return fixturePath(n);
