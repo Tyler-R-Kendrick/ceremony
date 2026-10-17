@@ -17,6 +17,7 @@ import {
   destinationUrl,
 } from "../../binding.js";
 import { readBoundedBytes } from "../../bounded-body.js";
+import { withinDeadline } from "../../request-deadline.js";
 import { ConnectorError } from "../../errors.js";
 import {
   kameletNameSchema,
@@ -256,51 +257,52 @@ export function createRemoteKameletRunner(
         nonce,
         descriptorDigest,
       });
-      const controller = new AbortController();
-      const abort = () => controller.abort();
-      ctx.signal.addEventListener("abort", abort, { once: true });
-      const timer = setTimeout(abort, timeoutMs);
-      let response: Response;
-      try {
-        response = await ctx.environment.fetch(url, {
-          method: "POST",
-          redirect: "error",
-          signal: controller.signal,
-          headers: {
-            "content-type": "application/json",
-            accept: "application/json",
-            [RUNNER_SIGNATURE_HEADER]: `${RUNNER_SIGNATURE_VERSION},t=${timestamp},n=${nonce},s=${signature}`,
-            "ceremony-runner-digest": descriptorDigest,
-            "ceremony-command-id": request.commandId,
-          },
-          body,
-        });
-      } catch (error) {
-        throw new ConnectorError(
-          ctx.signal.aborted ? "cancelled" : "upstream-unavailable",
-          { detail: "kamelet.runner.unreachable", cause: error },
-        );
-      } finally {
-        clearTimeout(timer);
-        ctx.signal.removeEventListener("abort", abort);
-      }
-      if (response.status === 401 || response.status === 403)
-        throw new ConnectorError("denied", {
-          detail: "kamelet.runner.rejected-signature",
-        });
-      if (!response.ok)
-        throw new ConnectorError(
-          response.status >= 500 ? "upstream-unavailable" : "upstream-rejected",
-          { detail: "kamelet.runner.failed" },
-        );
-      // Refused at the first chunk past the ceiling, not after the whole answer.
-      const buffer = await readBoundedBytes(
-        response,
-        maxBytes,
-        () =>
-          new ConnectorError("upstream-rejected", {
-            detail: "kamelet.runner.response-oversized",
+      // One deadline for the headers and the whole body (request-deadline.ts).
+      const buffer = await withinDeadline(
+        ctx.signal,
+        timeoutMs,
+        (error) =>
+          new ConnectorError(
+            ctx.signal.aborted ? "cancelled" : "upstream-unavailable",
+            { detail: "kamelet.runner.unreachable", cause: error },
+          ),
+        (signal) =>
+          ctx.environment.fetch(url, {
+            method: "POST",
+            redirect: "error",
+            signal,
+            headers: {
+              "content-type": "application/json",
+              accept: "application/json",
+              [RUNNER_SIGNATURE_HEADER]: `${RUNNER_SIGNATURE_VERSION},t=${timestamp},n=${nonce},s=${signature}`,
+              "ceremony-runner-digest": descriptorDigest,
+              "ceremony-command-id": request.commandId,
+            },
+            body,
           }),
+        (response, signal) => {
+          if (response.status === 401 || response.status === 403)
+            throw new ConnectorError("denied", {
+              detail: "kamelet.runner.rejected-signature",
+            });
+          if (!response.ok)
+            throw new ConnectorError(
+              response.status >= 500
+                ? "upstream-unavailable"
+                : "upstream-rejected",
+              { detail: "kamelet.runner.failed" },
+            );
+          // Refused at the first chunk past the ceiling, not after the whole answer.
+          return readBoundedBytes(
+            response,
+            maxBytes,
+            () =>
+              new ConnectorError("upstream-rejected", {
+                detail: "kamelet.runner.response-oversized",
+              }),
+            signal,
+          );
+        },
       );
       let parsed: unknown;
       try {
