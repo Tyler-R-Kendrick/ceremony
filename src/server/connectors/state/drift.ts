@@ -20,7 +20,7 @@ import {
   type ConnectionOwnership,
 } from "./connections.js";
 import { markEvidenceStale } from "./evidence.js";
-import { settlePendingHandoffs } from "./handoffs.js";
+import { lockHandoffs, settleLocked } from "./handoff-settle.js";
 
 /*
  * Revocation and drift invalidation. When the source bytes, the runtime
@@ -106,6 +106,10 @@ export function createDriftInvalidator(
         drift.sourceDigestChanged || drift.bindingRevisionChanged,
       );
       const result = await transact(store, async (tx) => {
+        // Only a drift that can advance the generation settles handoffs.
+        const handoffs = reconnect
+          ? await lockHandoffs(tx, actor.tenantId, connectionRef)
+          : undefined;
         const current = await loadOwnedConnection(
           tx,
           actor,
@@ -148,16 +152,10 @@ export function createDriftInvalidator(
           compact({ disconnect: current.value.disconnect }),
           current.revision,
         );
-        const handoffsSettled = advance
-          ? await settlePendingHandoffs(
-              tx,
-              actor.tenantId,
-              connectionRef,
-              "superseded",
-              reasons[0]!,
-              at,
-            )
-          : 0;
+        const handoffsSettled =
+          advance && handoffs
+            ? await settleLocked(tx, handoffs, "superseded", reasons[0]!, at)
+            : 0;
         return { record, revision, evidenceInvalidated, handoffsSettled };
       });
       await notifyCache(options.cacheInvalidation, {

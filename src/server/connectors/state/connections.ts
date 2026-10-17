@@ -23,7 +23,7 @@ import {
   transact,
   type CacheInvalidationHook,
 } from "./common.js";
-import { settlePendingHandoffs } from "./handoffs.js";
+import { lockHandoffs, settleLocked } from "./handoff-settle.js";
 import { keyDigestOf } from "./connection-key.js";
 import { withLegacyPendingSession } from "./legacy-pending.js";
 import {
@@ -631,6 +631,7 @@ export function createConnectionStore(
     ) {
       const actor = checkActor(rawActor);
       const result = await transact(store, async (tx) => {
+        const handoffs = await lockHandoffs(tx, actor.tenantId, connectionRef);
         const current = await loadOwnedConnection(
           tx,
           actor,
@@ -667,10 +668,9 @@ export function createConnectionStore(
           compact({ disconnect: current.value.disconnect }),
           current.revision,
         );
-        await settlePendingHandoffs(
+        await settleLocked(
           tx,
-          actor.tenantId,
-          connectionRef,
+          handoffs,
           "superseded",
           "connection.generation-advanced",
           at,
@@ -772,6 +772,7 @@ export function createConnectionStore(
       const broker = parsedBroker.data;
       const upstream = parsedUpstream.data;
       const result = await transact(store, async (tx) => {
+        const handoffs = await lockHandoffs(tx, actor.tenantId, connectionRef);
         const current = await loadOwnedConnection(
           tx,
           actor,
@@ -854,10 +855,9 @@ export function createConnectionStore(
           current.revision,
         );
         if (applied)
-          await settlePendingHandoffs(
+          await settleLocked(
             tx,
-            actor.tenantId,
-            connectionRef,
+            handoffs,
             "cancelled",
             `disconnect.${scope}`,
             at,
