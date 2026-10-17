@@ -1,203 +1,145 @@
 import ts from "typescript";
-import {
-  GATED,
-  REGISTRY,
-  resolveImport,
-  unwrap,
-  type Kind,
-  type NetworkExports,
-  type Source,
-} from "./fetch-gate-syntax.js";
+import type { GateProgram } from "./fetch-gate-program.js";
+import { GATED, REGISTRY, unwrap, type Kind } from "./fetch-gate-syntax.js";
 
-/** What a source file imports and declares, and how a name in it resolves; nothing here judges. */
+/*
+ * How a name in one source file resolves, through the type checker: to a
+ * gated library's export, to a registered part of the bounded transport, or to
+ * the declarations a value comes from. Nothing here judges; the evaluator and
+ * the visitor do.
+ */
+
+export type Gated = { module: (typeof GATED)[number]; name: string };
+
 export class FileFacts {
-  protected readonly sf: ts.SourceFile;
-  protected readonly namespaces = new Map<string, string>();
-  protected readonly named = new Map<
-    string,
-    { module: string; name: string }
-  >();
-  protected readonly relative = new Map<
-    string,
-    { path: string; name: string }
-  >();
-  protected readonly declarations = new Map<string, ts.Node[]>();
+  readonly sf: ts.SourceFile;
+  readonly checker: ts.TypeChecker;
   readonly problems: string[] = [];
   /** Every gated call and custom fetch the gate read, as `file:line name`. */
   readonly inspected: string[] = [];
 
   constructor(
-    protected readonly source: Source,
-    protected readonly network: NetworkExports,
-    protected readonly exclude: ReadonlySet<string> = new Set(),
+    readonly gate: GateProgram,
+    readonly file: string,
+    /** Registered names that do not vouch for themselves (the registry's own check). */
+    readonly exclude: ReadonlySet<string> = new Set(),
   ) {
-    this.sf = ts.createSourceFile(
-      source.file,
-      source.text,
-      ts.ScriptTarget.ES2022,
-      true,
-      source.file.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
-    );
+    const sf = gate.sourceFile(file);
+    if (!sf) throw new Error(`${file} is not in the gate's program`);
+    this.sf = sf;
+    this.checker = gate.checker;
   }
 
-  protected note(node: ts.Node, what: string) {
-    const line =
-      this.sf.getLineAndCharacterOfPosition(node.getStart()).line + 1;
-    this.inspected.push(`${this.source.file}:${line} ${what}`);
+  protected line(node: ts.Node): number {
+    return this.sf.getLineAndCharacterOfPosition(node.getStart()).line + 1;
   }
 
-  protected report(node: ts.Node, message: string) {
-    const line =
-      this.sf.getLineAndCharacterOfPosition(node.getStart()).line + 1;
-    this.problems.push(`${this.source.file}:${line} ${message}`);
+  note(node: ts.Node, what: string) {
+    this.inspected.push(`${this.file}:${this.line(node)} ${what}`);
   }
 
-  /** Imports and every declaration a name can be resolved to, in any scope. */
-  protected collect(root: ts.Node) {
-    const note = (name: string, node: ts.Node) =>
-      this.declarations.set(name, [
-        ...(this.declarations.get(name) ?? []),
-        node,
-      ]);
-    const walk = (node: ts.Node) => {
-      if (
-        ts.isImportDeclaration(node) &&
-        ts.isStringLiteral(node.moduleSpecifier)
-      )
-        this.collectImport(node, node.moduleSpecifier.text);
-      if (ts.isImportEqualsDeclaration(node)) {
-        const reference = node.moduleReference;
-        if (
-          ts.isExternalModuleReference(reference) &&
-          ts.isStringLiteral(reference.expression) &&
-          GATED.includes(reference.expression.text)
-        )
-          this.report(
-            node,
-            `imports ${reference.expression.text} by require; import it by name`,
-          );
-      }
-      if (
-        ts.isExportDeclaration(node) &&
-        node.moduleSpecifier &&
-        ts.isStringLiteral(node.moduleSpecifier) &&
-        GATED.includes(node.moduleSpecifier.text)
-      )
-        this.report(
-          node,
-          `re-exports ${node.moduleSpecifier.text}, which hides its calls from the gate`,
-        );
-      if (
-        ts.isVariableDeclaration(node) &&
-        ts.isIdentifier(node.name) &&
-        node.initializer
-      )
-        note(node.name.text, node.initializer);
-      if (ts.isFunctionDeclaration(node) && node.name)
-        note(node.name.text, node);
-      ts.forEachChild(node, walk);
+  report(node: ts.Node, message: string) {
+    this.problems.push(`${this.file}:${this.line(node)} ${message}`);
+  }
+
+  /** The symbol a node names, with imports and re-exports followed to what they name. */
+  symbolOf(node: ts.Node): ts.Symbol | undefined {
+    const at = ts.isPropertyAccessExpression(node)
+      ? node.name
+      : ts.isElementAccessExpression(node)
+        ? node.argumentExpression
+        : node;
+    let symbol = this.checker.getSymbolAtLocation(at);
+    if (symbol && symbol.flags & ts.SymbolFlags.Alias)
+      symbol = this.checker.getAliasedSymbol(symbol);
+    return symbol;
+  }
+
+  /** The gated library a declaration belongs to, by the file it is declared in. */
+  private moduleOf(declaration: ts.Node | undefined) {
+    const file = declaration?.getSourceFile().fileName ?? "";
+    return GATED.find((module) => file.includes(`/node_modules/${module}/`));
+  }
+
+  /** What a node names in a gated library: an export, or the module itself (`*`). */
+  gatedOf(node: ts.Node): Gated | undefined {
+    const symbol = this.symbolOf(node);
+    const declaration = symbol?.declarations?.[0];
+    const module = this.moduleOf(declaration);
+    if (!symbol || !module) return undefined;
+    return {
+      module,
+      name: declaration && ts.isSourceFile(declaration) ? "*" : symbol.name,
     };
-    walk(root);
   }
 
-  protected collectImport(node: ts.ImportDeclaration, specifier: string) {
-    const clause = node.importClause;
-    if (!clause || clause.isTypeOnly) return;
-    if (GATED.includes(specifier)) {
-      if (clause.name) this.report(node, `default-imports ${specifier}`);
-      const bindings = clause.namedBindings;
-      if (bindings && ts.isNamespaceImport(bindings))
-        this.namespaces.set(bindings.name.text, specifier);
-      else if (bindings)
-        for (const element of bindings.elements)
-          if (!element.isTypeOnly)
-            this.named.set(element.name.text, {
-              module: specifier,
-              name: (element.propertyName ?? element.name).text,
-            });
-    } else if (specifier.startsWith(".")) {
-      const path = resolveImport(this.source.file, specifier);
-      const bindings = clause.namedBindings;
-      if (bindings && ts.isNamedImports(bindings))
-        for (const element of bindings.elements)
-          this.relative.set(element.name.text, {
-            path,
-            name: (element.propertyName ?? element.name).text,
-          });
-    }
+  /** The registered part of the bounded transport a node resolves to, if any. */
+  registered(node: ts.Node): Kind | undefined {
+    return this.registeredAs(node)?.kind;
   }
 
-  /** What a node refers to in a gated library: `ns.name`, `ns["name"]` or a named import. */
-  protected gatedRef(
-    node: ts.Node,
-  ): { module: string; name: string } | undefined {
-    if (
-      ts.isPropertyAccessExpression(node) &&
-      ts.isIdentifier(node.expression)
-    ) {
-      const module = this.namespaces.get(node.expression.text);
-      return module ? { module, name: node.name.text } : undefined;
-    }
-    if (
-      ts.isElementAccessExpression(node) &&
-      ts.isIdentifier(node.expression) &&
-      ts.isStringLiteralLike(node.argumentExpression)
-    ) {
-      const module = this.namespaces.get(node.expression.text);
-      return module
-        ? { module, name: node.argumentExpression.text }
-        : undefined;
-    }
-    if (ts.isIdentifier(node)) return this.named.get(node.text);
-    return undefined;
-  }
-
-  /** A registered export of the bounded transport, by the import that brought it in (or its own definition). */
-  protected registered(node: ts.Node): Kind | undefined {
+  /** The registered export a node resolves to, by kind and by the name it is declared under. */
+  registeredAs(node: ts.Node): { kind: Kind; name: string } | undefined {
     const target = unwrap(node);
-    if (!ts.isIdentifier(target)) return undefined;
-    const imported = this.relative.get(target.text);
-    const own = this.source.file;
-    const path = imported?.path ?? own;
-    const name = imported?.name ?? target.text;
-    const kind = REGISTRY[path]?.[name];
-    if (!kind || this.exclude.has(name)) return undefined;
-    return imported || this.declarations.has(target.text) ? kind : undefined;
+    if (!ts.isIdentifier(target) && !ts.isPropertyAccessExpression(target))
+      return undefined;
+    const symbol = this.symbolOf(target);
+    const declaration = symbol?.declarations?.[0];
+    if (!symbol || !declaration) return undefined;
+    const kind =
+      REGISTRY[this.gate.relative(declaration.getSourceFile())]?.[symbol.name];
+    return kind && !this.exclude.has(symbol.name)
+      ? { kind, name: symbol.name }
+      : undefined;
   }
 
-  /** `combine` over every declaration a name resolves to; a name that resolves to none is `unresolved`. */
-  protected viaDeclarations<T>(
-    name: ts.Identifier,
-    evaluate: (node: ts.Node) => T,
-    combine: (a: T, b: T) => T,
-    unresolved: T,
-  ): T {
-    const declared = this.declarations.get(name.text) ?? [];
-    if (!declared.length) return unresolved;
-    return declared.map(unwrap).map(evaluate).reduce(combine);
+  /**
+   * What a name's value comes from: the initializers and functions it is
+   * declared as. Undefined when any declaration is something the gate cannot
+   * see into (a parameter, a destructured binding, an ambient declaration):
+   * then the value could be anything.
+   */
+  declared(node: ts.Node): ts.Node[] | undefined {
+    const symbol = this.symbolOf(node);
+    const declarations = symbol?.declarations;
+    if (!declarations?.length) return undefined;
+    const values: ts.Node[] = [];
+    for (const declaration of declarations) {
+      if (ts.isVariableDeclaration(declaration) && declaration.initializer) {
+        // A `let` may be reassigned anywhere; only a `const` is its initializer.
+        const list = declaration.parent;
+        if (
+          !ts.isVariableDeclarationList(list) ||
+          !(list.flags & ts.NodeFlags.Const)
+        )
+          return undefined;
+        values.push(unwrap(declaration.initializer));
+      } else if (
+        ts.isFunctionDeclaration(declaration) ||
+        ts.isFunctionExpression(declaration) ||
+        ts.isArrowFunction(declaration) ||
+        ts.isMethodDeclaration(declaration)
+      )
+        values.push(declaration);
+      else return undefined;
+    }
+    return values;
   }
 
-  /** `combine` over what a locally defined function returns; a callee that is not one is `unresolved`. */
-  protected viaReturns<T>(
-    callee: ts.Node,
-    evaluate: (node: ts.Node) => T,
-    combine: (a: T, b: T) => T,
-    unresolved: T,
-  ): T {
+  /** The functions a callee resolves to, when every declaration of it is one. */
+  functionsOf(callee: ts.Node): ts.SignatureDeclaration[] | undefined {
     const target = unwrap(callee);
-    const functions: ts.SignatureDeclaration[] = [];
-    if (ts.isIdentifier(target))
-      for (const declaration of this.declarations.get(target.text) ?? []) {
-        const inner = unwrap(declaration);
-        if (ts.isFunctionLike(inner)) functions.push(inner);
-      }
-    else if (ts.isFunctionLike(target)) functions.push(target);
-    const returns = functions.flatMap((fn) => this.returnsOf(fn));
-    if (!returns.length) return unresolved;
-    return returns.map(evaluate).reduce(combine);
+    if (ts.isFunctionLike(target)) return [target];
+    if (!ts.isIdentifier(target) && !ts.isPropertyAccessExpression(target))
+      return undefined;
+    const values = this.declared(target);
+    if (!values?.length || !values.every((value) => ts.isFunctionLike(value)))
+      return undefined;
+    return values as ts.SignatureDeclaration[];
   }
 
-  protected returnsOf(fn: ts.SignatureDeclaration): ts.Node[] {
+  /** Every expression a function returns (its own returns, not nested functions'). */
+  returnsOf(fn: ts.SignatureDeclaration): ts.Node[] {
     const body = (fn as { body?: ts.Node }).body;
     if (!body) return [];
     if (!ts.isBlock(body)) return [body];
@@ -212,25 +154,30 @@ export class FileFacts {
     return found;
   }
 
-  /** What the function declared as `name` returns. */
-  exportedReturns(name: string): ts.Node[] {
-    return (this.declarations.get(name) ?? []).flatMap((declaration) => {
-      const inner = unwrap(declaration);
-      return ts.isFunctionLike(inner) ? this.returnsOf(inner) : [];
-    });
+  /** Whether a callee is the platform's `fetch` (the global, or a value of its type). */
+  isFetch(callee: ts.Node): boolean {
+    const fetchType = this.gate.fetchType;
+    if (!fetchType) return false;
+    const type = this.checker.getTypeAtLocation(callee);
+    const members = type.isUnion() ? type.types : [type];
+    return members.every((member) => member === fetchType);
   }
 
-  /** The names called inside the declaration of `exported`, for the registry's own check. */
-  callsInside(exported: string): string[] {
-    const calls: string[] = [];
-    for (const declaration of this.declarations.get(exported) ?? []) {
-      const walk = (node: ts.Node) => {
-        if (ts.isCallExpression(node) && ts.isIdentifier(node.expression))
-          calls.push(node.expression.text);
-        ts.forEachChild(node, walk);
-      };
-      walk(declaration);
+  /** The declaration named `name` in this file, for the registry's own check. */
+  ownDeclaration(name: string): ts.SignatureDeclaration | undefined {
+    for (const statement of this.sf.statements) {
+      if (ts.isFunctionDeclaration(statement) && statement.name?.text === name)
+        return statement;
+      if (ts.isVariableStatement(statement))
+        for (const declaration of statement.declarationList.declarations)
+          if (
+            ts.isIdentifier(declaration.name) &&
+            declaration.name.text === name &&
+            declaration.initializer &&
+            ts.isFunctionLike(unwrap(declaration.initializer))
+          )
+            return unwrap(declaration.initializer) as ts.SignatureDeclaration;
     }
-    return calls;
+    return undefined;
   }
 }
