@@ -102,6 +102,7 @@ export interface ConnectorConnectionStore extends ConnectionStorePort {
   get(
     actor: ActorContext,
     connectionRef: string,
+    options?: Parameters<ConnectionStorePort["get"]>[2],
   ): Promise<ConnectionEntry | undefined>;
   list(
     actor: ActorContext,
@@ -214,11 +215,7 @@ export async function loadConnection(
     revision: record.revision,
     value: compact({
       schemaVersion: record.value.schemaVersion,
-      record: await withLegacyPendingSession(
-        tx,
-        tenantId,
-        asConnectionRecord(record.value.record),
-      ),
+      record: asConnectionRecord(record.value.record),
       keyDigest: record.value.keyDigest,
       disconnect: record.value.disconnect,
     }),
@@ -504,17 +501,20 @@ export function createConnectionStore(
       return { revision: 1 };
     },
 
-    async get(rawActor, connectionRef) {
+    async get(rawActor, connectionRef, options) {
       const actor = checkActor(rawActor);
-      return transact(store, async (tx) => {
-        const record = await loadOwnedConnection(
-          tx,
-          actor,
-          connectionRef,
-          owns,
-        );
-        return record && entryOf(record.value, record.revision);
+      const entry = await transact(store, async (tx) => {
+        const found = await loadOwnedConnection(tx, actor, connectionRef, owns);
+        return found && entryOf(found.value, found.revision);
       });
+      if (!entry || !options?.waitingSignIn) return entry;
+      // Once the transaction that read the connection has ended (legacy-pending.ts).
+      const record = await withLegacyPendingSession(
+        store,
+        actor.tenantId,
+        entry.record,
+      );
+      return { ...entry, record };
     },
 
     async update(rawActor, connectionRef, expectedRevision, patch) {

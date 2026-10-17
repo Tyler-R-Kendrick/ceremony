@@ -183,12 +183,25 @@ export type ConnectionRecord = ConnectionSummary & {
   state: Record<string, unknown>;
 };
 
+/** What a read of one connection may be asked to add to the record as stored. */
+export interface ConnectionReadOptions {
+  /**
+   * Also name, as `pendingSession`, the sign-in a choice opened before the
+   * connection recorded it is holding (state/legacy-pending.ts). For the paths
+   * that act on a waiting sign-in: a disconnect, a revoke, a cancel, a
+   * reconnect. It costs a read of the handoff, so a plain read (a status
+   * poll) never asks.
+   */
+  waitingSignIn?: boolean;
+}
+
 export interface ConnectionStorePort {
   create(record: ConnectionRecord): Promise<{ revision: number }>;
   /** Undefined for missing *and* foreign records: ownership failures leak no existence. */
   get(
     actor: ActorContext,
     connectionRef: ConnectionRef,
+    options?: ConnectionReadOptions,
   ): Promise<{ record: ConnectionRecord; revision: number } | undefined>;
   update(
     actor: ActorContext,

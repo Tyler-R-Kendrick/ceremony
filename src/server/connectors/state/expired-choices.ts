@@ -5,6 +5,7 @@ import type { ConnectionRecord, CredentialCustodyPort } from "../ports.js";
 import { isoAt, readRecord, transact, type TimeSource } from "./common.js";
 import { loadConnection, saveConnection } from "./connections.js";
 import { handoffKey } from "./keys.js";
+import { withLegacyPendingSession } from "./legacy-pending.js";
 import { storedHandoffSchema } from "./schemas.js";
 
 /*
@@ -59,7 +60,11 @@ export async function abandonExpiredChoice(
   const loaded = await transact(store, (tx) =>
     loadConnection(tx, tenantId, connectionRef),
   );
-  const record = loaded?.value.record;
+  // The sign-in of a choice opened before `pendingSession` (legacy-pending.ts),
+  // read after the connection's transaction ended.
+  const record =
+    loaded &&
+    (await withLegacyPendingSession(store, tenantId, loaded.value.record));
   const waiting = record?.state[PENDING_SESSION_STATE];
   if (!record || typeof waiting !== "string") return undefined;
   const at = await transact(store, time);
@@ -71,7 +76,7 @@ export async function abandonExpiredChoice(
     if (!current || current.revision !== loaded!.revision) return undefined;
     const written: ConnectionRecord = {
       ...current.value.record,
-      ...abandonedSession(current.value.record).patch,
+      ...abandonedSession(record).patch,
       updatedAt: isoAt(at),
     };
     await saveConnection(

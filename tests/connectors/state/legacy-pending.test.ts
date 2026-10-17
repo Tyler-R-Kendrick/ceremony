@@ -16,7 +16,9 @@ import * as vercel from "../vercel-account/harness.js";
  * `human-required` completion then). Each test makes a fresh choice and then
  * writes the stored record back exactly as the code before `pendingSession`
  * left it: the same record without that key. A disconnect by an agent, who
- * cannot read the handoff, and a cancel must still find and drop the sign-in.
+ * cannot read the handoff, a revoke by an administrator, a cancel and a
+ * reconnect must still find and drop the sign-in. A plain read of the
+ * connection does not (poll-claim-lock-order.test.ts), so each of these asks.
  */
 
 type Setup = {
@@ -26,6 +28,7 @@ type Setup = {
   person: aws.AwsSetup["person"];
   agent: aws.AwsSetup["agent"];
   stored: string[];
+  fixture: { approve(userCode: string): boolean };
   clock: () => number;
   advance: (ms: number) => void;
 };
@@ -35,12 +38,14 @@ const PROVIDERS = [
     name: "AWS (role choice)",
     setup: (t: test.TestContext) => aws.awsSetup(t),
     approve: (setup: Setup) => aws.connectAndApprove(setup as aws.AwsSetup),
+    userCodeOf: aws.userCodeOf,
   },
   {
     name: "Vercel (team choice)",
     setup: (t: test.TestContext) => vercel.accountSetup(t),
     approve: (setup: Setup) =>
       vercel.connectAndApprove(setup as unknown as vercel.AccountSetup),
+    userCodeOf: vercel.userCodeOf,
   },
 ] as const;
 
@@ -112,6 +117,46 @@ for (const provider of PROVIDERS) {
     assert.equal(result.result.local, "applied");
     assert.equal(result.result.release?.revoked, true);
     assert.deepEqual(await leftInCustody(setup, connectionRef), []);
+  });
+
+  test(`${provider.name}: a revoke by an administrator finds the sign-in a choice made before pendingSession was waiting on`, async (t) => {
+    const setup = (await provider.setup(t)) as unknown as Setup;
+    const { connectionRef } = await provider.approve(setup);
+    await asWrittenBefore(setup, connectionRef);
+    assert.equal((await leftInCustody(setup, connectionRef)).length, 1);
+    const current = await setup.ports.connections.get(
+      setup.person,
+      connectionRef,
+    );
+    const result = await setup.service.revoke(setup.person, connectionRef, {
+      expectedRevision: current!.revision,
+    });
+    assert.equal(result.result.local, "applied");
+    assert.deepEqual(await leftInCustody(setup, connectionRef), []);
+  });
+
+  test(`${provider.name}: a reconnect keeps the sign-in a choice made before pendingSession was waiting on, so the new sign-in discards it`, async (t) => {
+    const setup = (await provider.setup(t)) as unknown as Setup;
+    const { connectionRef } = await provider.approve(setup);
+    await asWrittenBefore(setup, connectionRef);
+    const [waiting] = setup.stored;
+    const current = await setup.ports.connections.get(
+      setup.person,
+      connectionRef,
+    );
+    const restarted = await setup.service.reconnect(
+      setup.person,
+      connectionRef,
+      { expectedRevision: current!.revision },
+    );
+    assert.ok(setup.fixture.approve(provider.userCodeOf(restarted)));
+    setup.advance(6_000);
+    await setup.service.poll(setup.person, connectionRef);
+    assert.equal(setup.stored.length, 2, "the new sign-in is held");
+    assert.ok(
+      !(await leftInCustody(setup, connectionRef)).includes(waiting!),
+      "the sign-in the earlier choice held is gone",
+    );
   });
 
   test(`${provider.name}: a cancel drops the sign-in a choice made before pendingSession was waiting on`, async (t) => {
