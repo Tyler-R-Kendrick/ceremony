@@ -183,7 +183,7 @@ for (const provider of PROVIDERS) {
       await sweepDroppedCredentials(setup.store, setup.person.tenantId, {
         now: setup.clock,
       }),
-      { swept: 1 },
+      { swept: 1, failed: 0 },
     );
     assert.deepEqual(await leftInCustody(setup, connectionRef), []);
   });

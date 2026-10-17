@@ -28,11 +28,11 @@ test("a role choice that expires unanswered has its sign-in dropped by the next 
 
   // The control: while the choice can still be answered, nothing is dropped.
   setup.advance(SELECTION_TTL_MS - 60_000);
-  assert.deepEqual(await sweep(), { swept: 0 });
+  assert.deepEqual(await sweep(), { swept: 0, failed: 0 });
   assert.ok(await setup.ports.credentials.describe(scope, waiting!));
 
   setup.advance(120_000);
-  assert.deepEqual(await sweep(), { swept: 1 });
+  assert.deepEqual(await sweep(), { swept: 1, failed: 0 });
   assert.equal(
     await setup.ports.credentials.describe(scope, waiting!),
     undefined,
@@ -42,7 +42,11 @@ test("a role choice that expires unanswered has its sign-in dropped by the next 
   assert.equal(record.state["pendingSession"], null);
   assert.deepEqual(record.state["droppedCredentials"], [waiting]);
   assert.equal(setup.fixture.counts.logout, 0, "the provider is not told");
-  assert.deepEqual(await sweep(), { swept: 0 }, "a second sweep finds nothing");
+  assert.deepEqual(
+    await sweep(),
+    { swept: 0, failed: 0 },
+    "a second sweep finds nothing",
+  );
 });
 
 test("a sign-in whose choice a submission still holds is not dropped, though the choice has expired", async (t) => {
@@ -67,7 +71,7 @@ test("a sign-in whose choice a submission still holds is not dropped, though the
   setup.advance(60_000);
   assert.deepEqual(
     await sweepDroppedCredentials(setup.store, TENANT, { now: setup.clock }),
-    { swept: 0 },
+    { swept: 0, failed: 0 },
   );
   assert.ok(await setup.ports.credentials.describe(scope, waiting!));
   assert.equal(

@@ -91,6 +91,11 @@ test("the scheduled dispatcher makes the custody drops a connection noted, and o
 
   const scheduled = await scheduledCall(`Bearer ${secret}`);
   assert.equal(scheduled.status, 200);
+  assert.deepEqual(
+    await scheduled.json(),
+    { dispatched: true, sweep: { swept: 1, failed: 0, incomplete: 0 } },
+    "the answer says what the sweep did, in counts",
+  );
   assert.equal(
     await ports.credentials.describe(scope, noted),
     undefined,
@@ -111,6 +116,7 @@ test("one tenant's failed sweep is reported after every tenant had its turn", as
       async (tenant) => {
         swept.push(tenant);
         if (tenant === "tenant-a") throw new Error("synthetic outage");
+        return { swept: 0, failed: 0 };
       },
     ),
     /dispatch incomplete/,

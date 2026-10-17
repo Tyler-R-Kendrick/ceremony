@@ -44,39 +44,43 @@ async function choiceIsOver(
   return !OPEN.has(state) || expiresAt <= at;
 }
 
+/** A connection as the sweep's listing holds it. */
+export type ListedConnection = { record: ConnectionRecord; revision: number };
+
 /**
- * For one connection: if it waits on a sign-in for a choice that is over and
- * custody still holds that sign-in, writes the connection so that it no
- * longer names it and notes the drop. Returns the record as written, for the
- * sweep to drop what it noted, or undefined when there was nothing to do.
+ * For one listed connection: if it waits on a sign-in for a choice that is
+ * over, writes the connection so that it no longer names that sign-in, and
+ * (when custody still holds it) notes the drop. Returns the record as
+ * written, for the sweep to drop what it noted, or undefined when there was
+ * nothing to do. A sign-in that custody no longer holds has nothing to drop,
+ * but the connection still names it and would be looked at again on every
+ * sweep, so that entry is cleared too. Either write is a compare-and-set on
+ * the revision the listing showed: a write in between decides instead.
  */
 export async function abandonExpiredChoice(
   store: AsyncCeremonyStore,
   custody: Pick<CredentialCustodyPort, "describe">,
   tenantId: string,
-  connectionRef: string,
+  listed: ListedConnection,
   time: TimeSource,
 ): Promise<ConnectionRecord | undefined> {
-  const loaded = await transact(store, (tx) =>
-    loadConnection(tx, tenantId, connectionRef),
-  );
   // The sign-in of a choice opened before `pendingSession` (legacy-pending.ts),
   // read after the connection's transaction ended.
-  const record =
-    loaded &&
-    (await withLegacyPendingSession(store, tenantId, loaded.value.record));
-  const waiting = record?.state[PENDING_SESSION_STATE];
-  if (!record || typeof waiting !== "string") return undefined;
+  const record = await withLegacyPendingSession(store, tenantId, listed.record);
+  const waiting = record.state[PENDING_SESSION_STATE];
+  if (typeof waiting !== "string") return undefined;
   const at = await transact(store, time);
   if (!(await choiceIsOver(store, tenantId, record, at))) return undefined;
-  if (!(await custody.describe(recordScope(record), waiting))) return undefined;
+  const held = await custody.describe(recordScope(record), waiting);
   return transact(store, async (tx) => {
-    const current = await loadConnection(tx, tenantId, connectionRef);
+    const current = await loadConnection(tx, tenantId, record.connectionRef);
     // A write in between (a submission, a cancel, a reconnect) decides instead.
-    if (!current || current.revision !== loaded!.revision) return undefined;
+    if (!current || current.revision !== listed.revision) return undefined;
     const written: ConnectionRecord = {
       ...current.value.record,
-      ...abandonedSession(record).patch,
+      ...(held
+        ? abandonedSession(record).patch
+        : { state: { ...record.state, [PENDING_SESSION_STATE]: null } }),
       updatedAt: isoAt(at),
     };
     await saveConnection(
