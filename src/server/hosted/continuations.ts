@@ -84,19 +84,24 @@ export async function dispatchHostedContinuations(
     });
 }
 /**
- * Drains every tenant this deployment has seen, not only a pinned one. One
+ * Drains every tenant this deployment has seen, not only a pinned one, and
+ * runs `maintain` (the custody sweep, when connectors are on) for each. One
  * tenant's failure does not starve the others; it is reported after all of
  * them had their turn, so the scheduler still sees the run as failed.
  */
 export async function dispatchHostedTenants(
   runtime: TeachingRuntime,
   tenancy: { tenants(store: TeachingRuntime["store"]): Promise<string[]> },
+  maintain?: (tenant: string) => Promise<unknown>,
 ): Promise<void> {
   let failed = false;
-  for (const tenant of await tenancy.tenants(runtime.store))
-    await dispatchHostedContinuations(runtime, tenant).catch(() => {
-      failed = true;
-    });
+  const fail = () => {
+    failed = true;
+  };
+  for (const tenant of await tenancy.tenants(runtime.store)) {
+    await dispatchHostedContinuations(runtime, tenant).catch(fail);
+    await maintain?.(tenant).catch(fail);
+  }
   if (failed) throw new Error("Hosted continuation dispatch incomplete");
 }
 /** Dedicated cron/workload authentication; not end-user authentication or a grant for a different task. */
