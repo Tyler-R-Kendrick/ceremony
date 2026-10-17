@@ -15,6 +15,7 @@ import {
   human,
   type Harness,
 } from "./harness.js";
+import { hold } from "../doubles/interleave.js";
 
 /*
  * Ending a held sign-in at the provider is something the command layer asks of
@@ -319,3 +320,40 @@ for (const [who, closesFirst] of [
     });
     assert.equal(asked, 1);
   });
+
+test("two holders of one grant disconnecting at the same moment do not both leave the provider alone", async (t) => {
+  let asked = 0;
+  const harness = await createHarness({
+    adapter: {
+      releaseSession: async () => {
+        asked++;
+        return { revoked: true, reason: "fixture.release.ended" };
+      },
+    },
+  });
+  t.after(() => harness.close());
+  const { first, second } = await twoHolders(harness);
+  // The first has read who else holds the grant and is about to fence; the
+  // second runs to its end in that window.
+  const fencing = hold(harness.ports.connections, "advanceGeneration");
+  const leavingFirst = harness.fetch(disconnectPath(first.connectionRef), {
+    body: { expectedRevision: first.revision, scope: "local" },
+    session: SESSION,
+  });
+  await fencing.reached;
+  const out = await json(
+    await harness.fetch(disconnectPath(second.connectionRef), {
+      body: { expectedRevision: second.revision, scope: "local" },
+      session: "second-session",
+    }),
+  );
+  fencing.release();
+  const done = await json(await leavingFirst);
+
+  assert.equal(out.connection.lifecycle, "locally-disconnected");
+  assert.equal(done.connection.lifecycle, "locally-disconnected");
+  assert.ok(
+    asked >= 1,
+    "the last of the two to leave asked the provider to end the session",
+  );
+});

@@ -105,7 +105,11 @@ import {
   narrowConfiguration,
   OAUTH_PROFILE_KINDS,
 } from "./definitions.js";
-import { closeDisconnected, localOutcome } from "./disconnect-close.js";
+import {
+  closeDisconnected,
+  closing,
+  localOutcome,
+} from "./disconnect-close.js";
 import { adapterCall, port, requireAny } from "./failures.js";
 import { withHandoffClaim } from "./handoff-claim.js";
 import {
@@ -2816,6 +2820,11 @@ export class ConnectorCommandService {
         );
       else remote = { ...remote, [input.scope]: "unsupported" };
     }
+    // Who else holds the grant is read again now that this disconnect has
+    // fenced: a holder that is closing or closed is leaving too. Of two
+    // holders that disconnect at once, the later fence therefore sees the
+    // earlier as leaving and ends the session; both may, neither skips it.
+    const holders = await this.sharedWith(record);
     // A sign-in the host kept for this connection is ended at the provider
     // before the tokens are dropped, unless the caller already asked the
     // adapter to end the grant (the upstream scope). Best effort and bounded:
@@ -2831,7 +2840,7 @@ export class ConnectorCommandService {
                 Math.min(this.callTimeoutMs, SESSION_RELEASE_TIMEOUT_MS),
               ),
             },
-            { sharedWith },
+            { sharedWith: holders },
           );
     if (record.credentialRef)
       await this.ports.credentials
@@ -2845,10 +2854,10 @@ export class ConnectorCommandService {
       broker: remote.broker,
       upstream: remote.upstream,
       ...(release ? { release } : {}),
-      ...(sharedWith.length || remote.sharedWith?.length
+      ...(holders.length || remote.sharedWith?.length
         ? {
             sharedWith: [
-              ...new Set([...sharedWith, ...(remote.sharedWith ?? [])]),
+              ...new Set([...holders, ...(remote.sharedWith ?? [])]),
             ],
           }
         : {}),
@@ -2894,7 +2903,8 @@ export class ConnectorCommandService {
         if (
           other.record.connectionRef !== record.connectionRef &&
           !closed(other.record) &&
-          !deleted(other.record)
+          !deleted(other.record) &&
+          !closing(other.record)
         )
           shared.add(other.record.connectionRef);
     return [...shared];

@@ -76,6 +76,10 @@ export const CLOSING_OUTCOMES = [
   "revoke.closing",
 ] as const;
 
+/** Fenced by a disconnect or a revoke that has not written its closing lifecycle yet. */
+export const closing = (record: ConnectionRecord) =>
+  (CLOSING_OUTCOMES as readonly string[]).includes(record.lastOutcome ?? "");
+
 /**
  * What a disconnect did to the record, from where it started to where closing
  * left it: it closed it (`applied`), or the record had already moved to
@@ -92,9 +96,5 @@ export function localOutcome(
 ): "applied" | "superseded" | "already-closed" | "already-closing" {
   if (after.record.generation === fenced.record.generation) return "applied";
   if (isClosed(after.record)) return "already-closed";
-  return (CLOSING_OUTCOMES as readonly string[]).includes(
-    after.record.lastOutcome ?? "",
-  )
-    ? "already-closing"
-    : "superseded";
+  return closing(after.record) ? "already-closing" : "superseded";
 }
