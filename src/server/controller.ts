@@ -20,15 +20,9 @@ import {
   type EntryContext,
   type MethodAvailability,
 } from "../core/index.js";
+import { CeremonyError } from "./ceremony-errors.js";
 
-export class CeremonyError extends Error {
-  constructor(
-    message: string,
-    public readonly status = 400,
-  ) {
-    super(message);
-  }
-}
+export { CeremonyError, IndeterminateAnswer } from "./ceremony-errors.js";
 export interface AdapterUpdate {
   step: Step;
   /** Trusted prerequisite fields, independent of the final authentication method. */

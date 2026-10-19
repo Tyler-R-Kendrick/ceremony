@@ -429,7 +429,7 @@ test("an operation on a connection with no credential, or with the wrong input, 
   assert.equal(handoffRefOf({ handoff: { handoffRef: "h" } }), "h");
 });
 
-test("a sign-in session that is already over reports a failed upstream disconnect", async (t) => {
+test("a sign-in session that is already over has nothing to end, and the upstream disconnect says it did not act", async (t) => {
   const setup = await awsSetup(t, { accounts: ["444455556666"] });
   const { connectionRef } = await connectAndApprove(setup);
   setup.fixture.expireAccessToken(setup.fixture.issued.accessTokens[0]!);
@@ -438,7 +438,7 @@ test("a sign-in session that is already over reports a failed upstream disconnec
     await setup.adapterContext(connectionRef),
     "upstream",
   );
-  assert.equal(result.upstream, "failed");
+  assert.equal(result.upstream, "not-attempted");
   assert.equal(setup.fixture.counts.logout, 1);
 });
 
@@ -455,6 +455,8 @@ test("every assumption the double serves is written down once, in the module", (
     "ResourceNotFoundException",
     "lapsed access token",
     "another client",
+    "Logout (POST /logout",
+    "not known to stop working after Logout",
   ])
     assert.ok(
       AWS_ASSUMPTIONS.some((line) => line.includes(keyword)),

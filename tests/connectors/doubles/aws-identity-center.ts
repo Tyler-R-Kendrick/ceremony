@@ -35,7 +35,10 @@ import { startHttpFixture, type RecordedRequest } from "./http-fixture.js";
  *   - RoleCredentials.expiration is epoch milliseconds and
  *     clientSecretExpiresAt is epoch seconds;
  *   - role credentials already issued survive Logout until their expiration
- *     (the Logout page says the IAM role sessions continue).
+ *     (the Logout page says the IAM role sessions continue);
+ *   - Logout answers 200 for a live session and 401 for one that is unknown,
+ *     lapsed or already logged out, and ends the access token only: a refresh
+ *     token keeps working (the page says nothing of refresh tokens).
  *
  * Everything it issues is a dummy value shaped like the real thing, and every
  * secret it issues is recorded in `issued` so a test can sweep for it.
@@ -675,6 +678,8 @@ export async function startAwsIdentityCenter(
     },
     /** Stops listening on the OIDC origin, so a request fails before it is sent. */
     stopOidc: () => oidc.close(),
+    /** Stops listening on the portal's origin, so a portal call fails before it is sent. */
+    stopPortal: () => portalServer.close(),
     /** The next successful CreateToken is acted on, and its answer never arrives. */
     dropNextTokenResponse() {
       dropToken = true;

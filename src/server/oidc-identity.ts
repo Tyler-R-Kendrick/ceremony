@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import * as oauth from "oauth4webapi";
+import { requestOptions } from "./connectors/auth/wire.js";
 import { z } from "zod";
 import {
   actorContextSchema,
@@ -145,9 +146,12 @@ export async function createOidcIdentity(
       config.sessionSeconds > 86400)
   )
     throw new AuthorizationError("invalid_request");
-  const options = {
-    [oauth.allowInsecureRequests]: config.development === true,
-  };
+  // The connectors' OAuth transport: no redirects, a time bound and every
+  // answer read under the OAuth ceiling.
+  const options = requestOptions({
+    fetch: (input, init) => fetch(input, init),
+    allowLoopbackHttp: config.development === true,
+  });
   const as = await oauth.processDiscoveryResponse(
     issuer,
     await oauth.discoveryRequest(issuer, options),

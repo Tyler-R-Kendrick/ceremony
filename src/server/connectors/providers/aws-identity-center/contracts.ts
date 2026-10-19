@@ -70,6 +70,8 @@ export const AWS_ASSUMPTIONS = Object.freeze([
   "a refresh token is single use and CreateToken rotates it on use (the CreateToken page says only that a refreshToken is returned 'if present'); the adapter treats a presented token as spent and never presents it twice, and drops one an answer does not replace",
   "an unassigned role is answered ResourceNotFoundException, HTTP 404",
   "a Portal API call with a lapsed access token is answered UnauthorizedException, HTTP 401",
+  "Logout (POST /logout, the access token in x-amz-sso_bearer_token) answers 200 for a live session and 401 for one that is unknown, lapsed or already logged out (the reference lists only the generic errors); it ends the access token's sign-in session and does not end role sessions already issued, which the Logout page says continue",
+  "a refresh token is not known to stop working after Logout (the Logout page speaks of the sign-in session and role sessions, not of refresh tokens), and the OIDC API has no operation that revokes one, so the adapter drops it with custody and never claims it ended",
   "a Portal API call with an access token issued to another client is answered 401; this is the double's own rule and is in tension with the OIDC Welcome page, which says the tokens grant access to all of a person's account entitlements, not a particular application, so it is not a protection the adapter can rely on",
 ]);
 

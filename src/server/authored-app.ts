@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import {
+  boundedResponseJson,
+  INDETERMINATE,
+  unknownIfTooLarge,
+} from "./connectors/auth/response-bound.js";
 import type { ActorContext } from "../core/operation-contracts.js";
 import type { OperationContext } from "./recipes/registry.js";
 import type { AsyncCeremonyStore } from "./persistence/index.js";
@@ -210,13 +215,16 @@ export async function registerDynamicClient(
     }),
   });
   if (!response.ok) return;
+  const answer = await boundedResponseJson(response).catch(unknownIfTooLarge);
+  // The registration was sent: a client may exist that was not read.
+  if (answer === INDETERMINATE) return INDETERMINATE;
   const json = z
     .object({
       client_id: z.string().min(1).max(512),
       dpop_bound_access_tokens: z.boolean().optional(),
     })
     .passthrough()
-    .safeParse(await response.json());
+    .safeParse(answer);
   if (
     !json.success ||
     json.data.client_secret !== undefined ||
@@ -315,7 +323,10 @@ export async function ensureAuthoredApp(
           dpopRequired,
         ).catch(() => undefined)
       : undefined;
-    if (registered) {
+    // A registration whose answer could not be read may have created a
+    // client; the attempt is recorded once per run, so none is registered
+    // again, and the run goes on as if none had been.
+    if (registered && !("status" in registered)) {
       if (registered.dpopRequired && !dpop) return;
       clientId = registered.clientId;
       dpopRequired ||= registered.dpopRequired;

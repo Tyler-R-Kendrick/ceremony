@@ -508,7 +508,7 @@ const operations: Operation[] = [
     tag: "connections",
     summary: "Disconnect locally, at the broker, or upstream",
     description:
-      "A local unlink attempts nothing upstream. Broker and upstream scopes are a person's decision only.",
+      "A local unlink asks the provider to end nothing, with one exception: a connector that holds a sign-in session of its own (an account sign-in) first tries, best effort, to end it there, and says what came of it in `result.release`; that attempt never stops the unlink. Broker and upstream scopes are a person's decision only.",
     capabilities: ["executor"],
     humanOnlyInputs: ["scope (broker, upstream)"],
     request: "DisconnectRequest",

@@ -12,6 +12,16 @@ import type {
   HandoffRecord,
 } from "../ports.js";
 import {
+  assertNotClaimedByAnother,
+  createHandoffClaims,
+  withoutClaim,
+} from "./handoff-claims.js";
+import {
+  dropCorrelation,
+  pending,
+  settlePendingHandoffs,
+} from "./handoff-settle.js";
+import {
   SCHEMA_VERSION,
   checkActor,
   checkTenant,
@@ -22,7 +32,6 @@ import {
   readRecord,
   registerRef,
   resolveRef,
-  scanPrefix,
   timeSource,
   transact,
 } from "./common.js";
@@ -31,12 +40,10 @@ import {
   correlationKey,
   handoffKey,
   handoffPointerKey,
-  handoffPointerPrefix,
 } from "./keys.js";
 import {
   correlationIndexSchema,
   handoffIssueInputSchema,
-  handoffPointerSchema,
   stateCodeSchema,
   storedConnectionSchema,
   storedHandoffSchema,
@@ -56,9 +63,6 @@ import {
 
 export type HandoffOptions = { now?: Clock };
 
-const pending = (state: StoredHandoff["state"]) =>
-  state === "issued" || state === "waiting";
-
 const summaryOf = (record: StoredHandoff): ConnectorHandoffSummary => ({
   handoffRef: record.handoffRef,
   kind: record.kind,
@@ -73,72 +77,20 @@ const recordOf = (value: StoredHandoff): HandoffRecord => {
     schemaVersion: _schema,
     completedAt: _completed,
     reason: _reason,
+    claim: _claim,
+    settledBy: _settledBy,
     ...rest
   } = value;
   void _schema;
   void _completed;
   void _reason;
+  void _claim;
+  void _settledBy;
   return compact({ ...rest, private: { ...rest.private } });
 };
 
 const connectionRefIndex = (connectionRef: string) =>
   `connection:${connectionRef}`;
-
-/** Marks every pending handoff of a connection; used by cancel, unlink and generation fences in the same transaction. */
-export async function settlePendingHandoffs(
-  tx: AsyncTransaction,
-  tenantId: string,
-  connectionRef: string,
-  state: "cancelled" | "superseded",
-  reason: string,
-  at: number,
-): Promise<number> {
-  const refs: string[] = [];
-  await scanPrefix(
-    tx,
-    tenantId,
-    "connector-handoff",
-    handoffPointerPrefix(connectionRef),
-    handoffPointerSchema,
-    ({ value }) => {
-      refs.push(value.handoffRef);
-    },
-  );
-  let count = 0;
-  for (const handoffRef of refs) {
-    const record = await readRecord(
-      tx,
-      handoffKey(tenantId, handoffRef),
-      storedHandoffSchema,
-    );
-    if (!record || !pending(record.value.state)) continue;
-    await tx.put(
-      handoffKey(tenantId, handoffRef),
-      {
-        ...record.value,
-        state,
-        reason,
-        completedAt: at,
-      } satisfies StoredHandoff,
-      record.revision,
-    );
-    await dropCorrelation(tx, tenantId, record.value);
-    count++;
-  }
-  return count;
-}
-
-async function dropCorrelation(
-  tx: AsyncTransaction,
-  tenantId: string,
-  record: StoredHandoff,
-): Promise<void> {
-  if (record.correlationKey === undefined) return;
-  const key = correlationKey(tenantId, record.correlationKey);
-  const index = await readRecord(tx, key, correlationIndexSchema);
-  if (index && index.value.handoffRef === record.handoffRef)
-    await tx.delete(key, index.revision);
-}
 
 /** A pending handoff past its expiry becomes expired the moment anyone looks at it. */
 async function settleExpiry(
@@ -150,7 +102,7 @@ async function settleExpiry(
   if (!pending(record.value.state) || record.value.expiresAt > at)
     return record.value;
   const expired: StoredHandoff = {
-    ...record.value,
+    ...withoutClaim(record.value),
     state: "expired",
     reason: "handoff.expired",
     completedAt: at,
@@ -170,6 +122,7 @@ export function createHandoffPort(
 ): HandoffPort {
   const time = timeSource(options.now);
   return {
+    ...createHandoffClaims(store, time),
     async issue(input: HandoffIssue) {
       const actor = checkActor(input.actor);
       const { actor: _actor, ...rest } = input;
@@ -311,7 +264,7 @@ export function createHandoffPort(
       });
     },
 
-    async complete(handoffRef, expectedGeneration, state) {
+    async complete(handoffRef, expectedGeneration, state, attempt) {
       const target = z
         .enum(["completed", "denied", "expired", "cancelled", "superseded"])
         .safeParse(state);
@@ -331,6 +284,7 @@ export function createHandoffPort(
           throw new ConnectorError("not-found", { detail: "handoff.unknown" });
         const at = await time(tx);
         const current = await settleExpiry(tx, tenantId, record, at);
+        assertNotClaimedByAnother(current, attempt, at);
         if (current.generation !== expectedGeneration)
           throw new ConnectorError("conflict", {
             detail: "handoff.stale-generation",
@@ -356,7 +310,7 @@ export function createHandoffPort(
           await tx.put(
             key,
             {
-              ...current,
+              ...withoutClaim(current),
               state: "superseded",
               reason: "handoff.stale-generation",
               completedAt: at,
@@ -369,9 +323,10 @@ export function createHandoffPort(
           });
         }
         const completed: StoredHandoff = {
-          ...current,
+          ...withoutClaim(current),
           state: target.data,
           completedAt: at,
+          ...(attempt !== undefined ? { settledBy: attempt } : {}),
         };
         await tx.put(key, completed, record.revision);
         await dropCorrelation(tx, tenantId, current);

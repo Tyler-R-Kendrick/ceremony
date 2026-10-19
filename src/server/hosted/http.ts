@@ -14,7 +14,10 @@ import {
   type ConnectorHttpHandler,
 } from "../connectors/commands/http.js";
 import type { TeachingRuntime } from "../teaching-runtime.js";
-import { validContinuationWorker } from "./continuations.js";
+import {
+  validContinuationWorker,
+  type DispatchReport,
+} from "./continuations.js";
 import { AsyncCeremonyEnvironment } from "../async-environment.js";
 import { authenticatedActor, requireCapability } from "../identity.js";
 import { PersistenceConflict } from "../persistence/index.js";
@@ -87,7 +90,10 @@ export async function hostedHttp(
   request: Request,
   runtime: TeachingRuntime,
   startAgent: (runId: string, turnId: string) => Promise<void>,
-  worker?: { secret: string | undefined; dispatch(): Promise<void> },
+  worker?: {
+    secret: string | undefined;
+    dispatch(): Promise<DispatchReport | void>;
+  },
   mcp?: { fetch(request: Request): Promise<Response | undefined> },
   connectors?: ConnectorHttpHandler,
 ): Promise<Response> {
@@ -157,9 +163,9 @@ export async function hostedHttp(
         !validContinuationWorker(request, worker.secret)
       )
         throw new AuthorizationError("denied");
-      await worker.dispatch();
+      const sweep = await worker.dispatch();
       return Response.json(
-        { dispatched: true },
+        { dispatched: true, ...(sweep ? { sweep } : {}) },
         { headers: { "cache-control": "no-store" } },
       );
     }

@@ -1,5 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
+import {
+  boundedResponseJson,
+  INDETERMINATE,
+  noAnswerIfTooLarge,
+  tooLargeAfterSend,
+} from "./connectors/auth/response-bound.js";
 import { loopbackAuthFetch, publicAuthFetch } from "./public-auth-fetch.js";
 import { accountIdentifierSchema } from "../core/teaching-contracts.js";
 import { AuthorizationError } from "./identity.js";
@@ -59,6 +65,10 @@ import {
   type ClientAuthentication,
 } from "./authored-oauth.js";
 
+/** What a person is told when a request went out and its answer was too large to read. */
+const UNKNOWN_OUTCOME =
+  '<h1>The outcome is unknown</h1><p>The provider answered, but its answer was too large to read, so whether it signed you in is unknown. Nothing was stored, and the request is not sent again. Check your account at the provider before trying again.</p><a href="?flow=native">Choose a supported sign-in method</a>';
+
 const escape = (text: string) =>
   text.replace(
     /[&<>"']/g,
@@ -100,7 +110,7 @@ function ticketMatchesAttempt(
   );
 }
 
-async function startDeviceAuthorization(
+export async function startDeviceAuthorization(
   endpoint: string,
   clientId: string,
   scope: string,
@@ -130,7 +140,7 @@ async function startDeviceAuthorization(
       expires_in: z.coerce.number().int().positive(),
       interval: z.coerce.number().int().positive().optional(),
     })
-    .safeParse(await response.json());
+    .safeParse(await boundedResponseJson(response).catch(noAnswerIfTooLarge));
   return json.success ? json.data : undefined;
 }
 
@@ -368,61 +378,80 @@ export async function authoredHuman(
       );
     }
     let created;
-    if (
-      prior.value.dpopJwk ||
-      discovery.requirePushedAuthorizationRequests ||
-      discovery.dpopRequired
-    ) {
-      if (!discovery.authorizationEndpoint || !discovery.tokenEndpoint)
-        throw new AuthorizationError("denied");
-      const grant = await exchangeAuthorizationCode({
-        discovery: {
-          origin: discovery.origin || discovery.issuer || "",
-          authorizationEndpoint: discovery.authorizationEndpoint,
-          tokenEndpoint: discovery.tokenEndpoint,
-          ...(discovery.issuer ? { issuer: discovery.issuer } : {}),
-          ...(discovery.pushedAuthorizationRequestEndpoint
-            ? {
-                pushedAuthorizationRequestEndpoint:
-                  discovery.pushedAuthorizationRequestEndpoint,
-              }
-            : {}),
-        },
-        clientId: prior.value.session,
-        redirectUri: redirectUri.href,
-        callbackUrl: request.url,
-        verifier: prior.value.verifier,
-        state,
-        ...(prior.value.dpopJwk ? { dpopJwk: prior.value.dpopJwk } : {}),
-        clientAuth,
-        fetch: fetcher,
-      });
-      created = await saveAuthoredGrantSession(
-        store,
-        context.actor,
-        context.runId,
-        discovery,
-        grant,
-        fetcher,
-        prior.value.dpopJwk,
-        context.target,
-      );
-    } else
-      created = await saveAuthoredAuthorizationSession(
-        store,
-        context.actor,
-        context.runId,
-        discovery,
-        {
-          code,
-          redirectUri: redirectUri.href,
-          verifier: prior.value.verifier,
+    try {
+      if (
+        prior.value.dpopJwk ||
+        discovery.requirePushedAuthorizationRequests ||
+        discovery.dpopRequired
+      ) {
+        if (!discovery.authorizationEndpoint || !discovery.tokenEndpoint)
+          throw new AuthorizationError("denied");
+        const grant = await exchangeAuthorizationCode({
+          discovery: {
+            origin: discovery.origin || discovery.issuer || "",
+            authorizationEndpoint: discovery.authorizationEndpoint,
+            tokenEndpoint: discovery.tokenEndpoint,
+            ...(discovery.issuer ? { issuer: discovery.issuer } : {}),
+            ...(discovery.pushedAuthorizationRequestEndpoint
+              ? {
+                  pushedAuthorizationRequestEndpoint:
+                    discovery.pushedAuthorizationRequestEndpoint,
+                }
+              : {}),
+          },
           clientId: prior.value.session,
-        },
-        fetcher,
-        clientAuth,
-        context.target,
+          redirectUri: redirectUri.href,
+          callbackUrl: request.url,
+          verifier: prior.value.verifier,
+          state,
+          ...(prior.value.dpopJwk ? { dpopJwk: prior.value.dpopJwk } : {}),
+          clientAuth,
+          fetch: fetcher,
+        });
+        created = await saveAuthoredGrantSession(
+          store,
+          context.actor,
+          context.runId,
+          discovery,
+          grant,
+          fetcher,
+          prior.value.dpopJwk,
+          context.target,
+        );
+      } else
+        created = await saveAuthoredAuthorizationSession(
+          store,
+          context.actor,
+          context.runId,
+          discovery,
+          {
+            code,
+            redirectUri: redirectUri.href,
+            verifier: prior.value.verifier,
+            clientId: prior.value.session,
+          },
+          fetcher,
+          clientAuth,
+          context.target,
+        );
+    } catch (error) {
+      if (!tooLargeAfterSend(error)) throw error;
+      created = INDETERMINATE;
+    }
+    // The code was spent and the answer could not be read: what it did is
+    // unknown. Nothing is stored and the code is not presented again.
+    if (created && "status" in created) {
+      await saveAuthoredBlocker(
+        store,
+        context.actor,
+        context.runId,
+        "provider-answer-unread",
       );
+      return new Response(
+        `<!doctype html><html lang="en"><meta charset="utf-8"><title>Outcome unknown</title>${UNKNOWN_OUTCOME}</html>`,
+        { headers: { ...headers, "content-type": "text/html; charset=utf-8" } },
+      );
+    }
     if (!created) throw new AuthorizationError("denied");
     await options.browser?.close?.(browserKey);
     await advance();
@@ -1085,6 +1114,18 @@ export async function authoredHuman(
         pollAuth,
         context.target,
       );
+      if (poll.status === "indeterminate") {
+        // The device code was presented and the answer could not be read; it
+        // is not presented again.
+        await store.transaction((tx) => tx.delete(oauthKey, reserved));
+        await saveAuthoredBlocker(
+          store,
+          context.actor,
+          context.runId,
+          "provider-answer-unread",
+        );
+        return page(UNKNOWN_OUTCOME);
+      }
       if (poll.status === "ready") {
         await store.transaction((tx) => tx.delete(oauthKey, reserved));
         await options.browser?.close?.(browserKey);

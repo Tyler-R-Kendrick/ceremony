@@ -129,6 +129,12 @@ export function memoryPorts(options: { now?: () => number } = {}) {
   };
 
   const handoffRecords = new Map<string, HandoffRecord>();
+  /** The attempt that settled each handoff, for a waiter that joined another. */
+  const handoffSettledBy = new Map<string, string>();
+  const handoffClaims = new Map<
+    string,
+    { submission: string; attempt: string; expiresAt: number }
+  >();
   const handoffs: HandoffPort = {
     async issue(input: HandoffIssue) {
       const handoffRef = `handoff:${randomUUID()}`;
@@ -176,15 +182,85 @@ export function memoryPorts(options: { now?: () => number } = {}) {
           return record;
       return undefined;
     },
-    async complete(handoffRef, expectedGeneration, state) {
+    async complete(handoffRef, expectedGeneration, state, attempt) {
       const record = handoffRecords.get(handoffRef);
       if (!record) throw new Error("unknown handoff");
+      const held = handoffClaims.get(handoffRef);
+      if (
+        attempt !== undefined &&
+        held &&
+        held.attempt !== attempt &&
+        now() < held.expiresAt
+      )
+        throw new ConnectorError("conflict", { detail: "handoff.claim-lost" });
       if (record.generation !== expectedGeneration)
         throw new Error("stale handoff generation");
       if (record.state !== "issued" && record.state !== "waiting")
         throw new Error("handoff already completed");
       record.state = state;
+      handoffClaims.delete(handoffRef);
+      if (attempt !== undefined) handoffSettledBy.set(handoffRef, attempt);
       return record;
+    },
+    // The claim rules of the persistent port, kept beside the records so a
+    // test that passes here cannot be hiding a claim the real store refuses.
+    async claim(
+      handoffRef,
+      expectedGeneration,
+      submission,
+      attempt,
+      leaseMs,
+      joining,
+    ) {
+      const record = handoffRecords.get(handoffRef);
+      if (
+        !/^[a-f0-9]{64}$/.test(submission) ||
+        !/^[A-Za-z0-9_-]{8,64}$/.test(attempt) ||
+        leaseMs <= 0
+      )
+        throw new ConnectorError("invalid-request", {
+          detail: "handoff.claim",
+        });
+      if (!record)
+        throw new ConnectorError("not-found", { detail: "handoff.unknown" });
+      const pending = record.state === "issued" || record.state === "waiting";
+      if (record.state === "expired" || (pending && record.expiresAt <= now()))
+        throw new ConnectorError("expired", { detail: "handoff.expired" });
+      if (record.generation !== expectedGeneration)
+        throw new ConnectorError("conflict", {
+          detail: "handoff.stale-generation",
+        });
+      if (!pending)
+        throw new ConnectorError("conflict", {
+          detail:
+            joining !== undefined &&
+            handoffSettledBy.has(handoffRef) &&
+            handoffSettledBy.get(handoffRef) !== joining
+              ? "handoff.settled-by-another"
+              : "handoff.already-completed",
+        });
+      const connection = connections.get(record.connectionRef)?.record;
+      if (connection && connection.generation !== record.generation)
+        throw new ConnectorError("conflict", {
+          detail: "handoff.stale-generation",
+        });
+      const held = handoffClaims.get(handoffRef);
+      if (held && now() < held.expiresAt) {
+        if (held.submission === submission) return { shared: held.attempt };
+        throw new ConnectorError("conflict", {
+          detail: "handoff.already-claimed",
+        });
+      }
+      handoffClaims.set(handoffRef, {
+        submission,
+        attempt,
+        expiresAt: now() + leaseMs,
+      });
+      return "claimed";
+    },
+    async release(handoffRef, attempt) {
+      if (handoffClaims.get(handoffRef)?.attempt === attempt)
+        handoffClaims.delete(handoffRef);
     },
     async cancelAll(connectionRef, _reason) {
       let count = 0;
@@ -194,6 +270,7 @@ export function memoryPorts(options: { now?: () => number } = {}) {
           (record.state === "issued" || record.state === "waiting")
         ) {
           record.state = "cancelled";
+          handoffClaims.delete(record.handoffRef);
           count++;
         }
       return count;
@@ -298,7 +375,12 @@ export function memoryPorts(options: { now?: () => number } = {}) {
           revision: entry.revision,
         }));
     },
-    async advanceGeneration(actor, connectionRef, expectedRevision) {
+    async advanceGeneration(
+      actor,
+      connectionRef,
+      expectedRevision,
+      lastOutcome,
+    ) {
       const entry = connections.get(connectionRef);
       if (!entry || !owned(actor, entry.record)) throw new Error("denied");
       if (entry.revision !== expectedRevision) throw new Error("conflict");
@@ -309,6 +391,7 @@ export function memoryPorts(options: { now?: () => number } = {}) {
       entry.record = {
         ...kept,
         generation: entry.record.generation + 1,
+        ...(lastOutcome === undefined ? {} : { lastOutcome }),
       };
       entry.revision++;
       return { generation: entry.record.generation, revision: entry.revision };
@@ -325,6 +408,19 @@ export function memoryPorts(options: { now?: () => number } = {}) {
             revision: entry.revision,
           };
       return undefined;
+    },
+    async listByExternalId(tenantId, authorityInstance, name, value) {
+      return [...connections.values()]
+        .filter(
+          (entry) =>
+            entry.record.tenantId === tenantId &&
+            entry.record.authorityInstance === authorityInstance &&
+            entry.record.externalIds[name] === value,
+        )
+        .map((entry) => ({
+          record: structuredClone(entry.record),
+          revision: entry.revision,
+        }));
     },
   };
 

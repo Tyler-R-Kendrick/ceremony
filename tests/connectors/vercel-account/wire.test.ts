@@ -141,17 +141,21 @@ test("a pre-registered public client resolves against the recorded document; dyn
   assert.deepEqual(sent, [], "nothing was sent to the registration endpoint");
 });
 
-test("the issuer policy for the real Vercel is pre-registered, `none`, and revokes only when asked", () => {
+test("the issuer policy for the real Vercel is pre-registered, `none`, and revokes unless pinned off", () => {
   const policy = issuerPolicy(vercelAccountIssuerPolicy());
   assert.equal(policy.issuer, "https://vercel.com");
   assert.deepEqual(policy.trustedOrigins, ["https://api.vercel.com"]);
   assert.deepEqual(policy.registration.allowed, ["pre-registered"]);
   assert.equal(policy.registration.clientAuthentication, "none");
   assert.equal(policy.allowLoopbackHttp, false);
-  assert.equal(policy.revocation, "disabled");
+  assert.equal(policy.revocation, "on-upstream-disconnect");
   assert.equal(
     issuerPolicy(vercelAccountIssuerPolicy({ revoke: true })).revocation,
     "on-upstream-disconnect",
+  );
+  assert.equal(
+    issuerPolicy(vercelAccountIssuerPolicy({ revoke: false })).revocation,
+    "disabled",
   );
 });
 
@@ -612,6 +616,7 @@ test("every assumption the double serves is written down once, in the module", (
     "invalid_scope",
     "access_denied",
     "removed",
+    "ends only the token it is given",
   ])
     assert.ok(
       VERCEL_ACCOUNT_ASSUMPTIONS.some((line) => line.includes(keyword)),

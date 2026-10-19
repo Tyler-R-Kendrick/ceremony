@@ -198,8 +198,8 @@ test("concurrent users of an expiring token share one refresh", async (t) => {
   assert.equal(held["access_token"], setup.fixture.issued.accessTokens[1]);
 });
 
-test("a local disconnect releases everything the sign-in held and tells Vercel nothing", async (t) => {
-  const setup = await accountSetup(t, { revoke: true });
+test("a local disconnect with revocation pinned off releases everything the sign-in held and tells Vercel nothing", async (t) => {
+  const setup = await accountSetup(t, { revoke: false });
   const { connectionRef, done } = await connectAndChoose(setup);
   const before = await setup.record(connectionRef);
   const view = asView(
@@ -249,7 +249,7 @@ test("an upstream disconnect presents both tokens to Vercel's revocation endpoin
 });
 
 test("an upstream disconnect with revocation off says it did not try", async (t) => {
-  const setup = await accountSetup(t);
+  const setup = await accountSetup(t, { revoke: false });
   const { connectionRef, done } = await connectAndChoose(setup);
   const result = await setup.service.disconnect(setup.person, connectionRef, {
     expectedRevision: asView(done).revision,

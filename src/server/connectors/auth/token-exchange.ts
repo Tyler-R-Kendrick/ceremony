@@ -16,6 +16,7 @@ import type { CredentialScope } from "../ports.js";
 import type { ResolvedClient } from "./client.js";
 import type { ResolvedAuthorizationServer } from "./discovery.js";
 import { tokenTypeIdentifiers, type IssuerPolicy } from "./policy.js";
+import { boundResponse } from "./response-bound.js";
 import {
   accountIdentityClaim,
   credentialAcceptedClaim,
@@ -30,6 +31,7 @@ import {
   sha256Hex,
   splitScope,
   wireError,
+  wireErrorAfterSend,
 } from "./wire.js";
 
 /*
@@ -185,13 +187,15 @@ function jwks(ctx: AdapterCallContext, port: TokenExchangePort): RemoteJWKSet {
   const keySet = createRemoteJWKSet(new URL(uri), {
     timeoutDuration: DEFAULT_TIMEOUT_MS,
     [joseJwksCache]: cache,
-    [joseFetch]: (url, options) =>
-      ctx.environment.fetch(url, {
-        method: options.method,
-        headers: options.headers,
-        redirect: "error",
-        signal: boundedSignal(ctx.signal, DEFAULT_TIMEOUT_MS, options.signal),
-      }),
+    [joseFetch]: async (url, options) =>
+      boundResponse(
+        await ctx.environment.fetch(url, {
+          method: options.method,
+          headers: options.headers,
+          redirect: "error",
+          signal: boundedSignal(ctx.signal, DEFAULT_TIMEOUT_MS, options.signal),
+        }),
+      ),
   });
   keySets.set(port.server, {
     uri,
@@ -423,7 +427,7 @@ export async function exchangeToken(
     else if (error instanceof oauth.ResponseBodyError)
       await settle("failed", "oauth.exchange.rejected");
     else await settle("indeterminate", "oauth.exchange.indeterminate");
-    throw wireError(error, "oauth.exchange");
+    throw wireErrorAfterSend(error, "oauth.exchange");
   }
   const issuedTokenType = tokens["issued_token_type"];
   if (typeof issuedTokenType !== "string") {

@@ -10,6 +10,7 @@ import {
   destinationUrl,
   type BoundOperation,
 } from "../../binding.js";
+import { readBoundedBytes } from "../../bounded-body.js";
 import { ConnectorError } from "../../errors.js";
 import type { CredentialScope } from "../../ports.js";
 import {
@@ -210,6 +211,29 @@ export async function invokeDaprOutputBinding(
     abort,
     options.requestTimeoutMs ?? DAPR_REQUEST_TIMEOUT_MS,
   );
+  // One deadline for the headers and the whole body: it ends after the read.
+  const endDeadline = () => {
+    clearTimeout(timer);
+    ctx.signal.removeEventListener("abort", abort);
+  };
+  /*
+   * A dropped connection after a write leaves the effect uncertain: the
+   * binding invocation may have happened. It is recorded as indeterminate,
+   * never retried blindly.
+   */
+  const unreachable = async (error: unknown) => {
+    await ctx.environment.effects.complete(effectRef, {
+      status: operation.effect !== "read" ? "indeterminate" : "not-applied",
+      code: "dapr.sidecar.unreachable",
+      at: ctx.environment.now(),
+    });
+    return error instanceof ConnectorError
+      ? error
+      : new ConnectorError(
+          ctx.signal.aborted ? "cancelled" : "upstream-unavailable",
+          { detail: "dapr.sidecar.unreachable", cause: error },
+        );
+  };
   let response: Response;
   try {
     /*
@@ -241,6 +265,7 @@ export async function invokeDaprOutputBinding(
       }
     });
   } catch (error) {
+    endDeadline();
     if (
       error instanceof ConnectorError &&
       error.detail !== "dapr.sidecar.unreachable"
@@ -253,31 +278,13 @@ export async function invokeDaprOutputBinding(
       });
       throw error;
     }
-    /*
-     * A dropped connection after a write leaves the effect uncertain: the
-     * binding invocation may have happened. It is recorded as indeterminate,
-     * never retried blindly.
-     */
-    const uncertain = operation.effect !== "read";
-    await ctx.environment.effects.complete(effectRef, {
-      status: uncertain ? "indeterminate" : "not-applied",
-      code: "dapr.sidecar.unreachable",
-      at: ctx.environment.now(),
-    });
-    throw error instanceof ConnectorError
-      ? error
-      : new ConnectorError(
-          ctx.signal.aborted ? "cancelled" : "upstream-unavailable",
-          { detail: "dapr.sidecar.unreachable", cause: error },
-        );
-  } finally {
-    clearTimeout(timer);
-    ctx.signal.removeEventListener("abort", abort);
+    throw await unreachable(error);
   }
 
   const maxBytes = options.maxResponseBytes ?? DAPR_MAX_RESPONSE_BYTES;
   const declared = Number(response.headers.get("content-length") ?? "0");
   if (Number.isFinite(declared) && declared > maxBytes) {
+    endDeadline();
     await response.body?.cancel().catch(() => {});
     await ctx.environment.effects.complete(effectRef, {
       status: "indeterminate",
@@ -288,17 +295,28 @@ export async function invokeDaprOutputBinding(
       detail: "dapr.response.oversized",
     });
   }
-  const buffer = await response.arrayBuffer();
-  if (buffer.byteLength > maxBytes) {
-    await ctx.environment.effects.complete(effectRef, {
-      status: "indeterminate",
-      code: "dapr.response.oversized",
-      at: ctx.environment.now(),
-    });
-    throw new ConnectorError("upstream-rejected", {
-      detail: "dapr.response.oversized",
-    });
-  }
+  // Refused at the first chunk past the ceiling, not after the whole answer.
+  const oversized = new ConnectorError("upstream-rejected", {
+    detail: "dapr.response.oversized",
+  });
+  const buffer = await readBoundedBytes(
+    response,
+    maxBytes,
+    () => oversized,
+    controller.signal,
+  )
+    .catch(async (error: unknown) => {
+      if (error === oversized)
+        await ctx.environment.effects.complete(effectRef, {
+          status: "indeterminate",
+          code: "dapr.response.oversized",
+          at: ctx.environment.now(),
+        });
+      // Cut short by the deadline or the caller: the answer never arrived.
+      else if (controller.signal.aborted) throw await unreachable(error);
+      throw error;
+    })
+    .finally(endDeadline);
 
   if (response.status === 401 || response.status === 403) {
     await ctx.environment.effects.complete(effectRef, {

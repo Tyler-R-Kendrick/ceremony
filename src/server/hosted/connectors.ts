@@ -10,6 +10,10 @@ import {
   type ConnectorRuntime,
 } from "../connectors/runtime.js";
 import { createHostConfigurationPort } from "../connectors/state/configuration.js";
+import {
+  sweepDroppedCredentials,
+  type SweepReport,
+} from "../connectors/state/custody-sweep.js";
 import { ConnectorError } from "../connectors/errors.js";
 import { EventInbox } from "../connectors/events/inbox.js";
 import { SubscriptionRegistry } from "../connectors/events/subscriptions.js";
@@ -53,6 +57,8 @@ export interface HostedConnectors {
   intents: AgentConnectorDependencies;
   /** Whether provider deliveries are accepted. */
   events: boolean;
+  /** Makes the custody drops this tenant's connections noted (state/custody-sweep.ts); run by the dispatcher. */
+  sweep(tenant: string, stop?: () => boolean): Promise<SweepReport>;
 }
 
 const configurationNames = z
@@ -129,6 +135,8 @@ export function createHostedConnectors(input: {
     tools: connectorTools(runtime),
     intents: runtime.agentDependencies,
     events,
+    sweep: (tenant, stop) =>
+      sweepDroppedCredentials(input.store, tenant, stop ? { stop } : {}),
   };
 }
 

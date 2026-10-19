@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import * as oauth from "oauth4webapi";
+import { requestOptions } from "./connectors/auth/wire.js";
 import { actorContextSchema, AuthorizationError } from "./identity.js";
 import type { ActorContext } from "./identity.js";
 
@@ -68,9 +69,12 @@ export async function createMcpIdentity(config: McpIdentityConfig) {
       ))
   )
     throw new AuthorizationError("invalid_request");
-  const options = {
-    [oauth.allowInsecureRequests]: config.development === true,
-  };
+  // The connectors' OAuth transport: no redirects, a time bound and every
+  // answer read under the OAuth ceiling.
+  const options = requestOptions({
+    fetch: (input, init) => fetch(input, init),
+    allowLoopbackHttp: config.development === true,
+  });
   const as =
     config.metadata ??
     (await oauth.processDiscoveryResponse(

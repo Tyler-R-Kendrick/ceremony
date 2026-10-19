@@ -1,6 +1,13 @@
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
+import {
+  boundedResponseJson,
+  INDETERMINATE,
+  ResponseTooLargeError,
+  unknownIfTooLarge,
+} from "./connectors/auth/response-bound.js";
 import { publicAuthFetch } from "./public-auth-fetch.js";
+import { progressLog } from "./authored-log.js";
 import { accountIdentifierSchema } from "../core/teaching-contracts.js";
 import { manifestSchema, type ConnectorManifest } from "../core/schema.js";
 import type { ConnectorDraft } from "../core/connector-authoring.js";
@@ -768,7 +775,7 @@ function identityFromAccess(
 ) {
   return identityFromUnknown(claims) ?? identityFromJwt(accessToken);
 }
-async function tokenRequest(
+export async function tokenRequest(
   endpoint: string,
   body: URLSearchParams,
   fetcher: typeof fetch,
@@ -792,9 +799,10 @@ async function tokenRequest(
     body,
   });
   if (!response.ok) return undefined;
-  const json = z
-    .record(z.string(), z.unknown())
-    .safeParse(await response.json());
+  const answer = await boundedResponseJson(response).catch(unknownIfTooLarge);
+  // The code was presented: a token may have been minted that was not read.
+  if (answer === INDETERMINATE) return INDETERMINATE;
+  const json = z.record(z.string(), z.unknown()).safeParse(answer);
   if (!json.success) return undefined;
   const access =
     typeof json.data.access_token === "string"
@@ -849,9 +857,12 @@ export async function pollDeviceToken(
         : 0,
     };
   }
-  const json = z
-    .record(z.string(), z.unknown())
-    .safeParse(await response.json().catch(() => null));
+  const answer = await boundedResponseJson(response).catch((error: unknown) =>
+    error instanceof ResponseTooLargeError ? INDETERMINATE : null,
+  );
+  // The device code was presented: a token may have been minted that was not read.
+  if (answer === INDETERMINATE) return INDETERMINATE;
+  const json = z.record(z.string(), z.unknown()).safeParse(answer);
   if (!json.success) return { status: "denied" as const };
   if (
     response.ok &&
@@ -1060,7 +1071,7 @@ export async function saveAuthoredAuthorizationSession(
     fetcher,
     clientAuth,
   );
-  if (!token) return undefined;
+  if (!token || "status" in token) return token;
   return saveAuthoredGrantSession(
     store,
     actor,
@@ -2602,6 +2613,9 @@ export function registerAuthoredOperations(
             diagnosticCode: "awaiting-human" as const,
           };
         }
+        const progress = progressLog((text) =>
+          appendAuthoredLog(options.store, context.actor, context.runId, text),
+        );
         try {
           const clientAuth = await authoredClientAuthentication(
             options.store,
@@ -2623,19 +2637,7 @@ export function registerAuthoredOperations(
           discovery = started.discovery;
           const attemptDiscovery = discovery;
           const origin = discovery.origin || discovery.issuer || "";
-          let logQueue = Promise.resolve();
-          const log = (text: string) => {
-            logQueue = logQueue
-              .then(() =>
-                appendAuthoredLog(
-                  options.store,
-                  context.actor,
-                  context.runId,
-                  text,
-                ),
-              )
-              .catch(() => {});
-          };
+          const log = progress.log;
           log(`Running the ${selected} ceremony in the isolated browser`);
           const prepareAccountAttempt = async () => {
             const accountIntent = await readAuthoredAccountIntent(
@@ -2944,6 +2946,9 @@ export function registerAuthoredOperations(
             );
           }
           /* Isolated browser failure falls through to a human fallback. */
+        } finally {
+          // The run's stream reads the log after the run settles (authored-log.ts).
+          await progress.settled();
         }
         return {
           state: "awaiting-human" as const,

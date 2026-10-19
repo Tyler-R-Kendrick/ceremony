@@ -1,5 +1,6 @@
 import { chromium, type Browser, type Page } from "playwright-core";
 import { z } from "zod";
+import { boundedResponseJson } from "../src/server/connectors/auth/response-bound.js";
 
 /**
  * Where the agent's browser runs.
@@ -102,7 +103,8 @@ export async function openBrowserSession(
     });
     if (!created.ok)
       throw new Error(`Browser Use refused a session (${created.status})`);
-    const session = browserUseSession.parse(await created.json());
+    // The answer opens a remote session: read under the OAuth ceiling.
+    const session = browserUseSession.parse(await boundedResponseJson(created));
     const browser = await chromium.connectOverCDP(session.cdpUrl, {
       timeout: 20_000,
     });

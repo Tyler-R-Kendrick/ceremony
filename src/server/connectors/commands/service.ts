@@ -17,21 +17,16 @@ import {
   type ConnectionSummary,
   type ConnectorImportResult,
   type HumanPresentation,
+  type LocalDisconnectOutcome,
   type NormalizedDefinition,
   type SourceRecord,
   type SupportLabel,
   type VerificationClaim,
 } from "../../../core/connectors/index.js";
-import {
-  AuthorizationError,
-  requireCapability,
-  type Capability,
-} from "../../identity.js";
-import { PersistenceConflict } from "../../persistence/index.js";
+import { requireCapability } from "../../identity.js";
 import type { AgentConnectorDependencies } from "../agents/intents.js";
 import type {
   AdapterCallContext,
-  AuthorizationIntent,
   AuthorizationStart,
   CompletionResult,
   ConnectorAdapter,
@@ -90,7 +85,6 @@ import {
   disconnectInputSchema,
   handoffValuesSchema,
   importInputSchema,
-  intentInputSchema,
   invokeInputSchema,
   reconnectInputSchema,
   type BindingApprovalInput,
@@ -103,6 +97,36 @@ import {
   type OperationApproval,
   type ReconnectInput,
 } from "./inputs.js";
+import { abandonedSession, dropAbandoned } from "./abandon-pending.js";
+import { noteDropped } from "../dropped-credentials.js";
+import {
+  boundOperationTransport,
+  declaredOAuthOrigins,
+  narrowConfiguration,
+  OAUTH_PROFILE_KINDS,
+} from "./definitions.js";
+import {
+  closeDisconnected,
+  localOutcome,
+  otherHolders,
+} from "./disconnect-close.js";
+import { adapterCall, port, requireAny } from "./failures.js";
+import { withHandoffClaim } from "./handoff-claim.js";
+import {
+  boundedState,
+  closed,
+  code,
+  currentHandoff,
+  deleted,
+  intentOf,
+  pending,
+  presentationOf,
+  toAdapterIntent,
+} from "./records.js";
+import {
+  releaseSession,
+  SESSION_RELEASE_TIMEOUT_MS,
+} from "./session-release.js";
 import type { ConnectorPolicy, PolicySubject } from "./policy.js";
 
 /*
@@ -197,7 +221,6 @@ export interface ConnectorCommandServiceOptions {
 export const CONNECTOR_CALLBACK_PATH = "/api/v1/connectors/callback";
 const MAX_HANDOFF_MS = 24 * 60 * 60 * 1000;
 const MAX_OUTPUT_BYTES = 1024 * 1024;
-const dottedCode = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+){0,11}$/;
 const externalIdName = /^[a-zA-Z][a-zA-Z0-9_.-]{0,63}$/;
 const configurationName = /^[A-Z][A-Z0-9_]{0,95}$/;
 const classificationRank = { public: 0, personal: 1, secret: 2 } as const;
@@ -210,8 +233,23 @@ const classificationRank = { public: 0, personal: 1, secret: 2 } as const;
 const REUSED_COMMAND = "command.reused";
 
 type ConnectionEntry = { record: ConnectionRecord; revision: number };
+/** What a disconnect or a revoke reports: an adapter's outcomes, with the local one the service decides. */
+type Disconnected = Omit<DisconnectResult, "local"> & {
+  local: LocalDisconnectOutcome;
+};
 type ConnectionPatch = Parameters<ConnectionStorePort["update"]>[3];
-type HandoffHandle = { handoffRef: string; generation: number };
+/** What a completion decided: the patch to write, and the credential it replaces (dropped after the write). */
+type Applied = {
+  patch: ConnectionPatch;
+  presentation?: HumanPresentation | undefined;
+  replaced?: string | undefined;
+};
+type HandoffHandle = {
+  handoffRef: string;
+  generation: number;
+  /** The attempt holding the handoff's claim, presented when the handoff is settled. */
+  attempt?: string | undefined;
+};
 
 /** A pending revocation request as recorded on a connection's server-side state. */
 const revocationRequestSchema = z.object({
@@ -221,182 +259,6 @@ const revocationRequestSchema = z.object({
 const sha256Hex = (value: unknown) =>
   createHash("sha256").update(canonicalConnectorJson(value)).digest("hex");
 const iso = (ms: number) => new Date(ms).toISOString();
-/** Origins a definition declares for its OAuth profiles; candidates for review, never approval. */
-/** Profile kinds an issuer policy can apply to. */
-const OAUTH_PROFILE_KINDS: ReadonlySet<string> = new Set([
-  "oauth-authorization-code",
-  "openid-connect",
-  "oauth-device",
-  "oauth-client-credentials",
-]);
-
-function declaredOAuthOrigins(definition: NormalizedDefinition): string[] {
-  const origins = new Set<string>();
-  for (const profile of definition.authentication)
-    for (const key of [
-      "issuer",
-      "authorizationEndpoint",
-      "tokenEndpoint",
-      "deviceAuthorizationEndpoint",
-    ] as const) {
-      const value = (profile as Partial<Record<typeof key, string>>)[key];
-      if (value && URL.canParse(value)) origins.add(new URL(value).origin);
-    }
-  return [...origins];
-}
-/** A configuration port that answers only for the names given; any other reads as absent. */
-function narrowConfiguration(
-  port: ConfigurationPort,
-  names: ReadonlySet<string>,
-): ConfigurationPort {
-  return {
-    read: async (name) => (names.has(name) ? port.read(name) : undefined),
-    present: async (asked) => {
-      const allowed = asked.filter((name) => names.has(name));
-      return allowed.length ? port.present(allowed) : new Set<string>();
-    },
-    revision: () => port.revision(),
-  };
-}
-const code = (value: string | undefined, fallback: string) =>
-  value && value.length <= 120 && dottedCode.test(value) ? value : fallback;
-/**
- * The handoff this connection is actually waiting on. A handoff issued for an
- * earlier generation was superseded when the generation advanced, so it is
- * neither pending nor projected — it cannot be completed, presented or
- * cancelled as if it still belonged here.
- */
-const pending = (record: ConnectionRecord) =>
-  record.handoff &&
-  record.handoff.generation === record.generation &&
-  (record.handoff.state === "issued" || record.handoff.state === "waiting")
-    ? record.handoff
-    : undefined;
-const currentHandoff = (record: ConnectionRecord) =>
-  record.handoff && record.handoff.generation === record.generation
-    ? record.handoff
-    : undefined;
-const closed = (record: ConnectionRecord) =>
-  record.lifecycle === "locally-disconnected" ||
-  record.lifecycle === "upstream-revoked";
-const deleted = (record: ConnectionRecord) => record.state.deleted === true;
-
-function requireAny(actor: ActorContext, capabilities: Capability[]): void {
-  if (
-    !actor.capabilities.includes("admin") &&
-    !capabilities.some((capability) => actor.capabilities.includes(capability))
-  )
-    throw new AuthorizationError("denied");
-}
-
-/** Port failures in the connector vocabulary; ownership failures leak no existence. */
-async function port<T>(work: () => Promise<T>): Promise<T> {
-  try {
-    return await work();
-  } catch (error) {
-    if (error instanceof ConnectorError || error instanceof AuthorizationError)
-      throw error;
-    if (error instanceof PersistenceConflict)
-      throw new ConnectorError("conflict", { cause: error });
-    if (error instanceof Error) {
-      if (/conflict|stale|already/i.test(error.message))
-        throw new ConnectorError("conflict", { cause: error });
-      if (/denied|unknown|not found/i.test(error.message))
-        throw new ConnectorError("not-found", { cause: error });
-    }
-    throw error;
-  }
-}
-
-/** Adapter failures never reach a caller as text; only a code does. */
-async function adapterCall<T>(work: () => Promise<T>): Promise<T> {
-  try {
-    return await work();
-  } catch (error) {
-    if (error instanceof ConnectorError) throw error;
-    if (error instanceof z.ZodError)
-      throw new ConnectorError("invalid-request", {
-        detail: "adapter.input",
-        cause: error,
-      });
-    if (error instanceof DOMException && error.name === "AbortError")
-      throw new ConnectorError("upstream-unavailable", {
-        detail: "adapter.timeout",
-        cause: error,
-      });
-    throw new ConnectorError("upstream-unavailable", {
-      detail: "adapter.failure",
-      cause: error,
-    });
-  }
-}
-
-function presentationOf(
-  material: Readonly<Record<string, string>>,
-): HumanPresentation | undefined {
-  const shown: HumanPresentation = {};
-  // The OAuth grants in `connectors/auth` keep the page to open under their
-  // own names (an authorization URL, a device verification URI); those are
-  // the same one thing a person may see, never the state or codes beside them.
-  const url =
-    material.url ??
-    material.authorizationUrl ??
-    material.verificationUriComplete ??
-    material.verificationUri;
-  if (url !== undefined) shown.url = url;
-  if (material.userCode !== undefined) shown.userCode = material.userCode;
-  if (material.instructions !== undefined)
-    shown.instructions = material.instructions;
-  return Object.keys(shown).length ? shown : undefined;
-}
-
-function intentOf(record: ConnectionRecord): IntentInput {
-  const parsed = intentInputSchema.safeParse(record.state.intent);
-  return parsed.success
-    ? parsed.data
-    : {
-        requestedPermissions: [],
-        accountSwitch: false,
-        interruption: "allowed",
-      };
-}
-
-function toAdapterIntent(
-  intent: IntentInput,
-  ownerKind: ConnectionRecord["ownerKind"],
-  profileId: string | undefined,
-): AuthorizationIntent {
-  return {
-    ...(profileId ? { profileId } : {}),
-    ownerKind,
-    requestedPermissions: [...intent.requestedPermissions],
-    ...(intent.target ? { target: intent.target } : {}),
-    accountSwitch: intent.accountSwitch,
-    interruption: intent.interruption,
-  };
-}
-
-function boundedState(
-  current: Record<string, unknown>,
-  extra: Record<string, unknown> | undefined,
-): Record<string, unknown> {
-  const merged: Record<string, unknown> = { ...current };
-  for (const [key, value] of Object.entries(extra ?? {}))
-    if (
-      /^[^\p{Cc}]{1,120}$/u.test(key) &&
-      !["__proto__", "prototype", "constructor", "intent", "deleted"].includes(
-        key,
-      )
-    )
-      merged[key] = value;
-  if (
-    Object.keys(merged).length > 64 ||
-    Buffer.byteLength(JSON.stringify(merged)) > 65536
-  )
-    throw new ConnectorError("invalid-request", { detail: "state.bounds" });
-  return merged;
-}
-
 /** Every name a support-evidence entry may use for a definition. */
 const definitionNames = (definition: NormalizedDefinition) => [
   definition.definitionRef,
@@ -607,9 +469,10 @@ export class ConnectorCommandService {
   private async connection(
     actor: ActorContext,
     connectionRef: string,
+    waitingSignIn = false,
   ): Promise<ConnectionEntry> {
     const entry = await port(() =>
-      this.ports.connections.get(actor, connectionRef),
+      this.ports.connections.get(actor, connectionRef, { waitingSignIn }),
     );
     if (!entry || deleted(entry.record))
       throw new ConnectorError("not-found", { detail: "connection.unknown" });
@@ -1678,7 +1541,7 @@ export class ConnectorCommandService {
       start,
       input.intent,
     );
-    entry = await this.update(actor, entry, applied.patch);
+    entry = await this.commit(actor, entry, applied);
     if (applied.unsupported)
       throw new ConnectorError("unsupported", { detail: applied.unsupported });
     return this.project(actor, entry, applied.presentation);
@@ -1691,11 +1554,7 @@ export class ConnectorCommandService {
     adapter: ConnectorAdapter,
     start: AuthorizationStart,
     intent: IntentInput,
-  ): Promise<{
-    patch: ConnectionPatch;
-    presentation?: HumanPresentation | undefined;
-    unsupported?: string | undefined;
-  }> {
+  ): Promise<Applied & { unsupported?: string | undefined }> {
     const record = entry.record;
     switch (start.kind) {
       case "handoff":
@@ -1804,6 +1663,27 @@ export class ConnectorCommandService {
    * only when the claims satisfy the recorded intent, and a verified account
    * is never silently replaced by a different one.
    */
+  /**
+   * Writes what a completion decided, then drops the credential it replaced:
+   * only once the write has landed, and only if the record as written no
+   * longer names it. A write that loses (a cancel, a disconnect) drops
+   * nothing, so the record never names a credential custody let go of.
+   */
+  private async commit(
+    actor: ActorContext,
+    entry: ConnectionEntry,
+    applied: Applied,
+  ): Promise<ConnectionEntry> {
+    const written = await this.update(actor, entry, applied.patch);
+    await dropAbandoned(
+      this.ports.credentials,
+      this.scope(written.record),
+      applied.replaced,
+      written.record,
+    );
+    return written;
+  }
+
   private async applyCompletion(
     actor: ActorContext,
     entry: ConnectionEntry,
@@ -1811,10 +1691,7 @@ export class ConnectorCommandService {
     handoff: HandoffHandle | undefined,
     intent: IntentInput,
     mode: "authorize" | "verify",
-  ): Promise<{
-    patch: ConnectionPatch;
-    presentation?: HumanPresentation | undefined;
-  }> {
+  ): Promise<Applied> {
     const record = entry.record;
     const patch: ConnectionPatch = {};
     const finish = async (
@@ -1829,6 +1706,7 @@ export class ConnectorCommandService {
             handoff.handoffRef,
             handoff.generation,
             state,
+            handoff.attempt,
           ),
         );
       if (record.handoff?.handoffRef === handoff.handoffRef)
@@ -1879,18 +1757,20 @@ export class ConnectorCommandService {
               this.ports.evidence.append(actor, record.connectionRef, claim),
             ),
           );
-        if (
+        // The credential this one replaces is dropped by `commit`, after the
+        // write: a write that loses leaves the record naming it.
+        const replaced =
           record.credentialRef &&
           result.credentialRef &&
           result.credentialRef !== record.credentialRef
-        )
-          await this.ports.credentials
-            .revoke(scope, record.credentialRef)
-            .catch(() => {});
+            ? { replaced: record.credentialRef }
+            : {};
         patch.evidenceRefs = evidenceRefs.slice(-256);
         if (result.credentialRef) patch.credentialRef = result.credentialRef;
         patch.externalIds = this.externalIds(record, result.externalIds);
         patch.state = boundedState(record.state, result.adapterState);
+        if (replaced.replaced)
+          patch.state = noteDropped(patch.state, replaced.replaced);
         patch.configurationRevision = await this.options
           .configuration(actor)
           .revision();
@@ -1898,7 +1778,7 @@ export class ConnectorCommandService {
           await finish("completed");
           patch.lifecycle = "human-required";
           patch.lastOutcome = "verification.target-unverified";
-          return { patch };
+          return { patch, ...replaced };
         }
         if (verified) patch.target = { kind: verified.kind, id: verified.id };
         if (claims.length) {
@@ -1924,7 +1804,7 @@ export class ConnectorCommandService {
           mode === "verify"
             ? "verification.complete"
             : "authorization.complete";
-        return { patch };
+        return { patch, ...replaced };
       }
       case "pending":
         // A pending answer can still carry state the next poll needs (a
@@ -1959,6 +1839,8 @@ export class ConnectorCommandService {
         await finish("completed");
         patch.lifecycle = "human-required";
         patch.lastOutcome = code(result.code, "human.required");
+        if (result.adapterState)
+          patch.state = boundedState(record.state, result.adapterState);
         if (result.handoff)
           return this.issueHandoff(
             actor,
@@ -2050,17 +1932,12 @@ export class ConnectorCommandService {
     actor: ActorContext,
     handoff: HandoffRecord,
     input: Parameters<NonNullable<ConnectorAdapter["complete"]>>[1],
+    signal?: AbortSignal,
   ): Promise<ConnectionView> {
     if (handoff.state !== "issued" && handoff.state !== "waiting")
       throw new ConnectorError("conflict", { detail: "handoff.consumed" });
-    const entry = await this.connection(actor, handoff.connectionRef);
+    const entry = await this.handoffConnection(actor, handoff);
     const record = entry.record;
-    if (closed(record))
-      throw new ConnectorError("denied", { detail: "connection.disconnected" });
-    if (handoff.generation !== record.generation)
-      throw new ConnectorError("expired", {
-        detail: "handoff.stale-generation",
-      });
     if (handoff.expiresAt <= this.now()) {
       await port(() =>
         this.ports.handoffs.complete(
@@ -2100,6 +1977,65 @@ export class ConnectorCommandService {
           : "callback",
     );
     await this.requireSupport(actor, adapter, binding);
+    // A person's values are claimed before any adapter runs (handoff-claim.ts):
+    // another submission is refused here, and an identical one waits for this
+    // run's answer, so the connection never names values it was not built from.
+    return withHandoffClaim(
+      {
+        handoffs: this.ports.handoffs,
+        newAttempt: () => this.random.uuid(),
+        leaseMs: this.callTimeoutMs * 2,
+        signal,
+        landed: async () =>
+          pending((await this.connection(actor, handoff.connectionRef)).record)
+            ?.handoffRef !== handoff.handoffRef,
+      },
+      handoff,
+      input,
+      async (attempt) =>
+        this.runCompletion(
+          actor,
+          // A claim can be won after waiting on another submission's run,
+          // which leaves its own outcome on the connection: work from what
+          // is there now.
+          attempt === undefined
+            ? entry
+            : await this.handoffConnection(actor, handoff),
+          binding,
+          adapter,
+          handoff,
+          input,
+          attempt,
+        ),
+      () => this.status(actor, record.connectionRef),
+    );
+  }
+
+  /** The connection a handoff was issued for, while it is still open and still that generation. */
+  private async handoffConnection(
+    actor: ActorContext,
+    handoff: HandoffRecord,
+  ): Promise<ConnectionEntry> {
+    const entry = await this.connection(actor, handoff.connectionRef);
+    if (closed(entry.record))
+      throw new ConnectorError("denied", { detail: "connection.disconnected" });
+    if (handoff.generation !== entry.record.generation)
+      throw new ConnectorError("expired", {
+        detail: "handoff.stale-generation",
+      });
+    return entry;
+  }
+
+  private async runCompletion(
+    actor: ActorContext,
+    entry: ConnectionEntry,
+    binding: RuntimeBinding,
+    adapter: ConnectorAdapter,
+    handoff: HandoffRecord,
+    input: Parameters<NonNullable<ConnectorAdapter["complete"]>>[1],
+    attempt: string | undefined,
+  ): Promise<ConnectionView> {
+    const record = entry.record;
     // One completion per handoff and generation, even under concurrency: the
     // journal entry is written before the adapter touches the provider.
     const journal = await this.ports.effects.begin({
@@ -2141,14 +2077,18 @@ export class ConnectorCommandService {
       actor,
       entry,
       result,
-      { handoffRef: handoff.handoffRef, generation: handoff.generation },
+      {
+        handoffRef: handoff.handoffRef,
+        generation: handoff.generation,
+        attempt,
+      },
       intent,
       "authorize",
     );
     await this.ports.effects
       .complete(journal.effectRef, this.effectOutcome(result))
       .catch(() => {});
-    const updated = await this.update(actor, entry, applied.patch);
+    const updated = await this.commit(actor, entry, applied);
     return this.project(actor, updated, applied.presentation);
   }
 
@@ -2197,6 +2137,7 @@ export class ConnectorCommandService {
     connectionRef: string,
     handoffRef: string,
     rawValues: unknown,
+    signal?: AbortSignal,
   ): Promise<ConnectionView> {
     requireCapability(actor, "executor");
     if (actor.actorKind !== "human")
@@ -2212,7 +2153,7 @@ export class ConnectorCommandService {
     )
       throw new ConnectorError("invalid-request", { detail: "handoff.kind" });
     void entry;
-    return this.complete(actor, handoff, { kind: "input", values });
+    return this.complete(actor, handoff, { kind: "input", values }, signal);
   }
 
   async poll(
@@ -2268,7 +2209,7 @@ export class ConnectorCommandService {
       intentOf(record),
       "authorize",
     );
-    const updated = await this.update(actor, entry, applied.patch);
+    const updated = await this.commit(actor, entry, applied);
     const presentation =
       applied.presentation ??
       (result.state === "pending"
@@ -2381,7 +2322,7 @@ export class ConnectorCommandService {
       intentOf(record),
       "verify",
     );
-    return this.project(actor, await this.update(actor, entry, applied.patch));
+    return this.project(actor, await this.commit(actor, entry, applied));
   }
 
   // ----------------------------------------------------------------- invoke
@@ -2671,7 +2612,7 @@ export class ConnectorCommandService {
   ): Promise<ConnectionView> {
     requireCapability(actor, "executor");
     const input: ReconnectInput = reconnectInputSchema.parse(rawInput);
-    const entry = await this.connection(actor, connectionRef);
+    const entry = await this.connection(actor, connectionRef, true);
     const record = entry.record;
     if (closed(record))
       throw new ConnectorError("denied", { detail: "connection.disconnected" });
@@ -2720,6 +2661,7 @@ export class ConnectorCommandService {
         actor,
         connectionRef,
         entry.revision,
+        "reconnect.started",
       ),
     );
     await this.ports.handoffs.cancelAll(connectionRef, "reconnect");
@@ -2764,7 +2706,7 @@ export class ConnectorCommandService {
       outcome,
       intent,
     );
-    current = await this.update(actor, current, applied.patch);
+    current = await this.commit(actor, current, applied);
     if (applied.unsupported)
       throw new ConnectorError("unsupported", { detail: applied.unsupported });
     return this.project(actor, current, applied.presentation);
@@ -2776,21 +2718,30 @@ export class ConnectorCommandService {
     connectionRef: string,
   ): Promise<ConnectionView> {
     requireCapability(actor, "executor");
-    const entry = await this.connection(actor, connectionRef);
+    const entry = await this.connection(actor, connectionRef, true);
     const summary = pending(entry.record);
     if (!summary) return this.project(actor, entry);
+    // Write first; cancel the handoff and drop the waiting sign-in second
+    // (abandon-pending.ts). A cancel that loses on revision has then changed
+    // nothing, and the record and the handoff store still agree.
+    const abandoned = abandonedSession(entry.record);
+    const cancelled = await this.update(actor, entry, {
+      handoff: { ...summary, state: "cancelled" },
+      lastOutcome: "handoff.cancelled",
+      lifecycle:
+        entry.record.lifecycle === "human-required"
+          ? "authorization-required"
+          : entry.record.lifecycle,
+      ...abandoned.patch,
+    });
     await this.ports.handoffs.cancelAll(connectionRef, "cancelled");
-    return this.project(
-      actor,
-      await this.update(actor, entry, {
-        handoff: { ...summary, state: "cancelled" },
-        lastOutcome: "handoff.cancelled",
-        lifecycle:
-          entry.record.lifecycle === "human-required"
-            ? "authorization-required"
-            : entry.record.lifecycle,
-      }),
+    await dropAbandoned(
+      this.ports.credentials,
+      this.scope(cancelled.record),
+      abandoned.ref,
+      cancelled.record,
     );
+    return this.project(actor, cancelled);
   }
 
   // -------------------------------------------------------------- disconnect
@@ -2805,10 +2756,10 @@ export class ConnectorCommandService {
     actor: ActorContext,
     connectionRef: string,
     rawInput: unknown,
-  ): Promise<{ result: DisconnectResult; connection: ConnectionView }> {
+  ): Promise<{ result: Disconnected; connection: ConnectionView }> {
     requireCapability(actor, "executor");
     const input: DisconnectInput = disconnectInputSchema.parse(rawInput);
-    const entry = await this.connection(actor, connectionRef);
+    const entry = await this.connection(actor, connectionRef, true);
     const record = entry.record;
     if (entry.revision !== input.expectedRevision)
       throw new ConnectorError("conflict", { detail: "revision.stale" });
@@ -2831,7 +2782,7 @@ export class ConnectorCommandService {
       action,
       `${action}.denied`,
     );
-    const sharedWith = await this.sharedWith(record);
+    const sharedWith = await otherHolders(this.ports.connections, record);
     if (
       input.scope !== "local" &&
       sharedWith.length &&
@@ -2846,6 +2797,7 @@ export class ConnectorCommandService {
         actor,
         connectionRef,
         entry.revision,
+        "disconnect.closing",
       ),
     );
     await this.ports.handoffs.cancelAll(connectionRef, "disconnect");
@@ -2869,6 +2821,28 @@ export class ConnectorCommandService {
         );
       else remote = { ...remote, [input.scope]: "unsupported" };
     }
+    // Who else holds the grant is read again now that this disconnect has
+    // fenced: a holder that is closing or closed is leaving too. Of two
+    // holders that disconnect at once, the later fence therefore sees the
+    // earlier as leaving and ends the session; both may, neither skips it.
+    const holders = await otherHolders(this.ports.connections, record);
+    // A sign-in the host kept for this connection is ended at the provider
+    // before the tokens are dropped, unless the caller already asked the
+    // adapter to end the grant (the upstream scope). Best effort and bounded:
+    // see session-release.ts.
+    const release =
+      input.scope === "upstream"
+        ? undefined
+        : await releaseSession(
+            this.registry.get(binding.adapterId),
+            {
+              ...this.context(actor, binding, current.record),
+              signal: AbortSignal.timeout(
+                Math.min(this.callTimeoutMs, SESSION_RELEASE_TIMEOUT_MS),
+              ),
+            },
+            { sharedWith: holders },
+          );
     if (record.credentialRef)
       await this.ports.credentials
         .revoke(this.scope(record), record.credentialRef)
@@ -2880,42 +2854,40 @@ export class ConnectorCommandService {
       local: "applied",
       broker: remote.broker,
       upstream: remote.upstream,
-      ...(sharedWith.length || remote.sharedWith?.length
+      ...(release ? { release } : {}),
+      ...(holders.length || remote.sharedWith?.length
         ? {
             sharedWith: [
-              ...new Set([...sharedWith, ...(remote.sharedWith ?? [])]),
+              ...new Set([...holders, ...(remote.sharedWith ?? [])]),
             ],
           }
         : {}),
     };
-    current = await this.update(actor, current, {
-      lifecycle:
-        result.upstream === "applied"
-          ? "upstream-revoked"
-          : "locally-disconnected",
-      lastOutcome: `disconnect.${input.scope}`,
-    });
-    return { result, connection: this.project(actor, current) };
-  }
-
-  private async sharedWith(record: ConnectionRecord): Promise<string[]> {
-    const shared = new Set<string>();
-    for (const [name, value] of Object.entries(record.externalIds)) {
-      const other = await this.ports.connections.findByExternalId(
-        record.tenantId,
-        record.authorityInstance,
-        name,
-        value,
-      );
-      if (
-        other &&
-        other.record.connectionRef !== record.connectionRef &&
-        !closed(other.record) &&
-        !deleted(other.record)
-      )
-        shared.add(other.record.connectionRef);
-    }
-    return [...shared];
+    // The record is closed even if something wrote it while the provider was
+    // being told (disconnect-close.ts).
+    const fenced = current;
+    current = await port(() =>
+      closeDisconnected(
+        this.ports.connections,
+        async (ref) =>
+          this.ports.credentials
+            .revoke(this.scope(record), ref)
+            .catch(() => {}),
+        actor,
+        current,
+        {
+          lifecycle:
+            result.upstream === "applied"
+              ? "upstream-revoked"
+              : "locally-disconnected",
+          lastOutcome: `disconnect.${input.scope}`,
+        },
+      ),
+    );
+    return {
+      result: { ...result, local: localOutcome(fenced, current, closed) },
+      connection: this.project(actor, current),
+    };
   }
 
   /** Administrative upstream revocation; separate from any user's disconnect. */
@@ -2923,14 +2895,14 @@ export class ConnectorCommandService {
     actor: ActorContext,
     connectionRef: string,
     rawInput: unknown,
-  ): Promise<{ result: DisconnectResult; connection: ConnectionView }> {
+  ): Promise<{ result: Disconnected; connection: ConnectionView }> {
     requireCapability(actor, "admin");
     if (!actor.capabilities.includes("admin") || actor.actorKind !== "human")
       throw new ConnectorError("denied", { detail: "revoke.admin-only" });
     const input = z
       .strictObject({ expectedRevision: z.number().int().positive() })
       .parse(rawInput);
-    const entry = await this.connection(actor, connectionRef);
+    const entry = await this.connection(actor, connectionRef, true);
     const record = entry.record;
     if (entry.revision !== input.expectedRevision)
       throw new ConnectorError("conflict", { detail: "revision.stale" });
@@ -2950,6 +2922,7 @@ export class ConnectorCommandService {
         actor,
         connectionRef,
         entry.revision,
+        "revoke.closing",
       ),
     );
     await this.ports.handoffs.cancelAll(connectionRef, "revoke");
@@ -2974,18 +2947,32 @@ export class ConnectorCommandService {
     await this.ports.evidence
       .invalidate(actor, connectionRef, "revoke")
       .catch(() => {});
-    current = await this.update(actor, current, {
-      lifecycle:
-        remote.upstream === "applied"
-          ? "upstream-revoked"
-          : "locally-disconnected",
-      lastOutcome:
-        remote.upstream === "applied"
-          ? "revoke.applied"
-          : `revoke.${remote.upstream}`,
-    });
+    // Closed even if something wrote the record while the provider was being
+    // told, as a disconnect is (disconnect-close.ts).
+    const fenced = current;
+    current = await port(() =>
+      closeDisconnected(
+        this.ports.connections,
+        async (ref) =>
+          this.ports.credentials
+            .revoke(this.scope(record), ref)
+            .catch(() => {}),
+        actor,
+        current,
+        {
+          lifecycle:
+            remote.upstream === "applied"
+              ? "upstream-revoked"
+              : "locally-disconnected",
+          lastOutcome:
+            remote.upstream === "applied"
+              ? "revoke.applied"
+              : `revoke.${remote.upstream}`,
+        },
+      ),
+    );
     return {
-      result: { ...remote, local: "applied" },
+      result: { ...remote, local: localOutcome(fenced, current, closed) },
       connection: this.project(actor, current),
     };
   }
@@ -3297,52 +3284,4 @@ export class ConnectorCommandService {
     const entry = await this.connection(actor, view.connectionRef);
     return this.summary(entry);
   }
-}
-
-function boundOperationTransport(
-  value: unknown,
-): BoundOperation["transport"] | undefined {
-  const parsed = z
-    .discriminatedUnion("kind", [
-      z.strictObject({
-        kind: z.literal("http"),
-        method: z.enum([
-          "GET",
-          "HEAD",
-          "POST",
-          "PUT",
-          "PATCH",
-          "DELETE",
-          "OPTIONS",
-        ]),
-        pathTemplate: z
-          .string()
-          .max(1024)
-          .regex(/^\/[^\p{Cc}?#]*$/u),
-      }),
-      z.strictObject({
-        kind: z.literal("mcp-tool"),
-        toolName: z.string().min(1).max(512),
-      }),
-      z.strictObject({
-        kind: z.literal("mcp-resource"),
-        uriTemplate: z.string().max(2048),
-      }),
-      z.strictObject({
-        kind: z.literal("mcp-prompt"),
-        promptName: z.string().min(1).max(512),
-      }),
-      z.strictObject({
-        kind: z.literal("broker-action"),
-        action: z.string().min(1).max(512),
-      }),
-      z.strictObject({
-        kind: z.literal("delegated"),
-        route: z.string().min(1).max(256),
-      }),
-    ])
-    .safeParse(value);
-  return parsed.success
-    ? (parsed.data as BoundOperation["transport"])
-    : undefined;
 }

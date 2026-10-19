@@ -15,6 +15,7 @@ import {
 import {
   joinScope,
   neverSent,
+  refusedBeforeSend,
   requestOptions,
   safeCause,
   sha256Hex,
@@ -224,7 +225,7 @@ export async function grantClientCredentials(
     );
   } catch (failure) {
     // Refused by this engine before a byte was sent: nothing to be unsure of.
-    if (failure instanceof ConnectorError) {
+    if (refusedBeforeSend(failure)) {
       await settle("not-applied", failure.detail);
       throw failure;
     }

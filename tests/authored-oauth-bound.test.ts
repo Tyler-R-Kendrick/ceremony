@@ -1,0 +1,229 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { registerDynamicClient } from "../src/server/authored-app.js";
+import { startDeviceAuthorization } from "../src/server/authored-human.js";
+import { createMailTmInbox } from "../src/server/authored-inbox.js";
+import {
+  beginAuthorization,
+  dpopUserinfoRequest,
+  exchangeAuthorizationCode,
+  exportDpopJwk,
+} from "../src/server/authored-oauth.js";
+import {
+  pollDeviceToken,
+  saveAuthoredAuthorizationSession,
+  saveAuthoredDeviceSession,
+  tokenRequest,
+} from "../src/server/authored-operations.js";
+import { MAX_RESPONSE_BYTES } from "../src/server/connectors/auth/response-bound.js";
+import {
+  assertReadUnder,
+  endlessFetch,
+  type Pulled,
+  type Sites,
+} from "./connectors/doubles/endless-body.js";
+
+/*
+ * The authored sign-in (an author's own provider) reads its OAuth answers
+ * through oauth4webapi with a transport of its own, so the ceiling on an OAuth
+ * answer is applied there as well: a pushed-authorization answer, a token
+ * answer and a DPoP-protected userinfo answer that never end are refused when
+ * they cross it.
+ */
+
+const provider = "https://provider.example";
+const origin = "https://ceremony.example";
+const discovery = {
+  origin: provider,
+  authorizationEndpoint: `${provider}/authorize`,
+  tokenEndpoint: `${provider}/token`,
+  pushedAuthorizationRequestEndpoint: `${provider}/par`,
+  requirePushedAuthorizationRequests: true,
+};
+
+/** A fetch whose every answer never ends, for the bounded `sites` it is served to; `pulled` is what was read of it. */
+function endless(sites: Sites, status = 200) {
+  const seen: Pulled = { pulled: 0 };
+  return { seen, fetcher: endlessFetch(seen, sites, status) };
+}
+
+const within = (pulled: number) =>
+  assertReadUnder(assert, { pulled }, MAX_RESPONSE_BYTES, "an OAuth answer");
+
+// The sign-in's own transport (authored-oauth.ts) is the bounded transport's;
+// the sites below are the places that read an answer by hand.
+const TRANSPORT: Sites = [];
+
+test("a pushed authorization answer that never ends is cut off at the ceiling", async () => {
+  const { seen, fetcher } = endless(TRANSPORT, 201);
+  await assert.rejects(
+    beginAuthorization({
+      discovery,
+      clientId: "client",
+      redirectUri: `${origin}/return`,
+      scope: "openid",
+      fetch: fetcher,
+    }),
+  );
+  within(seen.pulled);
+});
+
+test("a token answer that never ends is cut off at the ceiling", async () => {
+  const { seen, fetcher } = endless(TRANSPORT);
+  await assert.rejects(
+    exchangeAuthorizationCode({
+      discovery,
+      clientId: "client",
+      redirectUri: `${origin}/return`,
+      callbackUrl: `${origin}/return?code=synthetic-code&state=state`,
+      verifier: "synthetic-verifier-0123456789-0123456789-0123456789",
+      state: "state",
+      fetch: fetcher,
+    }),
+  );
+  within(seen.pulled);
+});
+
+test("a DPoP-protected userinfo answer that never ends is cut off at the ceiling", async () => {
+  const { seen, fetcher } = endless(TRANSPORT);
+  const response = await dpopUserinfoRequest(
+    `${provider}/userinfo`,
+    "synthetic-access-token",
+    await exportDpopJwk(),
+    fetcher,
+  ).then(
+    (value) => ({ value }),
+    (error: unknown) => ({ error }),
+  );
+  assert.ok("error" in response, "the oversized answer is refused");
+  within(seen.pulled);
+});
+
+/*
+ * The authored sign-in also speaks OAuth by hand to the author's provider (the
+ * device grant, the authorization-code token request, dynamic client
+ * registration), and the disposable inbox it can use issues a mailbox bearer.
+ * Each of those answers is read under the same ceiling.
+ */
+
+test("an author's device authorization answer that never ends is cut off and starts nothing", async () => {
+  const { seen, fetcher } = endless([
+    "src/server/authored-human.ts#startDeviceAuthorization",
+  ]);
+  const started = await startDeviceAuthorization(
+    `${provider}/device`,
+    "client",
+    "openid",
+    fetcher,
+  );
+  assert.equal(started, undefined);
+  within(seen.pulled);
+});
+
+test("an author's device-grant token answer that never ends is cut off, and what it did is unknown", async () => {
+  const { seen, fetcher } = endless([
+    "src/server/authored-operations.ts#pollDeviceToken",
+  ]);
+  const answer = await pollDeviceToken(
+    `${provider}/token`,
+    { deviceCode: "dummy_device_code_0123456789", clientId: "client" },
+    fetcher,
+  );
+  // The device code was presented, so a token may have been minted: not "denied".
+  assert.deepEqual(answer, { status: "indeterminate" });
+  within(seen.pulled);
+});
+
+test("an author's authorization-code token answer that never ends is cut off, and what it did is unknown", async () => {
+  const { seen, fetcher } = endless([
+    "src/server/authored-operations.ts#tokenRequest",
+  ]);
+  const answer = await tokenRequest(
+    `${provider}/token`,
+    new URLSearchParams({ grant_type: "authorization_code", client_id: "c" }),
+    fetcher,
+  );
+  assert.deepEqual(answer, { status: "indeterminate" });
+  within(seen.pulled);
+});
+
+test("an author's dynamic client registration answer that never ends is cut off, and whether a client exists is unknown", async () => {
+  const { seen, fetcher } = endless(
+    ["src/server/authored-app.ts#registerDynamicClient"],
+    201,
+  );
+  const registered = await registerDynamicClient(
+    `${provider}/register`,
+    `${origin}/return`,
+    "Ceremony",
+    fetcher,
+    ["authorization_code"],
+  );
+  assert.deepEqual(registered, { status: "indeterminate" });
+  within(seen.pulled);
+});
+
+test("the authored sign-in passes the unknown on, and stores nothing", async () => {
+  // Neither touches the store before the token answer is read.
+  const store = {} as never;
+  const actor = {} as never;
+  const authored = {
+    origin: provider,
+    tokenEndpoint: `${provider}/token`,
+  } as never;
+  const device = endless(["src/server/authored-operations.ts#pollDeviceToken"]);
+  assert.deepEqual(
+    await saveAuthoredDeviceSession(
+      store,
+      actor,
+      "run",
+      authored,
+      { deviceCode: "dummy_device_code_0123456789", clientId: "client" },
+      device.fetcher,
+    ),
+    { status: "indeterminate" },
+  );
+  const code = endless(["src/server/authored-operations.ts#tokenRequest"]);
+  assert.deepEqual(
+    await saveAuthoredAuthorizationSession(
+      store,
+      actor,
+      "run",
+      authored,
+      {
+        code: "dummy-code",
+        redirectUri: `${origin}/return`,
+        verifier: "dummy-verifier-0123456789-0123456789-0123456789",
+        clientId: "client",
+      },
+      code.fetcher,
+    ),
+    { status: "indeterminate" },
+  );
+});
+
+test("a disposable inbox's mailbox token that never ends is cut off and the inbox is unavailable", async () => {
+  const { seen, fetcher } = endless(
+    ["src/server/authored-inbox.ts#provision"],
+    200,
+  );
+  let calls = 0;
+  // The domain list and the account are answered normally; the token is not.
+  const mailbox: typeof fetch = async (input, init) => {
+    calls += 1;
+    const path = new URL(String(input)).pathname;
+    if (path === "/domains")
+      return Response.json([{ domain: "mail.example", isActive: true }]);
+    if (path === "/accounts") return Response.json({}, { status: 201 });
+    return fetcher(input, init);
+  };
+  await assert.rejects(
+    createMailTmInbox({
+      baseUrl: "https://api.mail.example",
+      fetch: mailbox,
+    }).provision(),
+    /inbox unavailable/,
+  );
+  assert.ok(calls >= 3);
+  within(seen.pulled);
+});

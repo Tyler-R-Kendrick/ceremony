@@ -16,7 +16,12 @@ import {
   type ClientRegistrationProfile,
   type IssuerPolicy,
 } from "./policy.js";
-import { neverSent, requestOptions, sha256Hex, wireError } from "./wire.js";
+import {
+  neverSent,
+  requestOptions,
+  sha256Hex,
+  wireErrorAfterSend,
+} from "./wire.js";
 
 /*
  * Three ways a client can exist at an issuer, chosen by host policy rather
@@ -687,7 +692,7 @@ async function dynamicClient(
               at: now(),
             },
       );
-    throw wireError(error, "oauth.registration");
+    throw wireErrorAfterSend(error, "oauth.registration");
   }
   const returnedMethod = registered.token_endpoint_auth_method ?? method;
   const consistent =

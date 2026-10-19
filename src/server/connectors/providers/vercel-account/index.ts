@@ -21,7 +21,8 @@ import {
   vercelAccountOperations,
   type VercelAccountOperation,
 } from "./contracts.js";
-import { endSignIn, invokeAccount, verifyAccount } from "./invoke.js";
+import { invokeAccount, verifyAccount } from "./invoke.js";
+import { endSignIn, releaseSignIn } from "./release.js";
 
 export * from "./contracts.js";
 export { accountApiDestination } from "./client.js";
@@ -160,10 +161,10 @@ export function createVercelAccountAdapter(
           "Reconnecting is a new sign-in; a different team needs an explicit switch.",
         ]),
         status("disconnect", ready, [
-          "Local release revokes the held tokens; the upstream scope presents them to Vercel's revocation endpoint only when the reviewed issuer policy turns that on.",
+          "A local disconnect first presents the held refresh and access tokens to Vercel's revocation endpoint, for each sign-in the connection holds (including one waiting for the team choice), best effort: `release` says whether Vercel acknowledged, and a failure never stops the disconnect. The upstream scope does the same and reports it as the upstream outcome. Both are off when the issuer policy says `revocation: disabled`. Cancelling the choice drops its sign-in; Vercel is not told.",
         ]),
         status("revoke", ready, [
-          "RFC 7009 revocation of the refresh and access tokens, off unless the issuer policy says on-upstream-disconnect.",
+          "RFC 7009 revocation of the refresh and access tokens, on unless the issuer policy says disabled.",
         ]),
         status("export", "not-applicable", [], "unsupported"),
         status("delegate", "not-applicable", [], "unsupported"),
@@ -175,6 +176,7 @@ export function createVercelAccountAdapter(
     invoke: (ctx, request) => invokeAccount(ctx, request, oauth),
     reconnect: (ctx, intent) => beginSignIn(ctx, intent, oauth),
     disconnect,
+    releaseSession: (ctx) => releaseSignIn(ctx, oauth),
     revoke: async (ctx) => ({
       local: "not-attempted",
       broker: "unsupported",

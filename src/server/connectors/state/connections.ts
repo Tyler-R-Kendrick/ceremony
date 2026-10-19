@@ -19,12 +19,13 @@ import {
   notifyCache,
   readRecord,
   scanPrefix,
-  sha256Hex,
   timeSource,
   transact,
   type CacheInvalidationHook,
 } from "./common.js";
-import { settlePendingHandoffs } from "./handoffs.js";
+import { lockHandoffs, settleLocked } from "./handoff-settle.js";
+import { keyDigestOf } from "./connection-key.js";
+import { withLegacyPendingSession } from "./legacy-pending.js";
 import {
   connectionKey,
   externalIdKey,
@@ -38,6 +39,7 @@ import {
   disconnectScopeSchema,
   externalIdNameSchema,
   externalIndexSchema,
+  stateCodeSchema,
   storedConnectionSchema,
   type DisconnectRecord,
   type StoredConnectionValue,
@@ -100,6 +102,7 @@ export interface ConnectorConnectionStore extends ConnectionStorePort {
   get(
     actor: ActorContext,
     connectionRef: string,
+    options?: Parameters<ConnectionStorePort["get"]>[2],
   ): Promise<ConnectionEntry | undefined>;
   list(
     actor: ActorContext,
@@ -141,52 +144,11 @@ export interface ConnectorConnectionStore extends ConnectionStorePort {
   keyDigest(record: ConnectionRecord): string;
 }
 
-/** The charter §6.4 tuple; unknown parts are omitted, never guessed. */
-export type ConnectionKeyParts = {
-  tenantId: string;
-  ownerKind: string;
-  ownerId: string;
-  sessionId?: string;
-  authorityInstance: string;
-  upstreamAccount?: Record<string, string>;
-  clientRegistration?: string;
-  authenticationProfile?: string;
-  target?: { kind: string; id: string };
-  bindingRef: string;
-  bindingRevision: number;
-  policyRevision: string;
-  configurationRevision: string;
-};
-
-export function connectionKeyDigest(parts: ConnectionKeyParts): string {
-  return sha256Hex(JSON.parse(canonicalJson(compact(parts))));
-}
-
-export function keyDigestOf(record: ConnectionRecord): string {
-  return connectionKeyDigest(
-    compact({
-      tenantId: record.tenantId,
-      ownerKind: record.ownerKind,
-      ownerId: record.ownerId,
-      sessionId: record.sessionId,
-      authorityInstance: record.authorityInstance,
-      upstreamAccount: record.externalIds,
-      authenticationProfile:
-        typeof record.state.authenticationProfile === "string"
-          ? record.state.authenticationProfile
-          : undefined,
-      clientRegistration:
-        typeof record.state.clientRegistration === "string"
-          ? record.state.clientRegistration
-          : undefined,
-      target: record.target,
-      bindingRef: record.bindingRef,
-      bindingRevision: record.bindingRevision,
-      policyRevision: record.policyRevision,
-      configurationRevision: record.configurationRevision,
-    }),
-  );
-}
+export {
+  connectionKeyDigest,
+  keyDigestOf,
+  type ConnectionKeyParts,
+} from "./connection-key.js";
 
 export const defaultOwnership: ConnectionOwnership = (actor, record) =>
   record.tenantId === actor.tenantId &&
@@ -539,17 +501,20 @@ export function createConnectionStore(
       return { revision: 1 };
     },
 
-    async get(rawActor, connectionRef) {
+    async get(rawActor, connectionRef, options) {
       const actor = checkActor(rawActor);
-      return transact(store, async (tx) => {
-        const record = await loadOwnedConnection(
-          tx,
-          actor,
-          connectionRef,
-          owns,
-        );
-        return record && entryOf(record.value, record.revision);
+      const entry = await transact(store, async (tx) => {
+        const found = await loadOwnedConnection(tx, actor, connectionRef, owns);
+        return found && entryOf(found.value, found.revision);
       });
+      if (!entry || !options?.waitingSignIn) return entry;
+      // Once the transaction that read the connection has ended (legacy-pending.ts).
+      const record = await withLegacyPendingSession(
+        store,
+        actor.tenantId,
+        entry.record,
+      );
+      return { ...entry, record };
     },
 
     async update(rawActor, connectionRef, expectedRevision, patch) {
@@ -658,9 +623,15 @@ export function createConnectionStore(
       });
     },
 
-    async advanceGeneration(rawActor, connectionRef, expectedRevision) {
+    async advanceGeneration(
+      rawActor,
+      connectionRef,
+      expectedRevision,
+      lastOutcome,
+    ) {
       const actor = checkActor(rawActor);
       const result = await transact(store, async (tx) => {
+        const handoffs = await lockHandoffs(tx, actor.tenantId, connectionRef);
         const current = await loadOwnedConnection(
           tx,
           actor,
@@ -686,6 +657,9 @@ export function createConnectionStore(
           ...kept,
           generation: current.value.record.generation + 1,
           updatedAt: isoAt(at),
+          ...(lastOutcome === undefined
+            ? {}
+            : { lastOutcome: stateCodeSchema.parse(lastOutcome) }),
         };
         const revision = await saveConnection(
           tx,
@@ -694,10 +668,9 @@ export function createConnectionStore(
           compact({ disconnect: current.value.disconnect }),
           current.revision,
         );
-        await settlePendingHandoffs(
+        await settleLocked(
           tx,
-          actor.tenantId,
-          connectionRef,
+          handoffs,
           "superseded",
           "connection.generation-advanced",
           at,
@@ -799,6 +772,7 @@ export function createConnectionStore(
       const broker = parsedBroker.data;
       const upstream = parsedUpstream.data;
       const result = await transact(store, async (tx) => {
+        const handoffs = await lockHandoffs(tx, actor.tenantId, connectionRef);
         const current = await loadOwnedConnection(
           tx,
           actor,
@@ -881,10 +855,9 @@ export function createConnectionStore(
           current.revision,
         );
         if (applied)
-          await settlePendingHandoffs(
+          await settleLocked(
             tx,
-            actor.tenantId,
-            connectionRef,
+            handoffs,
             "cancelled",
             `disconnect.${scope}`,
             at,

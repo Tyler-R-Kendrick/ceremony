@@ -42,7 +42,9 @@ import { startHttpFixture, type RecordedRequest } from "./http-fixture.js";
  *   - a refresh token presented by a client other than the one it was issued
  *     to, or one already used, is invalid_grant;
  *   - a client of authentication `none` is any registered client id;
- *   - the revocation endpoint answers 200 for any token (RFC 7009);
+ *   - the revocation endpoint answers 200 for any token (RFC 7009), takes a
+ *     `none` client's client_id with the token and its hint and nothing that
+ *     authenticates the client, and ends only the token it is given;
  *   - a team list pages by `until`: `pagination.next` is the createdAt of the
  *     last team returned minus one, and `until` is inclusive;
  *   - an access token whose person revoked the app, or that lapsed, is 401.
@@ -72,6 +74,8 @@ export type VercelAccountOptions = {
   enforcedIntervalSeconds?: number;
   /** Leave `expires_in` out of token responses, as an authorization server may. */
   omitExpiresIn?: boolean;
+  /** Leave `revocation_endpoint` out of the discovery document, as an issuer that has none would. */
+  omitRevocationEndpoint?: boolean;
   /** Answer slow_down to the first n polls whatever their spacing (assumed: a server under load asks a client to back off). */
   slowDownFirst?: number;
   accessTokenLifetimeSeconds?: number;
@@ -156,6 +160,10 @@ export async function startVercelAccount(options: VercelAccountOptions = {}) {
   };
   const revocations: Array<{ token: string; hint: string | null }> = [];
   const note = (message: string) => violations.push(message);
+  const withoutRevocation = (document: Record<string, unknown>) => {
+    if (options.omitRevocationEndpoint) delete document["revocation_endpoint"];
+    return document;
+  };
   const signing = await generateKeyPair("RS256");
 
   const reply = (status: number, body?: unknown) => ({
@@ -331,6 +339,8 @@ export async function startVercelAccount(options: VercelAccountOptions = {}) {
 
   let dropToken = false;
   let tokenStatus: number | undefined;
+  /** Set by `failRevocation`: the revocation endpoint answers a status, never answers, or drops the connection. */
+  let revokeFault: number | "hang" | "drop" | undefined;
   const token = async (request: RecordedRequest) => {
     counts.token++;
     const values = form(request);
@@ -498,10 +508,12 @@ export async function startVercelAccount(options: VercelAccountOptions = {}) {
     )
       return reply(
         200,
-        JSON.parse(
-          discoveryTemplate
-            .replaceAll("https://api.vercel.com", api.origin)
-            .replaceAll("https://vercel.com", issuer.origin),
+        withoutRevocation(
+          JSON.parse(
+            discoveryTemplate
+              .replaceAll("https://api.vercel.com", api.origin)
+              .replaceAll("https://vercel.com", issuer.origin),
+          ),
         ),
       );
     return personPages(request);
@@ -523,8 +535,22 @@ export async function startVercelAccount(options: VercelAccountOptions = {}) {
       }
       return answer;
     }
-    if (raw.method === "POST" && path === "/login/oauth/token/revoke")
+    if (raw.method === "POST" && path === "/login/oauth/token/revoke") {
+      if (revokeFault === "hang") {
+        counts.revoke++;
+        return new Promise<undefined>(() => {});
+      }
+      if (revokeFault === "drop") {
+        counts.revoke++;
+        rawIo.res.destroy();
+        return undefined;
+      }
+      if (revokeFault !== undefined) {
+        counts.revoke++;
+        return oauthError(revokeFault, "server_error");
+      }
       return revoke(raw);
+    }
     return rest(raw);
   });
 
@@ -552,6 +578,14 @@ export async function startVercelAccount(options: VercelAccountOptions = {}) {
     },
     failTokens(status: number | null) {
       tokenStatus = status ?? undefined;
+    },
+    /**
+     * The revocation endpoint answers this status without acting on the
+     * request, never answers (`"hang"`), or drops the connection (`"drop"`);
+     * null restores it.
+     */
+    failRevocation(fault: number | "hang" | "drop" | null) {
+      revokeFault = fault ?? undefined;
     },
     /** The next successful token response is acted on, and its answer never arrives. */
     dropNextTokenResponse() {
