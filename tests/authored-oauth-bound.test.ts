@@ -16,6 +16,12 @@ import {
   tokenRequest,
 } from "../src/server/authored-operations.js";
 import { MAX_RESPONSE_BYTES } from "../src/server/connectors/auth/response-bound.js";
+import {
+  assertReadUnder,
+  endlessFetch,
+  type Pulled,
+  type Sites,
+} from "./connectors/doubles/endless-body.js";
 
 /*
  * The authored sign-in (an author's own provider) reads its OAuth answers
@@ -27,9 +33,6 @@ import { MAX_RESPONSE_BYTES } from "../src/server/connectors/auth/response-bound
 
 const provider = "https://provider.example";
 const origin = "https://ceremony.example";
-const CHUNK = 64 * 1024;
-const ENDLESS = 64 * 1024 * 1024;
-const SLACK = 2 * CHUNK;
 const discovery = {
   origin: provider,
   authorizationEndpoint: `${provider}/authorize`,
@@ -38,34 +41,21 @@ const discovery = {
   requirePushedAuthorizationRequests: true,
 };
 
-/** A fetch whose every answer is `ENDLESS` bytes of whitespace; `pulled` is what was read of it. */
-function endlessFetch(status = 200) {
-  const seen = { pulled: 0 };
-  const chunk = new Uint8Array(CHUNK).fill(0x20);
-  const fetcher: typeof fetch = async () =>
-    new Response(
-      new ReadableStream<Uint8Array>({
-        pull(controller) {
-          if (seen.pulled >= ENDLESS) return controller.close();
-          seen.pulled += CHUNK;
-          controller.enqueue(chunk);
-        },
-      }),
-      { status, headers: { "content-type": "application/json" } },
-    );
-  return { seen, fetcher };
+/** A fetch whose every answer never ends, for the bounded `sites` it is served to; `pulled` is what was read of it. */
+function endless(sites: Sites, status = 200) {
+  const seen: Pulled = { pulled: 0 };
+  return { seen, fetcher: endlessFetch(seen, sites, status) };
 }
 
-const within = (pulled: number) => {
-  assert.ok(pulled > 0, "the endless answer was in fact served");
-  assert.ok(
-    pulled <= MAX_RESPONSE_BYTES + SLACK,
-    `read ${pulled} bytes of an OAuth answer; the ceiling is ${MAX_RESPONSE_BYTES}`,
-  );
-};
+const within = (pulled: number) =>
+  assertReadUnder(assert, { pulled }, MAX_RESPONSE_BYTES, "an OAuth answer");
+
+// The sign-in's own transport (authored-oauth.ts) is the bounded transport's;
+// the sites below are the places that read an answer by hand.
+const TRANSPORT: Sites = [];
 
 test("a pushed authorization answer that never ends is cut off at the ceiling", async () => {
-  const { seen, fetcher } = endlessFetch(201);
+  const { seen, fetcher } = endless(TRANSPORT, 201);
   await assert.rejects(
     beginAuthorization({
       discovery,
@@ -79,7 +69,7 @@ test("a pushed authorization answer that never ends is cut off at the ceiling", 
 });
 
 test("a token answer that never ends is cut off at the ceiling", async () => {
-  const { seen, fetcher } = endlessFetch();
+  const { seen, fetcher } = endless(TRANSPORT);
   await assert.rejects(
     exchangeAuthorizationCode({
       discovery,
@@ -95,7 +85,7 @@ test("a token answer that never ends is cut off at the ceiling", async () => {
 });
 
 test("a DPoP-protected userinfo answer that never ends is cut off at the ceiling", async () => {
-  const { seen, fetcher } = endlessFetch();
+  const { seen, fetcher } = endless(TRANSPORT);
   const response = await dpopUserinfoRequest(
     `${provider}/userinfo`,
     "synthetic-access-token",
@@ -117,7 +107,9 @@ test("a DPoP-protected userinfo answer that never ends is cut off at the ceiling
  */
 
 test("an author's device authorization answer that never ends is cut off and starts nothing", async () => {
-  const { seen, fetcher } = endlessFetch();
+  const { seen, fetcher } = endless([
+    "src/server/authored-human.ts#startDeviceAuthorization",
+  ]);
   const started = await startDeviceAuthorization(
     `${provider}/device`,
     "client",
@@ -129,7 +121,9 @@ test("an author's device authorization answer that never ends is cut off and sta
 });
 
 test("an author's device-grant token answer that never ends is cut off, and what it did is unknown", async () => {
-  const { seen, fetcher } = endlessFetch();
+  const { seen, fetcher } = endless([
+    "src/server/authored-operations.ts#pollDeviceToken",
+  ]);
   const answer = await pollDeviceToken(
     `${provider}/token`,
     { deviceCode: "dummy_device_code_0123456789", clientId: "client" },
@@ -141,7 +135,9 @@ test("an author's device-grant token answer that never ends is cut off, and what
 });
 
 test("an author's authorization-code token answer that never ends is cut off, and what it did is unknown", async () => {
-  const { seen, fetcher } = endlessFetch();
+  const { seen, fetcher } = endless([
+    "src/server/authored-operations.ts#tokenRequest",
+  ]);
   const answer = await tokenRequest(
     `${provider}/token`,
     new URLSearchParams({ grant_type: "authorization_code", client_id: "c" }),
@@ -152,7 +148,10 @@ test("an author's authorization-code token answer that never ends is cut off, an
 });
 
 test("an author's dynamic client registration answer that never ends is cut off, and whether a client exists is unknown", async () => {
-  const { seen, fetcher } = endlessFetch(201);
+  const { seen, fetcher } = endless(
+    ["src/server/authored-app.ts#registerDynamicClient"],
+    201,
+  );
   const registered = await registerDynamicClient(
     `${provider}/register`,
     `${origin}/return`,
@@ -172,7 +171,7 @@ test("the authored sign-in passes the unknown on, and stores nothing", async () 
     origin: provider,
     tokenEndpoint: `${provider}/token`,
   } as never;
-  const device = endlessFetch();
+  const device = endless(["src/server/authored-operations.ts#pollDeviceToken"]);
   assert.deepEqual(
     await saveAuthoredDeviceSession(
       store,
@@ -184,7 +183,7 @@ test("the authored sign-in passes the unknown on, and stores nothing", async () 
     ),
     { status: "indeterminate" },
   );
-  const code = endlessFetch();
+  const code = endless(["src/server/authored-operations.ts#tokenRequest"]);
   assert.deepEqual(
     await saveAuthoredAuthorizationSession(
       store,
@@ -204,7 +203,10 @@ test("the authored sign-in passes the unknown on, and stores nothing", async () 
 });
 
 test("a disposable inbox's mailbox token that never ends is cut off and the inbox is unavailable", async () => {
-  const { seen, fetcher } = endlessFetch(200);
+  const { seen, fetcher } = endless(
+    ["src/server/authored-inbox.ts#provision"],
+    200,
+  );
   let calls = 0;
   // The domain list and the account are answered normally; the token is not.
   const mailbox: typeof fetch = async (input, init) => {

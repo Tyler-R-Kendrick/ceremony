@@ -20,30 +20,9 @@ import {
   type EntryContext,
   type MethodAvailability,
 } from "../core/index.js";
+import { CeremonyError } from "./ceremony-errors.js";
 
-export class CeremonyError extends Error {
-  constructor(
-    message: string,
-    public readonly status = 400,
-  ) {
-    super(message);
-  }
-}
-/**
- * A request went out and its answer could not be read (it ran past the size
- * ceiling), so whether it did what it asked (minted a token, registered an
- * identity, spent a code) is unknown. The attempt ends here: nothing is
- * stored, and nothing is sent again on its strength.
- */
-export class IndeterminateAnswer extends CeremonyError {
-  readonly outcome = "indeterminate" as const;
-  constructor() {
-    super(
-      "The provider's answer was too large to read, so whether it completed the request is unknown. Nothing was stored; check at the provider before trying again.",
-      502,
-    );
-  }
-}
+export { CeremonyError, IndeterminateAnswer } from "./ceremony-errors.js";
 export interface AdapterUpdate {
   step: Step;
   /** Trusted prerequisite fields, independent of the final authentication method. */

@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { randomBytes } from "node:crypto";
 import { chromium } from "playwright-core";
-import { CloudflareHumanBrowser } from "../src/server/cloudflare.js";
+import {
+  CloudflareHumanBrowser,
+  RemoteHumanBrowser,
+} from "../src/server/cloudflare.js";
+import {
+  CeremonyError,
+  IndeterminateAnswer,
+} from "../src/server/ceremony-errors.js";
 import { githubHumanTakeover } from "../src/server/github.js";
 import { CeremonyDatabase } from "../src/server/storage.js";
 
@@ -81,4 +88,49 @@ test("behavior: remote browser handoff uses a private cookie, isolates ownership
   await service.close();
   assert.throws(() => service.humanUrl("alice", "run"));
   assert.equal(browser.isConnected(), false);
+});
+
+test("behavior: a remote browser whose answer could not be read ends the takeover as unknown, not as unavailable", async (t) => {
+  const db = new CeremonyDatabase(":memory:", randomBytes(32));
+  t.after(() => db.close());
+  const service = new RemoteHumanBrowser(db, {
+    origin: "https://ceremony.example",
+    source: { kind: "cloudflare", accountId: "a".repeat(32), apiToken: "x" },
+    // The request that opens the session went out and its answer was too large to read.
+    open: async () => {
+      throw new IndeterminateAnswer();
+    },
+  });
+  const failure = await service
+    .request("alice", "run", "synthetic-cookie", githubHumanTakeover("run"))
+    .then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+  assert.ok(
+    failure instanceof IndeterminateAnswer,
+    `the unknown is kept: ${failure instanceof Error ? failure.message : String(failure)}`,
+  );
+  assert.equal(failure.outcome, "indeterminate");
+  assert.equal(failure.status, 502);
+  // Any other failure to open one is still the generic unavailable answer.
+  const other = new RemoteHumanBrowser(db, {
+    origin: "https://ceremony.example",
+    source: { kind: "cloudflare", accountId: "a".repeat(32), apiToken: "x" },
+    open: async () => {
+      throw new Error("connection refused");
+    },
+  });
+  await assert.rejects(
+    other.request(
+      "alice",
+      "run2",
+      "synthetic-cookie",
+      githubHumanTakeover("run2"),
+    ),
+    (error: unknown) =>
+      error instanceof CeremonyError &&
+      !(error instanceof IndeterminateAnswer) &&
+      error.status === 503,
+  );
 });

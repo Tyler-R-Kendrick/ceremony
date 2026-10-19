@@ -17,6 +17,11 @@ import {
   withoutClaim,
 } from "./handoff-claims.js";
 import {
+  dropCorrelation,
+  pending,
+  settlePendingHandoffs,
+} from "./handoff-settle.js";
+import {
   SCHEMA_VERSION,
   checkActor,
   checkTenant,
@@ -27,7 +32,6 @@ import {
   readRecord,
   registerRef,
   resolveRef,
-  scanPrefix,
   timeSource,
   transact,
 } from "./common.js";
@@ -36,12 +40,10 @@ import {
   correlationKey,
   handoffKey,
   handoffPointerKey,
-  handoffPointerPrefix,
 } from "./keys.js";
 import {
   correlationIndexSchema,
   handoffIssueInputSchema,
-  handoffPointerSchema,
   stateCodeSchema,
   storedConnectionSchema,
   storedHandoffSchema,
@@ -60,9 +62,6 @@ import {
  */
 
 export type HandoffOptions = { now?: Clock };
-
-const pending = (state: StoredHandoff["state"]) =>
-  state === "issued" || state === "waiting";
 
 const summaryOf = (record: StoredHandoff): ConnectorHandoffSummary => ({
   handoffRef: record.handoffRef,
@@ -92,62 +91,6 @@ const recordOf = (value: StoredHandoff): HandoffRecord => {
 
 const connectionRefIndex = (connectionRef: string) =>
   `connection:${connectionRef}`;
-
-/** Marks every pending handoff of a connection; used by cancel, unlink and generation fences in the same transaction. */
-export async function settlePendingHandoffs(
-  tx: AsyncTransaction,
-  tenantId: string,
-  connectionRef: string,
-  state: "cancelled" | "superseded",
-  reason: string,
-  at: number,
-): Promise<number> {
-  const refs: string[] = [];
-  await scanPrefix(
-    tx,
-    tenantId,
-    "connector-handoff",
-    handoffPointerPrefix(connectionRef),
-    handoffPointerSchema,
-    ({ value }) => {
-      refs.push(value.handoffRef);
-    },
-  );
-  let count = 0;
-  for (const handoffRef of refs) {
-    const record = await readRecord(
-      tx,
-      handoffKey(tenantId, handoffRef),
-      storedHandoffSchema,
-    );
-    if (!record || !pending(record.value.state)) continue;
-    await tx.put(
-      handoffKey(tenantId, handoffRef),
-      {
-        ...withoutClaim(record.value),
-        state,
-        reason,
-        completedAt: at,
-      } satisfies StoredHandoff,
-      record.revision,
-    );
-    await dropCorrelation(tx, tenantId, record.value);
-    count++;
-  }
-  return count;
-}
-
-async function dropCorrelation(
-  tx: AsyncTransaction,
-  tenantId: string,
-  record: StoredHandoff,
-): Promise<void> {
-  if (record.correlationKey === undefined) return;
-  const key = correlationKey(tenantId, record.correlationKey);
-  const index = await readRecord(tx, key, correlationIndexSchema);
-  if (index && index.value.handoffRef === record.handoffRef)
-    await tx.delete(key, index.revision);
-}
 
 /** A pending handoff past its expiry becomes expired the moment anyone looks at it. */
 async function settleExpiry(

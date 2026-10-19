@@ -4,6 +4,7 @@ import type { CompatibilityIssue } from "../../../../core/connectors/index.js";
 import type { ApprovedDestination } from "../../binding.js";
 import { destinationUrl } from "../../binding.js";
 import { readBoundedBytes } from "../../bounded-body.js";
+import { withinDeadline } from "../../request-deadline.js";
 import { ConnectorError } from "../../errors.js";
 import {
   OSB_API_VERSION,
@@ -42,7 +43,9 @@ export const OSB_CLIENT_LIMITS = Object.freeze({
   maxResponseBytes: 512 * 1024,
   requestTimeoutMs: 20_000,
 });
-export type OsbClientLimits = typeof OSB_CLIENT_LIMITS;
+export type OsbClientLimits = {
+  readonly [K in keyof typeof OSB_CLIENT_LIMITS]: number;
+};
 
 export type OsbRequestOptions = {
   signal: AbortSignal;
@@ -144,53 +147,51 @@ export function createOpenServiceBrokerClient(options: OsbClientOptions) {
     for (const [key, value] of Object.entries(input.query ?? {}))
       if (value) url.searchParams.set(key, value);
     const authorization = await options.authorization();
-    const controller = new AbortController();
-    const abort = () => controller.abort();
-    request.signal.addEventListener("abort", abort, { once: true });
-    const timer = setTimeout(abort, limits.requestTimeoutMs);
-    let response: Response;
-    try {
-      response = await options.fetch(url, {
-        method: "GET",
-        redirect: "error",
-        signal: controller.signal,
-        headers: {
-          accept: "application/json",
-          [OSB_API_VERSION_HEADER]: OSB_API_VERSION,
-          [OSB_REQUEST_IDENTITY_HEADER]: request.requestId,
-          ...(request.originatingIdentity
-            ? { [OSB_ORIGINATING_IDENTITY_HEADER]: request.originatingIdentity }
-            : {}),
-          ...(authorization ? { authorization } : {}),
-        },
-      });
-    } catch (error) {
-      throw new ConnectorError(
-        request.signal.aborted ? "cancelled" : "upstream-unavailable",
-        { detail: "osb.unreachable", cause: error },
-      );
-    } finally {
-      clearTimeout(timer);
-      request.signal.removeEventListener("abort", abort);
-    }
-
     const maxBytes = input.maxBytes ?? limits.maxResponseBytes;
-    const declared = Number(response.headers.get("content-length") ?? "0");
-    if (Number.isFinite(declared) && declared > maxBytes) {
-      await response.body?.cancel().catch(() => {});
-      throw new ConnectorError("upstream-rejected", {
+    const oversized = () =>
+      new ConnectorError("upstream-rejected", {
         detail: "osb.response.oversized",
       });
-    }
-    // Refused at the first chunk past the ceiling; a binding's answer carries
-    // the credentials custody will hold.
-    const buffer = await readBoundedBytes(
-      response,
-      maxBytes,
-      () =>
-        new ConnectorError("upstream-rejected", {
-          detail: "osb.response.oversized",
+    // One deadline for the headers and the whole body (request-deadline.ts).
+    const { response, buffer } = await withinDeadline(
+      request.signal,
+      limits.requestTimeoutMs,
+      (error) =>
+        new ConnectorError(
+          request.signal.aborted ? "cancelled" : "upstream-unavailable",
+          { detail: "osb.unreachable", cause: error },
+        ),
+      (signal) =>
+        options.fetch(url, {
+          method: "GET",
+          redirect: "error",
+          signal,
+          headers: {
+            accept: "application/json",
+            [OSB_API_VERSION_HEADER]: OSB_API_VERSION,
+            [OSB_REQUEST_IDENTITY_HEADER]: request.requestId,
+            ...(request.originatingIdentity
+              ? {
+                  [OSB_ORIGINATING_IDENTITY_HEADER]:
+                    request.originatingIdentity,
+                }
+              : {}),
+            ...(authorization ? { authorization } : {}),
+          },
         }),
+      async (response, signal) => {
+        const declared = Number(response.headers.get("content-length") ?? "0");
+        if (Number.isFinite(declared) && declared > maxBytes) {
+          await response.body?.cancel().catch(() => {});
+          throw oversized();
+        }
+        // Refused at the first chunk past the ceiling; a binding's answer
+        // carries the credentials custody will hold.
+        return {
+          response,
+          buffer: await readBoundedBytes(response, maxBytes, oversized, signal),
+        };
+      },
     );
     let body: unknown;
     if (buffer.byteLength > 0) {

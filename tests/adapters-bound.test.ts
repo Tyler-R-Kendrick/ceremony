@@ -5,6 +5,12 @@ import { IndeterminateAnswer } from "../src/server/controller.js";
 import { createMcpIdentity } from "../src/server/mcp-identity.js";
 import { createOidcIdentity } from "../src/server/oidc-identity.js";
 import { MAX_RESPONSE_BYTES } from "../src/server/connectors/auth/response-bound.js";
+import {
+  assertReadUnder,
+  endlessFetch,
+  type Pulled,
+  type Sites,
+} from "./connectors/doubles/endless-body.js";
 
 /*
  * The deployment's own protocol adapter signs a person in to a provider the
@@ -13,9 +19,7 @@ import { MAX_RESPONSE_BYTES } from "../src/server/connectors/auth/response-bound
  * under the same ceiling as any other OAuth answer.
  */
 
-const CHUNK = 64 * 1024;
-const ENDLESS = 64 * 1024 * 1024;
-const SLACK = 2 * CHUNK;
+const ADAPTER: Sites = ["src/server/adapters.ts#request"];
 
 const config = {
   issuer: "http://127.0.0.1:4174",
@@ -39,22 +43,12 @@ const store = {
 /** `fetch` replaced for the length of `work`, answering every request without end; what `work` failed with. */
 async function againstEndlessProvider(
   work: () => Promise<unknown>,
+  sites: Sites,
   status = 200,
 ): Promise<unknown> {
-  const seen = { pulled: 0 };
-  const chunk = new Uint8Array(CHUNK).fill(0x20);
+  const seen: Pulled = { pulled: 0 };
   const original = globalThis.fetch;
-  globalThis.fetch = (async () =>
-    new Response(
-      new ReadableStream<Uint8Array>({
-        pull(controller) {
-          if (seen.pulled >= ENDLESS) return controller.close();
-          seen.pulled += CHUNK;
-          controller.enqueue(chunk);
-        },
-      }),
-      { status, headers: { "content-type": "application/json" } },
-    )) as typeof fetch;
+  globalThis.fetch = endlessFetch(seen, sites, status);
   let failure: unknown;
   try {
     failure = await work().then(
@@ -64,11 +58,7 @@ async function againstEndlessProvider(
   } finally {
     globalThis.fetch = original;
   }
-  assert.ok(seen.pulled > 0, "the endless answer was in fact served");
-  assert.ok(
-    seen.pulled <= MAX_RESPONSE_BYTES + SLACK,
-    `read ${seen.pulled} bytes of a provider's answer; the ceiling is ${MAX_RESPONSE_BYTES}`,
-  );
+  assertReadUnder(assert, seen, MAX_RESPONSE_BYTES, "a provider's answer");
   return failure;
 }
 
@@ -99,12 +89,14 @@ test("a device authorization answer that never ends is cut off at the ceiling", 
     config,
     store,
   );
-  unknownOutcome(await againstEndlessProvider(() => adapter.begin()));
+  unknownOutcome(await againstEndlessProvider(() => adapter.begin(), ADAPTER));
 });
 
 test("a credential answer that never ends is cut off at the ceiling", async () => {
   const adapter = createProtocolAdapter(formMethod as never, config, store);
-  unknownOutcome(await againstEndlessProvider(() => adapter.submit({}, false)));
+  unknownOutcome(
+    await againstEndlessProvider(() => adapter.submit({}, false), ADAPTER),
+  );
 });
 
 test("an anonymous registration answer that never ends is cut off at the ceiling", async () => {
@@ -118,7 +110,7 @@ test("an anonymous registration answer that never ends is cut off at the ceiling
     config,
     store,
   );
-  unknownOutcome(await againstEndlessProvider(() => adapter.begin()));
+  unknownOutcome(await againstEndlessProvider(() => adapter.begin(), ADAPTER));
 });
 
 test("a device token answer that never ends is the typed unknown, not an unreachable provider the controller polls again", async () => {
@@ -149,7 +141,7 @@ test("a device token answer that never ends is the typed unknown, not an unreach
     globalThis.fetch = original;
   }
   clock += 6_000;
-  unknownOutcome(await againstEndlessProvider(() => adapter.poll()));
+  unknownOutcome(await againstEndlessProvider(() => adapter.poll(), ADAPTER));
 });
 
 /*
@@ -158,39 +150,43 @@ test("a device token answer that never ends is the typed unknown, not an unreach
  */
 
 test("an issuer discovery answer that never ends is cut off for the browser identity", async () => {
-  await againstEndlessProvider(() =>
-    createOidcIdentity(
-      {
-        origin: "http://127.0.0.1:4173",
+  await againstEndlessProvider(
+    () =>
+      createOidcIdentity(
+        {
+          origin: "http://127.0.0.1:4173",
+          issuer: "http://127.0.0.1:4174",
+          clientId: "client",
+          development: true,
+          mapClaims: async () => ({
+            tenantId: "t",
+            subjectId: "s",
+            capabilities: [],
+          }),
+        },
+        {
+          get: async () => undefined,
+          put: async () => {},
+          delete: async () => {},
+        } as never,
+      ),
+    ["src/server/oidc-identity.ts#createOidcIdentity"],
+  );
+});
+
+test("an issuer discovery answer that never ends is cut off for the MCP identity", async () => {
+  await againstEndlessProvider(
+    () =>
+      createMcpIdentity({
         issuer: "http://127.0.0.1:4174",
-        clientId: "client",
+        audience: "http://127.0.0.1:4173/mcp",
         development: true,
         mapClaims: async () => ({
           tenantId: "t",
           subjectId: "s",
           capabilities: [],
         }),
-      },
-      {
-        get: async () => undefined,
-        put: async () => {},
-        delete: async () => {},
-      } as never,
-    ),
-  );
-});
-
-test("an issuer discovery answer that never ends is cut off for the MCP identity", async () => {
-  await againstEndlessProvider(() =>
-    createMcpIdentity({
-      issuer: "http://127.0.0.1:4174",
-      audience: "http://127.0.0.1:4173/mcp",
-      development: true,
-      mapClaims: async () => ({
-        tenantId: "t",
-        subjectId: "s",
-        capabilities: [],
       }),
-    }),
+    ["src/server/mcp-identity.ts#createMcpIdentity"],
   );
 });

@@ -37,7 +37,7 @@ export const MAX_CEILING = 1_048_576;
  */
 export const NAMED_CEILINGS: Record<string, Record<string, number>> = {
   // docs/live-auth.md, Bounds: the Airbyte, Merge and Hasura NDC bodies (4, 8 and 8 MiB).
-  "src/server/connectors/providers/airbyte/adapter.ts": {
+  "src/server/connectors/providers/airbyte/transport.ts": {
     MAX_BODY_BYTES: 4 * 1024 * 1024,
   },
   "src/server/connectors/providers/merge/adapter.ts": {

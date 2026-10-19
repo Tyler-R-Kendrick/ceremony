@@ -2,12 +2,18 @@ import ts from "typescript";
 import {
   CEILING_ARGUMENT,
   calleeName,
-  callsTo,
   checkAt,
   type Forward,
+  type Verdict,
 } from "./fetch-gate-ceilings.js";
+import {
+  callsTo,
+  forwarderValueUses,
+  spellingsOf,
+} from "./fetch-gate-forwards.js";
 import { aliasProblems } from "./fetch-gate-aliases.js";
 import { Evaluator } from "./fetch-gate-evaluator.js";
+import type { FileFacts } from "./fetch-gate-facts.js";
 import type { GateProgram } from "./fetch-gate-program.js";
 import { readsIn } from "./fetch-gate-reads.js";
 import {
@@ -41,12 +47,55 @@ export { REGISTRY, type NetworkExports } from "./fetch-gate-syntax.js";
 
 const BOUNDED_NAMES = /readBoundedBytes|boundResponse|wireFetch|requestOptions/;
 
-/** Every ceiling handed to the bounded transport in `files`, followed through the functions that pass one on. */
-function ceilingProblems(
+/**
+ * Whether a judged call is a bounded site, a place that reads a body (or hands
+ * a library the fetch that does) under a ceiling the gate accepted:
+ * - a direct call to `wireFetch` or `requestOptions`, which build the fetch an
+ *   OAuth library reads through;
+ * - a direct call to `readBoundedBytes` or `boundResponse`, unless its ceiling
+ *   is only a parameter of the function around it (a forwarding helper, whose
+ *   callers are the sites);
+ * - a call to a forwarding helper that has the answer to read among its
+ *   arguments (`readBoundedBody(response, 65536, ...)`), where the ceiling is
+ *   fixed or left to the helper's default.
+ */
+function isSite(
+  facts: FileFacts,
+  call: ts.CallExpression,
+  direct: boolean,
+  verdict: Verdict,
+): boolean {
+  if (!direct)
+    return call.arguments.some((argument) => {
+      const name = facts.checker.getTypeAtLocation(argument).symbol?.name;
+      return name === "Response";
+    });
+  const name = facts.registeredAs(call.expression)?.name;
+  return (
+    name === "wireFetch" ||
+    name === "requestOptions" ||
+    verdict.forwards.length === 0 ||
+    verdict.fixed === true
+  );
+}
+
+/**
+ * Every ceiling handed to the bounded transport in `files`, followed through
+ * the functions that pass one on: the problems, and the bounded sites that
+ * raised none (`isSite`). fetch-gate-pairing.ts pairs each with an
+ * endless-body test. The transport's own files are not sites: the registry
+ * check holds them to what they are trusted for, and their own tests serve
+ * them an endless body.
+ */
+function ceilingPass(
   gate: GateProgram,
   files: readonly string[],
-): string[] {
+): {
+  problems: string[];
+  accepted: Array<{ file: string; call: ts.CallExpression }>;
+} {
   const problems = new Set<string>();
+  const accepted: Array<{ file: string; call: ts.CallExpression }> = [];
   const seen = new Set<string>();
   const queue: Forward[] = [];
   const judge = (
@@ -54,11 +103,26 @@ function ceilingProblems(
     call: ts.CallExpression,
     index: number,
     path: string[],
+    direct: boolean,
   ) => {
     const facts = new Evaluator(gate, file);
-    const verdict = checkAt(facts, call.arguments[index], path);
+    // A spread at or before the ceiling hides which argument it is.
+    const verdict = call.arguments.slice(0, index + 1).some(ts.isSpreadElement)
+      ? {
+          problems: [
+            `${calleeName(call.expression) ?? "a bounder"} is called with spread arguments the gate cannot place`,
+          ],
+          forwards: [],
+        }
+      : checkAt(facts, call.arguments[index], path);
     for (const text of verdict.problems) facts.report(call, text);
     for (const text of facts.problems) problems.add(text);
+    if (
+      !verdict.problems.length &&
+      !(file in REGISTRY) &&
+      isSite(facts, call, direct, verdict)
+    )
+      accepted.push({ file, call });
     queue.push(...verdict.forwards);
   };
   for (const file of files) {
@@ -76,7 +140,7 @@ function ceilingProblems(
       ) {
         const name = facts.registeredAs(node.expression)?.name;
         const at = name ? CEILING_ARGUMENT[name] : undefined;
-        if (at) judge(file, node, at.index, at.path);
+        if (at) judge(file, node, at.index, at.path, true);
       }
       ts.forEachChild(node, walk);
     };
@@ -84,34 +148,62 @@ function ceilingProblems(
     aliasProblems(facts, sf);
     for (const text of facts.problems) problems.add(text);
   }
+  // The names each forwarding function goes by, and its uses as a value
+  // (fetch-gate-forwards.ts), found once per function.
+  const spelled = new Map<ts.SignatureDeclaration, ReadonlySet<string>>();
+  const namesOf = (fn: ts.SignatureDeclaration) => {
+    let names = spelled.get(fn);
+    if (!names) {
+      names = spellingsOf(gate, files, fn);
+      spelled.set(fn, names);
+      for (const text of forwarderValueUses(gate, files, fn, names))
+        problems.add(text);
+    }
+    return names;
+  };
   while (queue.length) {
     const next = queue.shift()!;
     const key = `${next.fn.getSourceFile().fileName}:${next.fn.pos}:${next.index}:${next.path.join(".")}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    for (const { facts, call } of callsTo(gate, files, next.fn))
-      judge(facts.file, call, next.index, next.path);
+    for (const { facts, call } of callsTo(
+      gate,
+      files,
+      next.fn,
+      namesOf(next.fn),
+    ))
+      judge(facts.file, call, next.index, next.path, false);
   }
-  return [...problems];
+  return { problems: [...problems], accepted };
 }
 
-/** The problems `files` have (as sentences naming file and line; empty when the gate holds) and the gated calls and custom fetches it read. */
+/**
+ * The problems `files` have (as sentences naming file and line; empty when
+ * the gate holds), the gated calls and custom fetches it read, and the calls
+ * where it accepted a ceiling (for fetch-gate-pairing.ts).
+ */
 export function runGate(
   gate: GateProgram,
   files: readonly string[],
   network: NetworkExports,
-): { problems: string[]; inspected: string[] } {
+): {
+  problems: string[];
+  inspected: string[];
+  accepted: Array<{ file: string; call: ts.CallExpression }>;
+} {
   const visitors = files.map((file) => {
     const visitor = new FileGate(gate, file);
     visitor.run(network);
     return visitor;
   });
+  const ceilings = ceilingPass(gate, files);
   return {
     problems: [
       ...visitors.flatMap((visitor) => visitor.problems),
-      ...ceilingProblems(gate, files),
+      ...ceilings.problems,
     ],
     inspected: visitors.flatMap((visitor) => visitor.inspected),
+    accepted: ceilings.accepted,
   };
 }
 

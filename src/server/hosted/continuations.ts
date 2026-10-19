@@ -84,20 +84,79 @@ export async function dispatchHostedContinuations(
     });
 }
 /**
- * Drains every tenant this deployment has seen, not only a pinned one. One
- * tenant's failure does not starve the others; it is reported after all of
- * them had their turn, so the scheduler still sees the run as failed.
+ * The longest the custody sweep runs in one scheduled call, across all
+ * tenants. The sweep is housekeeping: it must never use up the call that
+ * resumes work, and a tenant it does not reach is swept by the next call.
+ */
+export const SWEEP_BUDGET_MS = 10_000;
+
+/** What a scheduled call did beyond dispatching: counts only, never a name or a value. */
+export type DispatchReport = {
+  swept: number;
+  /** Connections whose sweep step failed; each is retried by the next call. */
+  failed: number;
+  /** Tenants the budget cut short or never reached. */
+  incomplete: number;
+};
+
+export type DispatchOptions = {
+  budgetMs?: number;
+  /** A monotonic clock in milliseconds; a test injects its own. */
+  monotonic?: () => number;
+  /** One line, made of counts, when anything failed or was left for the next call. */
+  log?: (line: string) => void;
+};
+
+/**
+ * Drains every tenant this deployment has seen, not only a pinned one: first
+ * every tenant's continuations, then, when connectors are on, `maintain` (the
+ * custody sweep) for each tenant under one time budget, so housekeeping can
+ * delay nobody's wake. One tenant's failure does not starve the others; it is
+ * reported after all of them had their turn, so the scheduler still sees the
+ * run as failed.
  */
 export async function dispatchHostedTenants(
   runtime: TeachingRuntime,
   tenancy: { tenants(store: TeachingRuntime["store"]): Promise<string[]> },
-): Promise<void> {
-  let failed = false;
-  for (const tenant of await tenancy.tenants(runtime.store))
-    await dispatchHostedContinuations(runtime, tenant).catch(() => {
-      failed = true;
-    });
-  if (failed) throw new Error("Hosted continuation dispatch incomplete");
+  maintain?: (
+    tenant: string,
+    stop: () => boolean,
+  ) => Promise<{ swept: number; failed: number; stopped?: true }>,
+  options: DispatchOptions = {},
+): Promise<DispatchReport> {
+  const tenants = await tenancy.tenants(runtime.store);
+  let tenantsFailed = 0;
+  const fail = () => {
+    tenantsFailed++;
+  };
+  for (const tenant of tenants)
+    await dispatchHostedContinuations(runtime, tenant).catch(fail);
+  const report: DispatchReport = { swept: 0, failed: 0, incomplete: 0 };
+  if (maintain) {
+    const monotonic = options.monotonic ?? (() => performance.now());
+    const until = monotonic() + (options.budgetMs ?? SWEEP_BUDGET_MS);
+    const stop = () => monotonic() >= until;
+    for (const tenant of tenants) {
+      if (stop()) {
+        report.incomplete++;
+        continue;
+      }
+      try {
+        const done = await maintain(tenant, stop);
+        report.swept += done.swept;
+        report.failed += done.failed;
+        if (done.stopped) report.incomplete++;
+      } catch {
+        fail();
+      }
+    }
+  }
+  if (report.failed || report.incomplete || tenantsFailed)
+    options.log?.(
+      JSON.stringify({ event: "custody-sweep", ...report, tenantsFailed }),
+    );
+  if (tenantsFailed) throw new Error("Hosted continuation dispatch incomplete");
+  return report;
 }
 /** Dedicated cron/workload authentication; not end-user authentication or a grant for a different task. */
 export function validContinuationWorker(

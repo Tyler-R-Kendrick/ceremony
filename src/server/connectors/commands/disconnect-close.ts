@@ -1,6 +1,7 @@
 import type { ActorContext } from "../../../core/operation-contracts.js";
 import { ConnectorError } from "../errors.js";
 import type { ConnectionRecord, ConnectionStorePort } from "../ports.js";
+import { closed, deleted } from "./records.js";
 
 /*
  * Closing a connection at the end of a disconnect. The disconnect fences the
@@ -97,4 +98,31 @@ export function localOutcome(
   if (after.record.generation === fenced.record.generation) return "applied";
   if (isClosed(after.record)) return "already-closed";
   return closing(after.record) ? "already-closing" : "superseded";
+}
+
+/**
+ * The other local connections that hold the same upstream grant and are not
+ * leaving it: every holder of an external id, not the first the store lists
+ * (that one can be this connection itself, which hides the rest from it).
+ */
+export async function otherHolders(
+  connections: ConnectionStorePort,
+  record: ConnectionRecord,
+): Promise<string[]> {
+  const shared = new Set<string>();
+  for (const [name, value] of Object.entries(record.externalIds))
+    for (const other of await connections.listByExternalId(
+      record.tenantId,
+      record.authorityInstance,
+      name,
+      value,
+    ))
+      if (
+        other.record.connectionRef !== record.connectionRef &&
+        !closed(other.record) &&
+        !deleted(other.record) &&
+        !closing(other.record)
+      )
+        shared.add(other.record.connectionRef);
+  return [...shared];
 }

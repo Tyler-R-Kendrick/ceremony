@@ -44,9 +44,10 @@ async function nap(signal: AbortSignal | undefined): Promise<void> {
 }
 
 /**
- * A digest of what was submitted, bound to this handoff and generation. The
- * values cannot be read back from it, and it is kept only inside the sealed
- * handoff record while the handoff is pending.
+ * A digest of what was submitted, bound to this handoff and generation. It is
+ * not stored as it is: the handoff record keeps an HMAC of it under a key
+ * derived from the vault key (state/handoff-claims.ts), only while the handoff
+ * is pending.
  */
 export function submissionOf(
   handoff: Pick<HandoffRecord, "handoffRef" | "generation">,

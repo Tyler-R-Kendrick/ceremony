@@ -63,8 +63,16 @@ async function main() {
     }
     if (action === "purge-jira-setup")
       await retainExpiredJiraSetup(store, pathOrTenant);
-    if (action === "sweep-credentials")
-      await sweepDroppedCredentials(store, pathOrTenant);
+    if (action === "sweep-credentials") {
+      const { failed } = await sweepDroppedCredentials(store, pathOrTenant);
+      if (failed) {
+        process.stderr.write(
+          `Persistence maintenance incomplete: ${failed} connection(s) could not be swept; run it again\n`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+    }
     process.stdout.write("Persistence maintenance completed\n");
   } finally {
     await store.close();

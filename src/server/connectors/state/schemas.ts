@@ -94,8 +94,9 @@ export const handoffIssueInputSchema = z.strictObject({
 });
 /**
  * Which submission is working a pending handoff, which attempt of it holds the
- * claim, and until when. The submission is a digest the caller computed (the
- * values behind it never reach the store) and names what was submitted; the
+ * claim, and until when. The submission is a keyed digest (an HMAC under a
+ * key derived from the vault key) of the digest the caller computed, so the
+ * values behind it never reach the store and cannot be guessed back from it; the
  * attempt is a random token, so two identical submissions are two holders and
  * a lapsed one cannot release or settle on behalf of its successor. It exists
  * only while the handoff is pending.

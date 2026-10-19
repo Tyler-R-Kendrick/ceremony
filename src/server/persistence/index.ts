@@ -1,9 +1,15 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { chmodSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { setTimeout as delay } from "node:timers/promises";
 import { Pool, type PoolConfig } from "pg";
 import { z } from "zod";
+import {
+  keyedDigests,
+  open,
+  seal,
+  validateKeys,
+  type Keyring,
+} from "./sealing.js";
 
 export const recordKinds = [
   "run",
@@ -59,10 +65,7 @@ export type RecordKind = (typeof recordKinds)[number];
 export type RecordKey = { tenant: string; kind: RecordKind; id: string };
 export type StoredRecord<T> = { revision: number; value: T };
 export type Fence = RecordKey & { generation: number; worker: string };
-export type Keyring = {
-  current: string;
-  keys: Readonly<Record<string, Uint8Array>>;
-};
+export type { Keyring };
 const backupKey = z.string().regex(/^[a-zA-Z0-9_.:@/-]{1,200}$/);
 export const encryptedBackupSchema = z.strictObject({
   schemaVersion: z.literal(1),
@@ -116,6 +119,12 @@ export interface AsyncTransaction {
     limit?: number,
     afterId?: string,
   ): Promise<Array<StoredRecord<T> & { id: string }>>;
+  /**
+   * HMAC-SHA-256 of `data` under a key derived for `purpose` from each vault
+   * key, the current key's first (sealing.ts). What a record keeps to know a
+   * value again without holding it: write the first, recognise any.
+   */
+  keyedDigests(purpose: string, data: string): string[];
   claim(key: RecordKey, worker: string, durationMs: number): Promise<Fence>;
   heartbeat(fence: Fence, durationMs: number): Promise<void>;
   assertFence(fence: Fence): Promise<void>;
@@ -143,78 +152,6 @@ function parameters(key: RecordKey): string[] {
   )
     throw new Error("Invalid persistence key");
   return [key.tenant, key.kind, key.id];
-}
-function validateKeys(keyring: Keyring): void {
-  if (
-    !Object.hasOwn(keyring.keys, keyring.current) ||
-    !Object.entries(keyring.keys).every(
-      ([id, key]) => /^[a-zA-Z0-9_-]{1,64}$/.test(id) && key.byteLength === 32,
-    )
-  )
-    throw new Error("Invalid encryption key configuration");
-}
-function seal(
-  key: RecordKey,
-  revision: number,
-  value: unknown,
-  keyring: Keyring,
-): Buffer {
-  const iv = randomBytes(12);
-  const cipher = createCipheriv(
-    "aes-256-gcm",
-    keyring.keys[keyring.current]!,
-    iv,
-  );
-  cipher.setAAD(
-    Buffer.from(
-      JSON.stringify([...parameters(key), revision, keyring.current]),
-    ),
-  );
-  const ciphertext = Buffer.concat([
-    cipher.update(JSON.stringify(value)),
-    cipher.final(),
-  ]);
-  return Buffer.from(
-    JSON.stringify({
-      key: keyring.current,
-      iv: iv.toString("base64"),
-      tag: cipher.getAuthTag().toString("base64"),
-      data: ciphertext.toString("base64"),
-    }),
-  );
-}
-function open<T>(
-  key: RecordKey,
-  revision: number,
-  value: unknown,
-  keyring: Keyring,
-): T {
-  try {
-    if (!(value instanceof Uint8Array)) throw new Error();
-    const envelope = JSON.parse(Buffer.from(value).toString());
-    if (
-      typeof envelope.key !== "string" ||
-      !Object.hasOwn(keyring.keys, envelope.key)
-    )
-      throw new Error();
-    const decipher = createDecipheriv(
-      "aes-256-gcm",
-      keyring.keys[envelope.key]!,
-      Buffer.from(envelope.iv, "base64"),
-    );
-    decipher.setAAD(
-      Buffer.from(JSON.stringify([...parameters(key), revision, envelope.key])),
-    );
-    decipher.setAuthTag(Buffer.from(envelope.tag, "base64"));
-    return JSON.parse(
-      Buffer.concat([
-        decipher.update(Buffer.from(envelope.data, "base64")),
-        decipher.final(),
-      ]).toString(),
-    ) as T;
-  } catch {
-    throw new Error("Protected record cannot be decrypted");
-  }
 }
 function transaction(
   query: Query,
@@ -263,6 +200,7 @@ function transaction(
       active = false;
     },
     now,
+    keyedDigests: (purpose, data) => keyedDigests(keyring, purpose, data),
     async get<T>(key: RecordKey) {
       const row = (
         await q(
@@ -273,7 +211,12 @@ function transaction(
       return row
         ? {
             revision: Number(row.revision),
-            value: open<T>(key, Number(row.revision), row.value, keyring),
+            value: open<T>(
+              parameters(key),
+              Number(row.revision),
+              row.value,
+              keyring,
+            ),
           }
         : undefined;
     },
@@ -284,7 +227,7 @@ function transaction(
       )
         throw new Error("Invalid expected revision");
       const revision = (expectedRevision ?? 0) + 1;
-      const bytes = seal(key, revision, value, keyring);
+      const bytes = seal(parameters(key), revision, value, keyring);
       const rows =
         expectedRevision === null
           ? await q(
@@ -323,7 +266,7 @@ function transaction(
         id: String(row.id),
         revision: Number(row.revision),
         value: open<T>(
-          { tenant, kind, id: String(row.id) },
+          parameters({ tenant, kind, id: String(row.id) }),
           Number(row.revision),
           row.value,
           keyring,
@@ -506,7 +449,12 @@ export class PostgresCeremonyStore implements AsyncCeremonyStore {
       if (JSON.stringify(input).length > 24_000_000) throw new Error();
       backup = encryptedBackupSchema.parse(input);
       for (const r of backup.records)
-        open(r, r.revision, Buffer.from(r.value, "base64"), this.keyring);
+        open(
+          parameters(r),
+          r.revision,
+          Buffer.from(r.value, "base64"),
+          this.keyring,
+        );
     } catch {
       throw new Error(
         "Encrypted backup is invalid or unavailable with configured keys",

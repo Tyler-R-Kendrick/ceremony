@@ -107,8 +107,8 @@ import {
 } from "./definitions.js";
 import {
   closeDisconnected,
-  closing,
   localOutcome,
+  otherHolders,
 } from "./disconnect-close.js";
 import { adapterCall, port, requireAny } from "./failures.js";
 import { withHandoffClaim } from "./handoff-claim.js";
@@ -469,9 +469,10 @@ export class ConnectorCommandService {
   private async connection(
     actor: ActorContext,
     connectionRef: string,
+    waitingSignIn = false,
   ): Promise<ConnectionEntry> {
     const entry = await port(() =>
-      this.ports.connections.get(actor, connectionRef),
+      this.ports.connections.get(actor, connectionRef, { waitingSignIn }),
     );
     if (!entry || deleted(entry.record))
       throw new ConnectorError("not-found", { detail: "connection.unknown" });
@@ -2611,7 +2612,7 @@ export class ConnectorCommandService {
   ): Promise<ConnectionView> {
     requireCapability(actor, "executor");
     const input: ReconnectInput = reconnectInputSchema.parse(rawInput);
-    const entry = await this.connection(actor, connectionRef);
+    const entry = await this.connection(actor, connectionRef, true);
     const record = entry.record;
     if (closed(record))
       throw new ConnectorError("denied", { detail: "connection.disconnected" });
@@ -2717,7 +2718,7 @@ export class ConnectorCommandService {
     connectionRef: string,
   ): Promise<ConnectionView> {
     requireCapability(actor, "executor");
-    const entry = await this.connection(actor, connectionRef);
+    const entry = await this.connection(actor, connectionRef, true);
     const summary = pending(entry.record);
     if (!summary) return this.project(actor, entry);
     // Write first; cancel the handoff and drop the waiting sign-in second
@@ -2758,7 +2759,7 @@ export class ConnectorCommandService {
   ): Promise<{ result: Disconnected; connection: ConnectionView }> {
     requireCapability(actor, "executor");
     const input: DisconnectInput = disconnectInputSchema.parse(rawInput);
-    const entry = await this.connection(actor, connectionRef);
+    const entry = await this.connection(actor, connectionRef, true);
     const record = entry.record;
     if (entry.revision !== input.expectedRevision)
       throw new ConnectorError("conflict", { detail: "revision.stale" });
@@ -2781,7 +2782,7 @@ export class ConnectorCommandService {
       action,
       `${action}.denied`,
     );
-    const sharedWith = await this.sharedWith(record);
+    const sharedWith = await otherHolders(this.ports.connections, record);
     if (
       input.scope !== "local" &&
       sharedWith.length &&
@@ -2824,7 +2825,7 @@ export class ConnectorCommandService {
     // fenced: a holder that is closing or closed is leaving too. Of two
     // holders that disconnect at once, the later fence therefore sees the
     // earlier as leaving and ends the session; both may, neither skips it.
-    const holders = await this.sharedWith(record);
+    const holders = await otherHolders(this.ports.connections, record);
     // A sign-in the host kept for this connection is ended at the provider
     // before the tokens are dropped, unless the caller already asked the
     // adapter to end the grant (the upstream scope). Best effort and bounded:
@@ -2889,27 +2890,6 @@ export class ConnectorCommandService {
     };
   }
 
-  private async sharedWith(record: ConnectionRecord): Promise<string[]> {
-    const shared = new Set<string>();
-    for (const [name, value] of Object.entries(record.externalIds))
-      // Every holder of the id, not the first the store lists: that one can be
-      // this connection itself, which hides the rest from it.
-      for (const other of await this.ports.connections.listByExternalId(
-        record.tenantId,
-        record.authorityInstance,
-        name,
-        value,
-      ))
-        if (
-          other.record.connectionRef !== record.connectionRef &&
-          !closed(other.record) &&
-          !deleted(other.record) &&
-          !closing(other.record)
-        )
-          shared.add(other.record.connectionRef);
-    return [...shared];
-  }
-
   /** Administrative upstream revocation; separate from any user's disconnect. */
   async revoke(
     actor: ActorContext,
@@ -2922,7 +2902,7 @@ export class ConnectorCommandService {
     const input = z
       .strictObject({ expectedRevision: z.number().int().positive() })
       .parse(rawInput);
-    const entry = await this.connection(actor, connectionRef);
+    const entry = await this.connection(actor, connectionRef, true);
     const record = entry.record;
     if (entry.revision !== input.expectedRevision)
       throw new ConnectorError("conflict", { detail: "revision.stale" });

@@ -12,6 +12,12 @@ import {
   startVercelOidcIssuer,
 } from "../doubles/vercel-connect.js";
 import { buildBinding, buildConnection, harness } from "./harness.js";
+import {
+  assertReadUnder,
+  endlessResponse,
+  type Pulled,
+  type Sites,
+} from "../doubles/endless-body.js";
 
 /*
  * The two places the Vercel provider reads a body that an outside party
@@ -23,25 +29,27 @@ import { buildBinding, buildConnection, harness } from "./harness.js";
  * it at, so it takes no larger bound than any other OAuth answer.
  */
 
-const CHUNK = 64 * 1024;
-const ENDLESS = 64 * 1024 * 1024;
-/** One response may cross the ceiling by the chunk that crossed it, and no more. */
-const SLACK = 2 * CHUNK;
+const KEY_SET: Sites = [
+  "src/server/connectors/providers/vercel/events.ts#fetchJwks",
+];
+const CONFORMANCE: Sites = [
+  "src/server/connectors/providers/vercel/provider-conformance.ts#readJson",
+];
 
-/** A 200 whose body is `ENDLESS` bytes of whitespace, counting what was pulled from it. */
-function endlessResponse(pulledBy: { worst: number }): Response {
-  let pulled = 0;
-  const chunk = new Uint8Array(CHUNK).fill(0x20);
-  return new Response(
-    new ReadableStream<Uint8Array>({
-      pull(controller) {
-        if (pulled >= ENDLESS) return controller.close();
-        pulled += CHUNK;
-        pulledBy.worst = Math.max(pulledBy.worst, pulled);
-        controller.enqueue(chunk);
-      },
-    }),
-    { status: 200, headers: { "content-type": "application/json" } },
+/** An answer without end, for the bounded `sites` it is served to; each one is kept so the worst can be read. */
+function endlessAnswer(served: Pulled[], sites: Sites): Response {
+  const seen: Pulled = { pulled: 0 };
+  served.push(seen);
+  return endlessResponse(seen, sites);
+}
+
+/** The most one answer was read, and that it stayed within the ceiling. */
+function assertWorst(served: Pulled[], what: string) {
+  assertReadUnder(
+    assert,
+    { pulled: Math.max(0, ...served.map((seen) => seen.pulled)) },
+    MAX_RESPONSE_BYTES,
+    what,
   );
 }
 
@@ -104,7 +112,7 @@ test("an endless key set is cut off at the ceiling and verifies nothing", async 
       lifecycle: "active",
     }),
   });
-  const seen = { worst: 0 };
+  const served: Pulled[] = [];
   const real = ctx.environment.fetch;
   const endless = {
     ...ctx,
@@ -112,7 +120,7 @@ test("an endless key set is cut off at the ceiling and verifies nothing", async 
       ...ctx.environment,
       fetch: async (input: Parameters<typeof fetch>[0], init?: RequestInit) =>
         pathOf(input) === "/.well-known/jwks"
-          ? endlessResponse(seen)
+          ? endlessAnswer(served, KEY_SET)
           : real(input, init),
     },
   };
@@ -132,11 +140,7 @@ test("an endless key set is cut off at the ceiling and verifies nothing", async 
   });
 
   assert.equal(verified, undefined);
-  assert.ok(seen.worst > 0, "the endless key set was in fact served");
-  assert.ok(
-    seen.worst <= MAX_RESPONSE_BYTES + SLACK,
-    `pulled ${seen.worst} bytes of a key set; the ceiling is ${MAX_RESPONSE_BYTES}`,
-  );
+  assertWorst(served, "a key set");
 });
 
 /** Drives the consent leg over real HTTP and returns the callback the harness reads, never follows. */
@@ -205,13 +209,14 @@ for (const [name, answersWithoutEnd] of sites)
       password: "correct horse battery staple",
       verified: true,
     });
-    const seen = { worst: 0 };
+    const served: Pulled[] = [];
     const calls = new Map<string, number>();
     const guarded: typeof fetch = async (input, init) => {
       const path = pathOf(input);
       const nth = (calls.get(path) ?? 0) + 1;
       if (init?.method === "POST" || !init?.method) calls.set(path, nth);
-      if (answersWithoutEnd(path, nth)) return endlessResponse(seen);
+      if (answersWithoutEnd(path, nth))
+        return endlessAnswer(served, CONFORMANCE);
       return fetch(input, init);
     };
     // The consent leg must not count against the token endpoint's tally.
@@ -227,9 +232,5 @@ for (const [name, answersWithoutEnd] of sites)
     });
 
     assert.ok(report.findings.length > 0, "the assessment finished");
-    assert.ok(seen.worst > 0, "the endless answer was in fact served");
-    assert.ok(
-      seen.worst <= MAX_RESPONSE_BYTES + SLACK,
-      `pulled ${seen.worst} bytes of one answer; the ceiling is ${MAX_RESPONSE_BYTES}`,
-    );
+    assertWorst(served, "one answer");
   });

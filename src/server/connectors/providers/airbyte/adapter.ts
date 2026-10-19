@@ -17,16 +17,12 @@ import {
 import {
   boundOperation,
   destinationFor,
-  destinationUrl,
   type BoundOperation,
 } from "../../binding.js";
-import { readBoundedBytes } from "../../bounded-body.js";
+import { airbyteTransport, detailFor, MAX_BODY_BYTES } from "./transport.js";
 import { ConnectorError } from "../../errors.js";
-import { MAX_RESPONSE_BYTES } from "../../auth/response-bound.js";
 import {
-  airbyteConfigurationNames,
   airbyteConfigurationRequirements,
-  airbyteDestinationIds,
   airbyteTargetKinds,
   parseBoundedJson,
 } from "./contracts.js";
@@ -34,11 +30,9 @@ import {
   airbyteJobTypes,
   airbyteOperation,
   airbyteTerminalJobStatuses,
-  applicationTokenResponseSchema,
   connectionResponseSchema,
   jobResponseSchema,
   jobsResponseSchema,
-  resolveAirbyteApiBase,
   sourceResponseSchema,
   streamPropertiesListSchema,
   AIRBYTE_API_PROFILE,
@@ -66,18 +60,7 @@ import {
 
 export const AIRBYTE_ADAPTER_VERSION = "2026.09.18";
 
-const MAX_BODY_BYTES = 4 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 30_000;
-
-/** A response body as text, refused at the first chunk past `limit` and not after the whole of it was held. */
-const readText = async (response: Response, limit: number, detail: string) =>
-  new TextDecoder().decode(
-    await readBoundedBytes(
-      response,
-      limit,
-      () => new ConnectorError("invalid-request", { detail }),
-    ),
-  );
 
 const identifier = z
   .string()
@@ -130,13 +113,6 @@ export type AirbyteAdapterOptions = {
   requestTimeoutMs?: number;
 };
 
-type CallOptions = {
-  method: "GET" | "POST" | "DELETE";
-  path: string;
-  query?: Record<string, string | string[] | number | boolean | undefined>;
-  body?: unknown;
-};
-
 /** The sync modes the public API names, mapped to the protocol modes they imply. */
 const apiSyncModeProtocol: Record<string, (typeof airbyteSyncModes)[number]> = {
   full_refresh_overwrite: "full_refresh",
@@ -145,192 +121,13 @@ const apiSyncModeProtocol: Record<string, (typeof airbyteSyncModes)[number]> = {
   incremental_deduped_history: "incremental",
 };
 
-function detailFor(status: number): {
-  code: ConnectorError["code"];
-  detail: string;
-} {
-  if (status === 401)
-    return {
-      code: "unauthenticated",
-      detail: "airbyte.upstream.unauthenticated",
-    };
-  if (status === 403)
-    return { code: "denied", detail: "airbyte.upstream.denied" };
-  if (status === 404)
-    return { code: "not-found", detail: "airbyte.upstream.not-found" };
-  if (status === 409)
-    return { code: "conflict", detail: "airbyte.upstream.conflict" };
-  if (status === 429)
-    return { code: "rate-limited", detail: "airbyte.upstream.rate-limited" };
-  if (status >= 500)
-    return {
-      code: "upstream-unavailable",
-      detail: "airbyte.upstream.unavailable",
-    };
-  return { code: "upstream-rejected", detail: "airbyte.upstream.rejected" };
-}
-
 export function createAirbyteAdapter(
   options: AirbyteAdapterOptions = {},
 ): ConnectorAdapter {
   const adapterVersion = options.adapterVersion ?? AIRBYTE_ADAPTER_VERSION;
-  const timeoutMs = options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS;
-
-  const destination = (ctx: AdapterCallContext) => {
-    const approved = ctx.binding.destinations.find(
-      (item) => item.id === airbyteDestinationIds.api,
-    );
-    if (!approved)
-      throw new ConnectorError("denied", {
-        detail: "airbyte.destination.unapproved",
-      });
-    return approved;
-  };
-
-  /**
-   * One bounded upstream call. The credential is resolved inside
-   * `credentials.use`; the bearer value never leaves that callback, and the
-   * response body is parsed under a byte ceiling with reserved keys refused.
-   */
-  const call = async (
-    ctx: AdapterCallContext,
-    input: CallOptions,
-  ): Promise<{ status: number; body: unknown }> => {
-    const approved = destination(ctx);
-    const configured = await ctx.environment.configuration.read(
-      airbyteConfigurationNames.apiUrl,
-    );
-    const { basePath } = resolveAirbyteApiBase(configured, approved);
-    const url = destinationUrl(approved, `${basePath}${input.path}`);
-    for (const [key, value] of Object.entries(input.query ?? {})) {
-      if (value === undefined) continue;
-      if (Array.isArray(value))
-        for (const item of value) url.searchParams.append(key, item);
-      else url.searchParams.set(key, String(value));
-    }
-    const token = await accessToken(ctx);
-    const controller = new AbortController();
-    const abort = () => controller.abort();
-    ctx.signal.addEventListener("abort", abort, { once: true });
-    const timer = setTimeout(abort, timeoutMs);
-    let response: Response;
-    try {
-      response = await ctx.environment.fetch(url, {
-        method: input.method,
-        redirect: "error",
-        signal: controller.signal,
-        headers: {
-          authorization: `Bearer ${token}`,
-          accept: "application/json",
-          ...(input.body === undefined
-            ? {}
-            : { "content-type": "application/json" }),
-        },
-        ...(input.body === undefined
-          ? {}
-          : { body: JSON.stringify(input.body) }),
-      });
-    } catch (error) {
-      if (ctx.signal.aborted)
-        throw new ConnectorError("cancelled", {
-          detail: "airbyte.request.cancelled",
-        });
-      throw new ConnectorError("upstream-unavailable", {
-        detail: "airbyte.request.failed",
-        cause: error,
-      });
-    } finally {
-      clearTimeout(timer);
-      ctx.signal.removeEventListener("abort", abort);
-    }
-    const text = await readText(
-      response,
-      MAX_BODY_BYTES,
-      "airbyte.response.invalid",
-    );
-    const body =
-      text.length === 0
-        ? undefined
-        : parseBoundedJson(text, "airbyte.response.invalid", MAX_BODY_BYTES);
-    return { status: response.status, body };
-  };
-
-  /**
-   * The bearer token for one call. When application credentials are
-   * configured, the adapter mints a short-lived token through the documented
-   * `POST /applications/token`; otherwise the configured API key is used
-   * directly. Neither value is returned to any caller.
-   */
-  const accessToken = async (ctx: AdapterCallContext): Promise<string> => {
-    const clientId = await ctx.environment.configuration.read(
-      airbyteConfigurationNames.clientId,
-    );
-    const clientSecret = await ctx.environment.configuration.read(
-      airbyteConfigurationNames.clientSecret,
-    );
-    if (!clientId || !clientSecret) {
-      const key = await ctx.environment.configuration.read(
-        airbyteConfigurationNames.apiKey,
-      );
-      if (!key)
-        throw new ConnectorError("configuration-required", {
-          detail: "airbyte.api-key.missing",
-        });
-      return key;
-    }
-    const approved = destination(ctx);
-    const configured = await ctx.environment.configuration.read(
-      airbyteConfigurationNames.apiUrl,
-    );
-    const { basePath } = resolveAirbyteApiBase(configured, approved);
-    const url = destinationUrl(approved, `${basePath}/applications/token`);
-    const controller = new AbortController();
-    const abort = () => controller.abort();
-    ctx.signal.addEventListener("abort", abort, { once: true });
-    const timer = setTimeout(abort, timeoutMs);
-    let response: Response;
-    try {
-      response = await ctx.environment.fetch(url, {
-        method: "POST",
-        redirect: "error",
-        signal: controller.signal,
-        headers: {
-          "content-type": "application/json",
-          accept: "application/json",
-        },
-        body: JSON.stringify({
-          client_id: clientId,
-          client_secret: clientSecret,
-          "grant-type": "client_credentials",
-        }),
-      });
-    } catch (error) {
-      throw new ConnectorError("upstream-unavailable", {
-        detail: "airbyte.token.failed",
-        cause: error,
-      });
-    } finally {
-      clearTimeout(timer);
-      ctx.signal.removeEventListener("abort", abort);
-    }
-    if (!response.ok)
-      throw new ConnectorError(detailFor(response.status).code, {
-        detail: "airbyte.token.rejected",
-      });
-    const parsed = applicationTokenResponseSchema.safeParse(
-      parseBoundedJson(
-        // The token answer carries a credential: it is read under the OAuth ceiling.
-        await readText(response, MAX_RESPONSE_BYTES, "airbyte.token.invalid"),
-        "airbyte.token.invalid",
-        MAX_RESPONSE_BYTES,
-      ),
-    );
-    if (!parsed.success)
-      throw new ConnectorError("upstream-rejected", {
-        detail: "airbyte.token.invalid",
-      });
-    return parsed.data.access_token;
-  };
+  const { call } = airbyteTransport(
+    options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS,
+  );
 
   const requireOk = (result: { status: number; body: unknown }) => {
     if (result.status >= 200 && result.status < 300) return result.body;
