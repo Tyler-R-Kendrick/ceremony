@@ -9,26 +9,35 @@ const root = ".vercel/output";
 const config = JSON.parse(await readFile(`${root}/config.json`, "utf8"));
 assert.equal(config.version, 3);
 assert.equal(config.framework.name, "nitro");
+const workflowFunctions = `${root}/functions/.well-known/workflow/v1`;
 for (const path of [
   "static/index.html",
   "static/sw.js",
   "functions/api/[...path].func/index.mjs",
   "functions/.well-known/workflow/v1/flow.func/.vc-config.json",
-  "functions/.well-known/workflow/v1/step.func/.vc-config.json",
   "functions/.well-known/workflow/v1/webhook/[token].func/.vc-config.json",
 ])
   await access(`${root}/${path}`);
-for (const destination of [
-  "/api/[...path]",
-  "/.well-known/workflow/v1/flow",
-  "/.well-known/workflow/v1/step",
-])
+for (const destination of ["/api/[...path]", "/.well-known/workflow/v1/flow"])
   assert.ok(config.routes.some((route) => route.dest === destination));
-const manifest = JSON.parse(
-  await readFile(
-    `${root}/functions/.well-known/workflow/v1/manifest.json`,
-    "utf8",
+// Workflow 5 runs steps inside the flow function, so that function is the queue
+// consumer, and no standalone step function may ship beside it.
+const flowConfig = JSON.parse(
+  await readFile(`${workflowFunctions}/flow.func/.vc-config.json`, "utf8"),
+);
+assert.ok(
+  flowConfig.experimentalTriggers?.some(
+    (trigger) => trigger.topic === "__wkf_workflow_*",
   ),
+  "The flow function must consume the workflow queue",
+);
+await assert.rejects(access(`${workflowFunctions}/step.func`), {
+  code: "ENOENT",
+});
+// Nitro bundles the workflows into its own functions and keeps the build
+// manifest in its build directory; the flow function must carry what it lists.
+const manifest = JSON.parse(
+  await readFile("node_modules/.nitro/workflow/manifest.json", "utf8"),
 );
 assert.ok(
   manifest.workflows["src/server/agent/workflow.ts"]?.ceremonyAgentWorkflow,
@@ -40,6 +49,16 @@ for (const file of Object.keys({ ...manifest.workflows, ...manifest.steps }))
     /^(src|node_modules)\//,
     "Only source and SDK workflows may ship",
   );
+const flowEntry = await readFile(
+  `${workflowFunctions}/flow.func/index.mjs`,
+  "utf8",
+);
+for (const id of [
+  manifest.workflows["src/server/agent/workflow.ts"].ceremonyAgentWorkflow
+    .workflowId,
+  manifest.steps["src/server/agent/workflow.ts"].runAgentTurn.stepId,
+])
+  assert.ok(flowEntry.includes(id), "The flow function must carry the agent");
 
 // A clean child environment prevents this build check from touching configured
 // accounts, databases or model services. Missing auth must fail closed at HTTP.
@@ -62,10 +81,9 @@ try {
   import {resolve, dirname, sep} from 'node:path';
   import {readFileSync} from 'node:fs';
   import handler from './functions/__server.func/index.mjs';
-  const step = resolve('functions/.well-known/workflow/v1/step.func/index.js');
-  const requireStep = createRequire(step);
-  requireStep(step);
-  for (const entry of [step, resolve('functions/__server.func/index.mjs')]) {
+  const flow = resolve('functions/.well-known/workflow/v1/flow.func/index.mjs');
+  assert.equal(typeof (await import(flow)).default, 'function');
+  for (const entry of [flow, resolve('functions/__server.func/index.mjs')]) {
     const require = createRequire(entry);
     const pkg = require.resolve('playwright-core/package.json');
     assert.ok(pkg.startsWith(dirname(entry) + sep), 'Playwright must ship inside each function');
