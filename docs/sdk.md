@@ -52,7 +52,7 @@ A few caveats:
 
 ## The package
 
-`@ceremony/auth` is ESM-only, requires Node 22.12 or later, and ships its TypeScript declarations. It has not been published yet. Until it is, build it and install the tarball:
+`@ceremony/auth` is ESM-only, requires Node 22.19 or later, and ships its TypeScript declarations. It has not been published yet. Until it is, build it and install the tarball:
 
 ```sh
 npm run build

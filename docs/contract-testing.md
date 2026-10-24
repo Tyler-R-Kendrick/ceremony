@@ -4,7 +4,7 @@
 
 ## External service contracts
 
-Run `npm run test:pact` (Node >=22.12). It is also part of `npm run verify` and CI. Pact needs permission to bind a random loopback port; a sandbox socket denial is an environment failure, not a passing or failing API contract.
+Run `npm run test:pact` (Node >=22.19). It is also part of `npm run verify` and CI. Pact needs permission to bind a random loopback port; a sandbox socket denial is an environment failure, not a passing or failing API contract.
 
 The GitHub App tests exercise the production `GitHubAppCeremonies` adapter against Pact V4 over real HTTP. The injected transport changes only the GitHub API origin. Coverage includes manifest-code conversion, signed app identity, installation identity, least-privilege token issuance, repository access, and rejected credentials. A deliberate `contents: read` → `write` request mutation must fail Pact matching. Its mismatch log is expected; the test passes only when that rejection occurs.
 
