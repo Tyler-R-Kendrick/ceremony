@@ -1,4 +1,4 @@
-import { createLocalWorld } from "@workflow/world-local";
+import { createWorld } from "@workflow/world-local";
 import { setWorld } from "@workflow/core/runtime";
 import { start, getRun, resumeHook } from "workflow/api";
 import { join } from "node:path";
@@ -6,28 +6,28 @@ import { pathToFileURL } from "node:url";
 
 // Actual installed local carrier and generated production handlers. No workflow
 // mocks, replacement step handlers, or in-memory state transferred between PIDs.
-const world = createLocalWorld({
+const world = createWorld({
   dataDir: process.env.CEREMONY_RESTART_DATA,
   recoverActiveRuns: true,
 });
-// Test-only scheduling fault: hold actual compiled step handlers, not their results.
+// Test-only scheduling fault: hold the actual compiled handler, not its results.
+// Workflow 5 has no separate step queue: one combined handler on the workflow
+// prefix replays the run and executes its steps, so holding that handler is
+// what holds the next real step. Hook acceptance happens in `resumeHook`,
+// outside the handler, so a wake can still be delivered while it is held.
 let stepGate = Promise.resolve();
 let releaseSteps;
-for (const [prefix, file] of [
-  ["__wkf_workflow_", "workflows.mjs"],
-  ["__wkf_step_", "steps.mjs"],
-]) {
-  let handler;
-  world.registerHandler(prefix, async (request) => {
-    if (prefix === "__wkf_step_") await stepGate;
-    handler ??= (
-      await import(
-        pathToFileURL(join(process.env.CEREMONY_RESTART_BUNDLES, file)).href
-      )
-    ).POST;
-    return handler(request);
-  });
-}
+let handler;
+world.registerHandler("__wkf_workflow_", async (request) => {
+  await stepGate;
+  handler ??= (
+    await import(
+      pathToFileURL(join(process.env.CEREMONY_RESTART_BUNDLES, "combined.mjs"))
+        .href
+    )
+  ).POST;
+  return handler(request);
+});
 setWorld(world);
 await world.start();
 process.send({ ready: true, pid: process.pid });
