@@ -12,7 +12,7 @@
     "url": "https://github.com/Tyler-R-Kendrick/ceremony/issues"
   },
   "engines": {
-    "node": ">=22.12"
+    "node": ">=22.19"
   },
   "publishConfig": {
     "access": "public",
