@@ -1,7 +1,7 @@
 import { lookup } from "node:dns/promises";
 import type { LookupAddress } from "node:dns";
 import { BlockList, isIP, type LookupFunction } from "node:net";
-import { Agent } from "undici";
+import { Agent, Dispatcher1Wrapper } from "undici";
 import { boundResponse } from "./connectors/auth/response-bound.js";
 
 const excluded = new BlockList();
@@ -96,9 +96,11 @@ export function createPublicAuthLookup(
 export function createPublicAuthFetch(
   options: PublicAuthNetworkOptions = {},
 ): typeof fetch {
-  const dispatcher = new Agent({
-    connect: { lookup: createPublicAuthLookup(options) },
-  });
+  // The runtime's own `fetch` still speaks undici's first dispatcher contract,
+  // which an undici 8 `Agent` no longer answers; the wrapper translates.
+  const dispatcher = new Dispatcher1Wrapper(
+    new Agent({ connect: { lookup: createPublicAuthLookup(options) } }),
+  );
   return async (input, init) => {
     const request = new Request(input, init);
     const url = new URL(request.url);
@@ -116,7 +118,7 @@ export function createPublicAuthFetch(
     return fetch(request, {
       dispatcher,
       redirect: "error",
-    } as RequestInit & { dispatcher: Agent });
+    } as RequestInit & { dispatcher: Dispatcher1Wrapper });
   };
 }
 
