@@ -14,7 +14,7 @@
 (*                                                                         *)
 (* README.md in this folder maps every action and variable to file:line.   *)
 (***************************************************************************)
-EXTENDS Naturals
+EXTENDS Naturals, TLC
 
 CONSTANTS
     Processes,       \* worker processes that call the store
@@ -357,6 +357,10 @@ Next ==
     \/ ClockBoundReached
 
 Spec == Init /\ [][Next]_vars
+
+\* The processes are interchangeable, so the checker may treat two states
+\* that differ only in which process is which as one state.
+Symmetry == Permutations(Processes)
 
 ----------------------------------------------------------------------------
 \* The rules.  README.md gives each one as a plain sentence.

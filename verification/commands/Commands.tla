@@ -369,4 +369,15 @@ CompleteStaysVerified ==
 UncertainStaysBlocked ==
   \A c \in Commands : cmd[c] = "uncertain" => node = "uncertain"
 
+(***************************************************************************)
+(* Used only by Lifecycle.cfg, to keep the drawn chart small. Revisions    *)
+(* are only ever compared for equality, so the view keeps the comparisons  *)
+(* and drops the numbers; it also drops the history that no step reads.    *)
+(***************************************************************************)
+ChartView ==
+  << runStatus, node, cmd, outbox, lease, worker, result, reval, revalLeft,
+     calls, rejected,
+     [c \in Commands |-> worker[c] \in {"admitted", "ran"} /\ runRev = expRev[c]],
+     reval = "checking" /\ runRev = revalRev >>
+
 =============================================================================

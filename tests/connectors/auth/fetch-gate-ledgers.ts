@@ -8,6 +8,10 @@ export type Accepted = { count: number; why: string };
 const LOADS_IN_PAGE =
   "an import run inside the browser page under test, of the bundle that page serves";
 export const ACCEPTED: Record<string, Accepted> = {
+  ".claude/skills/statechart/scripts/worker.ts": {
+    count: 1,
+    why: "the statechart skill's worker loading the view module the operator names on the command line",
+  },
   "scripts/certify-attended.ts": {
     count: 1,
     why: "loads the certification plan of the flow file the operator names on the command line",
@@ -54,6 +58,7 @@ export const BODY_READS: Record<string, Accepted> = {
     count: 2,
     why: "the example issuer reading its callers' requests (a JSON and a form body)",
   },
+  "examples/kernel/app.ts": { count: 1, why: EXAMPLE_PAGE },
   "examples/server.ts": {
     count: 4,
     why: "the example server relaying its own API's answers (two bodies, one stream) to the page it serves, and reading one of them",
