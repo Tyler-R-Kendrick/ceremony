@@ -59,8 +59,9 @@ VARIABLES
 
 db     == <<now, claim, lock, rec>>
 local  == <<pc, fence, clockRead, seen>>
-ghosts == <<epoch, fenceEpoch, nextWrite, staleFenceCommitted,
-            liveLeaseTakenOver, expiredFencePassed, staleRevisionWrote>>
+flags  == <<staleFenceCommitted, liveLeaseTakenOver, expiredFencePassed,
+            staleRevisionWrote>>
+ghosts == <<epoch, fenceEpoch, nextWrite, flags>>
 vars   == <<db, local, ghosts>>
 
 ----------------------------------------------------------------------------
@@ -179,12 +180,14 @@ ClaimUpsert(p) ==
                \* Rule 2 looks at the clock as it is now, not at `time`.
                /\ liveLeaseTakenOver' =
                       (liveLeaseTakenOver \/ (~free /\ claim.expires > now))
-               /\ UNCHANGED <<now, lock, rec, clockRead, seen, nextWrite,
+               /\ clockRead' = [clockRead EXCEPT ![p] = 0]
+               /\ UNCHANGED <<now, lock, rec, seen, nextWrite,
                               staleFenceCommitted, expiredFencePassed,
                               staleRevisionWrote>>
           ELSE \* no row returned: PersistenceConflict (index.ts:285)
                /\ pc' = [pc EXCEPT ![p] = "idle"]
-               /\ UNCHANGED <<db, fence, clockRead, seen, ghosts>>
+               /\ clockRead' = [clockRead EXCEPT ![p] = 0]
+               /\ UNCHANGED <<db, fence, seen, ghosts>>
 
 \* assertFence(): read the claim row and take its row lock, then compare it
 \* with the fence and the clock (index.ts:184-193).  It opens the fenced
@@ -210,7 +213,8 @@ AssertFence(p) ==
                \* transaction rolls back, the process stops using the fence
                /\ pc' = [pc EXCEPT ![p] = "idle"]
                /\ fence' = [fence EXCEPT ![p] = NoFence]
-               /\ UNCHANGED <<db, clockRead, seen, ghosts>>
+               /\ fenceEpoch' = [fenceEpoch EXCEPT ![p] = 0]
+               /\ UNCHANGED <<db, clockRead, seen, epoch, nextWrite, flags>>
 
 \* heartbeat(), after its assertFence: UPDATE ceremony_claims SET expires
 \* (index.ts:291-294), then COMMIT.  The UPDATE names the key only, not the
@@ -258,13 +262,15 @@ FencedCommit(p, write, release) ==
                /\ claim' = IF release THEN Cancelled ELSE claim
                /\ epoch' = IF release THEN epoch + 1 ELSE epoch
                /\ fence' = IF release THEN [fence EXCEPT ![p] = NoFence] ELSE fence
+               /\ fenceEpoch' = IF release THEN [fenceEpoch EXCEPT ![p] = 0]
+                                ELSE fenceEpoch
                /\ pc' = [pc EXCEPT ![p] = IF release THEN "idle" ELSE "working"]
                /\ lock' = Unlock(p)
                /\ staleFenceCommitted' =
                       (staleFenceCommitted \/ fenceEpoch[p] # epoch)
                /\ staleRevisionWrote' =
                       (staleRevisionWrote \/ (write # "nothing" /\ seen[p] # rec))
-               /\ UNCHANGED <<now, clockRead, fenceEpoch, liveLeaseTakenOver,
+               /\ UNCHANGED <<now, clockRead, liveLeaseTakenOver,
                               expiredFencePassed>>
           ELSE \* PersistenceConflict (index.ts:241, :253), then ROLLBACK
                \* (index.ts:358, :523): nothing is written, the lease stays
@@ -291,8 +297,10 @@ ProcessRestarts(p) ==
     /\ pc' = [pc EXCEPT ![p] = "idle"]
     /\ fence' = [fence EXCEPT ![p] = NoFence]
     /\ seen' = [seen EXCEPT ![p] = NoRecord]
+    /\ clockRead' = [clockRead EXCEPT ![p] = 0]
+    /\ fenceEpoch' = [fenceEpoch EXCEPT ![p] = 0]
     /\ lock' = Unlock(p)
-    /\ UNCHANGED <<now, claim, rec, clockRead, ghosts>>
+    /\ UNCHANGED <<now, claim, rec, epoch, nextWrite, flags>>
 
 \* Writers that hold no lease and read and write in one transaction, so they
 \* always carry the current revision.  They make what a process read stale.
