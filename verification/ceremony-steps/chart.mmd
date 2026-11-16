@@ -1,0 +1,71 @@
+---
+title: "Connecting a service: the screens you see and what moves them"
+---
+stateDiagram-v2
+  state "Legend" as legend {
+    lg0: Connecting
+    lg1: Anonymous access
+    lg2: Connected
+    lg3: Not connected
+    lg4: Breaks TryAgainStartsClean
+    lg5: Path to the TryAgainStartsClean bug
+  }
+  class lg0 blue
+  class lg1 purple
+  class lg2 teal
+  class lg3 tan
+  class lg4 breaks
+  class lg5 bugPath
+  state "Connecting" as s0 {
+    s1: Enter your key, password or code
+    s2: Start screen
+    s3: Approve with the code shown
+    s4: Sign in at the provider
+  }
+  state "Not connected" as s5 {
+    s6: Cancelled
+    s7: Something went wrong
+    s8: Expired
+  }
+  s9: You have anonymous access
+  s10: Connected
+  s11: Claiming it for your account
+  s12: The access you cancelled is still attached to the new attempt
+  [*] --> s1
+  [*] --> s2
+  s2 --> s2: you press start
+  s1 --> s10: the provider accepts what you entered
+  s2 --> s9: you start [anonymous access]
+  s2 --> s3: you start [with a device code]
+  s2 --> s4: you start [to sign in at the provider]
+  s9 --> s11: you choose to claim it
+  s9 --> s10: you finish
+  s9 --> s6: you cancel
+  s3 --> s10: you approve at the provider
+  s4 --> s10: the provider sends you back
+  s11 --> s9: you cancel or time runs out or the claim fails
+  s10 --> s11: you choose to claim it [if your access is still anonymous]
+  s6 --> s12: you try again [after cancelling anonymous access]
+  s12 --> s9: you start [anonymous access]
+  s11 --> s10: the provider confirms your claim
+  s0 --> s6: you cancel
+  s0 --> s8: time runs out
+  s0 --> s7: the provider refuses or fails
+  s5 --> s1: you try again
+  s5 --> s2: you try again
+  classDef breaks fill:#ffecee,stroke:#e72e3b,stroke-width:2.5px,color:#cd2834
+  class s1 blue
+  class s2 blue
+  class s2 bugPath
+  class s3 blue
+  class s4 blue
+  class s6 tan
+  class s6 bugPath
+  class s7 tan
+  class s8 tan
+  class s9 purple
+  class s9 bugPath
+  class s10 teal
+  class s11 purple
+  class s12 breaks
+  class s12 bugPath

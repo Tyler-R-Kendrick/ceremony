@@ -136,7 +136,7 @@ ClockTicks ==
 \* tx.get / tx.list in a transaction of their own, or early in a longer one
 \* (index.ts:204-222, :255-275).  The process keeps the revision it read and
 \* passes it to a later put/delete, as src/server/agent/workflow-api.ts does
-\* with row.revision (:31-39 read, :71 write).
+\* with row.revision (:32-39 read, :71 write).
 ReadRecord(p) ==
     /\ pc[p] \in {"idle", "working", "asserted"}
     /\ seen[p] # rec
@@ -233,7 +233,7 @@ HeartbeatExtends(p) ==
 \*   write   - tx.put (index.ts:223-243) or tx.delete (index.ts:244-254) with
 \*             the revision the process read, or nothing;
 \*   release - tx.cancel on the same key (index.ts:297-302), or not.
-\* workflow-api.ts:68-73 is put-or-nothing with release; a2h.ts:81-84 is put
+\* workflow-api.ts:68-73 is put-or-nothing with release; a2h.ts:80-84 is put
 \* without release; a2h.ts:65-68 is release alone.  An uncommitted write is
 \* not visible to anyone and holds its row, so the statements and the COMMIT
 \* are one step here.
@@ -305,11 +305,11 @@ ProcessRestarts(p) ==
 
 \* Writers that hold no lease and read and write in one transaction, so they
 \* always carry the current revision.  They make what a process read stale.
-\*   create  - tx.put(key, value, null), e.g. collections.ts:138
+\*   create  - tx.put(key, value, null), e.g. collections.ts:134
 \*   rewrite - rotateRecords: tx.list then tx.put(record.revision)
-\*             (index.ts:543-551, maintenance.ts:48-56)
+\*             (index.ts:543-551, maintenance.ts:47-56)
 \*   delete  - tx.get/list then tx.delete(record.revision)
-\*             (maintenance.ts:76-100, collections.ts:219-232, :250-268)
+\*             (maintenance.ts:71-100, collections.ts:214-232, :248-268)
 OtherWriterCreates ==
     /\ WithEnvironment
     /\ rec = NoRecord

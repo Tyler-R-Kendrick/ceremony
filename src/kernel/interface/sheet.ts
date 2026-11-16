@@ -70,24 +70,33 @@ export const CHARACTER = 0.62;
 /** Room a line must have to spare before the model trusts the text to fit on it. */
 const SPARE = 0.5;
 
-/** Lines a browser needs for `words` when `capacity` whole characters fit on a line. */
+/**
+ * Lines a browser needs for `words` when `capacity` whole characters fit on a
+ * line. It breaks at spaces and, as browsers do, after a hyphen or a slash
+ * inside a word; a piece longer than a line is broken wherever the line ends.
+ */
 export function wrappedLines(words: string, capacity: number): number {
   let lines = 1;
   let used = 0;
   for (const word of words.split(/\s+/).filter((part) => part.length > 0)) {
-    let rest = word.length;
-    if (used > 0 && used + 1 + rest > capacity) {
-      lines += 1;
-      used = 0;
-    }
-    if (used > 0) used += 1;
-    // A word longer than a line is broken wherever the line ends.
-    while (used + rest > capacity) {
-      rest -= capacity - used;
-      lines += 1;
-      used = 0;
-    }
-    used += rest;
+    const pieces = word.match(/[^-/]*[-/]+|[^-/]+/g) ?? [word];
+    pieces.forEach((piece, index) => {
+      // A space goes before a word, never before a later piece of one.
+      const gap = index === 0 && used > 0 ? 1 : 0;
+      let rest = piece.length;
+      if (used > 0 && used + gap + rest > capacity) {
+        lines += 1;
+        used = 0;
+      } else {
+        used += gap;
+      }
+      while (used + rest > capacity) {
+        rest -= capacity - used;
+        lines += 1;
+        used = 0;
+      }
+      used += rest;
+    });
   }
   return lines;
 }
@@ -203,13 +212,18 @@ export function sheetLayout(
 
   const control = t.max(t.constant(TARGET), t.affine(scale, 2.75 * BODY_FONT));
   for (const field of spec.fields ?? []) {
+    // The label wraps like any other text; the control sits under it.
+    const label = t.mul(
+      lines(field.label, BODY_FONT, content, smallestContent),
+      t.affine(scale, LINE * BODY_FONT),
+    );
     const box: BoxRefs = {
       x: pad,
       y: below(last, 2 * GAP),
       width: content,
       height: t.sum(
         [
-          [LINE * BODY_FONT, scale],
+          [1, label],
           [1, control],
         ],
         GAP / 2,

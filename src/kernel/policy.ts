@@ -121,10 +121,13 @@ function explainBlock(op: CompiledOperator, why: number): string {
  * The next thing to do.
  *
  * Unknown facts are assumed to hold while planning. If the cheapest plan under
- * that assumption leans on one of them, it is probed before anything is done;
- * if it leans on none, the plan is already the cheapest one for the real world
- * and its first step runs. So nothing is established that already holds, and
- * nothing is probed that could not change the plan.
+ * that assumption leans on one of them, a fact that would settle it is probed
+ * before anything is done (the one resting on most of what the plan leans on,
+ * so one look can settle several); if it leans on none, the plan is already
+ * the cheapest one for the real world and its first step runs. So no operator
+ * runs whose facts all already hold, and a probe is only made where the plan
+ * depends on its answer. An operator that establishes several facts does run
+ * when only some are missing.
  */
 export function decide(compiled: Compiled, mind: Mind): Command {
   if (mind.terminal !== null) return { kind: "fail", failure: mind.terminal };
@@ -268,7 +271,15 @@ export function absorb(
   if (observation.kind === "probe") {
     const bit = 1 << observation.fact;
     if (observation.result === "held") return withHeld(compiled, mind, bit);
-    if (observation.result === "absent") return withAbsent(compiled, mind, bit);
+    if (observation.result === "absent") {
+      // Finding a believed fact gone is a stale belief like any other, and is
+      // counted, so a world or a vault that keeps losing it ends the run.
+      return (mind.held & bit) !== 0
+        ? reportStale(compiled, mind, bit, (counted) =>
+            withAbsent(compiled, counted, bit),
+          )
+        : withAbsent(compiled, mind, bit);
+    }
     const probeFailures = mind.probeFailures + 1;
     const exhausted = probeFailures >= compiled.probeAttempts;
     return {

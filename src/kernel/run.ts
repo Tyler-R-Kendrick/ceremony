@@ -180,12 +180,21 @@ export interface InterfaceRequest {
   readonly shows: Readonly<Record<string, unknown>>;
 }
 
-export interface HumanAnswer {
+/**
+ * What came back for an open request. `action` is what the person chose: it
+ * has to be an action the interface offers, and anything else is ignored.
+ * `outcome` is what the host itself observed (a provider callback, a hand-off
+ * that expired) and is taken on the host's authority. `values`, one per
+ * established fact, always come from the host: what a page sends is a choice,
+ * never a value.
+ */
+export type HumanAnswer = {
   readonly requestId: string;
-  readonly outcome: string;
-  /** For an establishing outcome: one value per established fact. */
   readonly values?: Readonly<Record<string, unknown>>;
-}
+} & (
+  | { readonly action: string; readonly outcome?: never }
+  | { readonly outcome: string; readonly action?: never }
+);
 
 export type RunStatus =
   | { readonly status: "success"; readonly leftBehind: readonly string[] }
@@ -203,6 +212,28 @@ export interface RunDeps<F extends Facts, O extends Operators> {
   readonly vault: Vault;
 }
 
+/** A journal written for another declaration is refused, not misread. */
+export class JournalMismatch extends Error {
+  constructor(kind: string, name: string) {
+    super(
+      `the journal names ${kind} "${name}", which this ceremony does not declare`,
+    );
+    this.name = "JournalMismatch";
+  }
+}
+
+function factAt(compiled: Compiled, name: string): number {
+  const index = compiled.factIndex.get(name);
+  if (index === undefined) throw new JournalMismatch("fact", name);
+  return index;
+}
+
+function operatorNamed(compiled: Compiled, id: string): CompiledOperator {
+  const index = compiled.operatorIndex.get(id);
+  if (index === undefined) throw new JournalMismatch("operator", id);
+  return compiled.operators[index] as CompiledOperator;
+}
+
 function toObservation(
   compiled: Compiled,
   result: JournalResult,
@@ -210,28 +241,23 @@ function toObservation(
   if (result.kind === "probe") {
     return {
       kind: "probe",
-      fact: compiled.factIndex.get(result.fact) as number,
+      fact: factAt(compiled, result.fact),
       result: result.result,
     };
   }
   if (result.kind === "lost") {
-    return {
-      kind: "lost",
-      fact: compiled.factIndex.get(result.fact) as number,
-    };
+    return { kind: "lost", fact: factAt(compiled, result.fact) };
   }
   if (result.kind === "custody") {
     return {
       kind: "custody",
       facts: result.facts.reduce(
-        (mask, name) => mask | (1 << (compiled.factIndex.get(name) as number)),
+        (mask, name) => mask | (1 << factAt(compiled, name)),
         0,
       ),
     };
   }
-  const op = compiled.operators[
-    compiled.operatorIndex.get(result.operator) as number
-  ] as CompiledOperator;
+  const op = operatorNamed(compiled, result.operator);
   return {
     kind: "act",
     op: op.index,
@@ -251,12 +277,12 @@ export function replay(
     } else if (entry.work.kind === "probe") {
       mind = begin(mind, {
         kind: "probe",
-        fact: compiled.factIndex.get(entry.work.fact) as number,
+        fact: factAt(compiled, entry.work.fact),
       });
     } else {
       mind = begin(mind, {
         kind: "act",
-        op: compiled.operatorIndex.get(entry.work.operator) as number,
+        op: operatorNamed(compiled, entry.work.operator).index,
         attempt: entry.work.attempt,
       });
     }
@@ -320,25 +346,41 @@ export async function advance<F extends Facts, O extends Operators>(
   }
 
   /**
-   * Values are staged under the attempt before the result is journaled and
-   * promoted after it. The journal entry is the commit point: a crash on
-   * either side of it leaves enough to finish the job on the next call.
+   * Values are staged before the result is journaled and promoted after it.
+   * The journal entry is the commit point: a crash on either side of it
+   * leaves enough to finish the job on the next call. A stage belongs to one
+   * run and one journal position, and is only promoted when the journal
+   * committed the very outcome it was staged for; any other stage found
+   * there is someone else's and is dropped.
    */
   const stageKey = (op: CompiledOperator, opened: number): string =>
-    `#staged:${op.id}:${opened}`;
+    `#staged:${deps.runId}:${op.id}:${opened}`;
+
+  interface Staged {
+    readonly outcome: string;
+    readonly values: Readonly<Record<string, unknown>>;
+  }
+
+  const staged = async (
+    op: CompiledOperator,
+    opened: number,
+  ): Promise<Staged | undefined> =>
+    (await deps.vault.get(stageKey(op, opened))) as Staged | undefined;
 
   const promote = async (
     op: CompiledOperator,
     opened: number,
+    committed: string,
   ): Promise<void> => {
-    const staged = (await deps.vault.get(stageKey(op, opened))) as
-      { readonly values: Readonly<Record<string, unknown>> } | undefined;
-    if (staged === undefined) return;
-    for (const f of bits(op.establishes)) {
-      await deps.vault.put(factName(f), staged.values[factName(f)]);
-    }
-    for (const f of bits(op.consumes)) {
-      await deps.vault.delete(factName(f));
+    const stage = await staged(op, opened);
+    if (stage === undefined) return;
+    if (stage.outcome === committed) {
+      for (const f of bits(op.establishes)) {
+        await deps.vault.put(factName(f), stage.values[factName(f)]);
+      }
+      for (const f of bits(op.consumes)) {
+        await deps.vault.delete(factName(f));
+      }
     }
     await deps.vault.delete(stageKey(op, opened));
   };
@@ -364,7 +406,7 @@ export async function advance<F extends Facts, O extends Operators>(
       kind: "end",
       result: { kind: "act", operator: op.id, outcome: tag },
     });
-    await promote(op, opened);
+    await promote(op, opened, tag);
   };
 
   /**
@@ -405,7 +447,10 @@ export async function advance<F extends Facts, O extends Operators>(
       )[name];
       if (adapter === undefined) throw new Error(`no probe for "${name}"`);
       const seen = await adapter({ read: (other) => deps.vault.get(other) });
-      if (seen.held) {
+      if (seen.held && seen.value === undefined) {
+        // Holding a fact means holding its value; this is a broken answer.
+        result = "error";
+      } else if (seen.held) {
         await deps.vault.put(name, seen.value);
         result = "held";
       } else {
@@ -423,34 +468,40 @@ export async function advance<F extends Facts, O extends Operators>(
   /**
    * Believing a fact is not holding its value. Before anything reads values,
    * each one must be in the vault; a missing one is fetched by its probe or,
-   * where no probe exists, recorded as lost. False means beliefs changed.
+   * failing that, recorded as lost. False means beliefs changed. Every path
+   * that returns false spends a budget, so a vault that keeps dropping a
+   * value ends the run instead of looping it.
    */
   const inCustody = async (needed: readonly string[]): Promise<boolean> => {
     for (const name of needed) {
       if ((await deps.vault.get(name)) !== undefined) continue;
       const fact = compiled.factIndex.get(name) as number;
-      if ((compiled.observable & (1 << fact)) === 0) {
-        await write({ kind: "end", result: { kind: "lost", fact: name } });
-        return false;
+      if ((compiled.observable & (1 << fact)) !== 0) {
+        await probe(fact);
+        if ((await deps.vault.get(name)) !== undefined) continue;
+        if ((mind.held & (1 << fact)) === 0 || mind.terminal !== null) {
+          return false;
+        }
       }
-      await probe(fact);
-      if ((await deps.vault.get(name)) === undefined) return false;
+      await write({ kind: "end", result: { kind: "lost", fact: name } });
+      return false;
     }
     return true;
   };
 
   // A crash after the commit point and before promotion: finish promoting.
   const last = entries[entries.length - 1];
-  const opened = entries[entries.length - 2];
+  const before = entries[entries.length - 2];
   if (
     last?.kind === "end" &&
     last.result.kind === "act" &&
-    opened?.kind === "begin" &&
-    opened.work.kind === "act"
+    before?.kind === "begin" &&
+    before.work.kind === "act"
   ) {
     await promote(
-      operatorAt(compiled.operatorIndex.get(last.result.operator) as number),
+      operatorNamed(compiled, last.result.operator),
       entries.length - 2,
+      last.result.outcome,
     );
   }
 
@@ -468,28 +519,39 @@ export async function advance<F extends Facts, O extends Operators>(
     } else {
       const op = operatorAt(pending.op);
       const at = entries.length - 1;
-      const staged = (await deps.vault.get(stageKey(op, at))) as
-        { readonly outcome: string } | undefined;
-      if (staged !== undefined) {
+      const stage = await staged(op, at);
+      if (stage !== undefined) {
         // The work finished and the process died before saying so.
         await write({
           kind: "end",
-          result: { kind: "act", operator: op.id, outcome: staged.outcome },
+          result: { kind: "act", operator: op.id, outcome: stage.outcome },
         });
-        await promote(op, at);
+        await promote(op, at, stage.outcome);
       } else if (op.human) {
         const open = await request(op, pending.attempt, at);
         if (answer === undefined || answer.requestId !== open.requestId) {
           return { status: "awaiting", request: open };
         }
-        await settle(op, at, answer.outcome, answer.values);
+        let outcome = answer.outcome;
+        if (answer.action !== undefined) {
+          outcome = open.interface.actions.find(
+            (action) => action.id === answer.action,
+          )?.outcome;
+          // Not something this interface offers: the request stays open.
+          if (outcome === undefined)
+            return { status: "awaiting", request: open };
+        }
+        await settle(op, at, outcome as string, answer.values);
       } else {
         await settle(op, at, DEFECT_TAG, undefined);
       }
     }
   }
 
-  for (;;) {
+  // Every pass spends a budget or adds a held fact, so this never binds for
+  // a well-formed ceremony; it is a last line against a bug in that argument.
+  for (let pass = 0; ; pass += 1) {
+    if (pass > 10_000) throw new Error("the run did not settle");
     const command = decide(compiled, mind);
     if (command.kind === "succeed") {
       if (!(await inCustody(bits(compiled.goal).map(factName)))) continue;
@@ -541,18 +603,25 @@ export async function advance<F extends Facts, O extends Operators>(
       for (const required of declared.requires) {
         held[required] = await deps.vault.get(required);
       }
-      const successes = entries.filter(
+      // One key per establishment: it stays the same while a lost reply is
+      // retried, and changes once the attempt is settled either way, by the
+      // operator succeeding or by a probe finding its fact absent.
+      const settled = entries.filter(
         (entry) =>
           entry.kind === "end" &&
-          entry.result.kind === "act" &&
-          entry.result.operator === op.id &&
-          op.outcomes[op.outcomeIndex.get(entry.result.outcome) ?? -1]?.kind ===
-            "established",
+          ((entry.result.kind === "act" &&
+            entry.result.operator === op.id &&
+            op.outcomes[op.outcomeIndex.get(entry.result.outcome) ?? -1]
+              ?.kind === "established") ||
+            (entry.result.kind === "probe" &&
+              entry.result.result === "absent" &&
+              (op.establishes & (1 << factAt(compiled, entry.result.fact))) !==
+                0)),
       ).length;
       const returned = await adapter({
         values: held,
         attempt: command.attempt,
-        idempotencyKey: `${deps.runId}:${op.id}:${successes}`,
+        idempotencyKey: `${deps.runId}:${op.id}:${settled}`,
       });
       outcome = returned.outcome;
       values = returned.values;

@@ -39,6 +39,7 @@ interface OperatorShape {
   readonly idempotent: boolean;
   readonly cost: number;
   readonly attempts: number;
+  readonly vague: boolean;
   readonly extras: readonly ("retry" | "unsure" | "blocked" | "terminal")[];
 }
 
@@ -70,11 +71,15 @@ function build(
   goal: readonly number[],
 ): CeremonyDecl {
   const factDecls: Record<string, FactDecl> = {};
-  // What can be observed rests only on what can be observed.
+  // A goal has to be observable, and what can be observed rests only on what
+  // can be observed: so everything a goal rests on is observable too.
+  const underGoal = new Set(closure(facts, goal));
   const visible: boolean[] = [];
   facts.forEach((shape, index) => {
     visible[index] =
-      shape.observable && shape.requires.every((dep) => visible[dep] === true);
+      underGoal.has(index) ||
+      (shape.observable &&
+        shape.requires.every((dep) => visible[dep] === true));
   });
   facts.forEach((shape, index) => {
     factDecls[factName(index)] = {
@@ -129,16 +134,36 @@ function build(
             }
           : { effect: { kind: extra }, description: extra };
     }
-    for (const f of needed) {
-      if (
+    const fallible = needed.filter(
+      (f) =>
         consumes.includes(f) ||
-        closure(facts, [f]).some((g) => (facts[g] as FactShape).volatile)
-      ) {
-        outcomes[`lost-${factName(f)}`] = {
-          effect: { kind: "invalidates", facts: [factName(f)] },
-          description: "stale",
-        };
-      }
+        closure(facts, [f]).some((g) => (facts[g] as FactShape).volatile),
+    );
+    for (const f of fallible) {
+      outcomes[`lost-${factName(f)}`] = {
+        effect: { kind: "invalidates", facts: [factName(f)] },
+        description: "stale",
+      };
+    }
+    // Sometimes an operator can only say "one of these two is gone". That is
+    // allowed when a probe can check both and everything resting on them.
+    const [one, other] = fallible;
+    const checkable = (f: number): boolean =>
+      dependents(facts, f).every((g) => visible[g] === true);
+    if (
+      shape.vague &&
+      one !== undefined &&
+      other !== undefined &&
+      checkable(one) &&
+      checkable(other)
+    ) {
+      outcomes["lost-either"] = {
+        effect: {
+          kind: "invalidates",
+          facts: [factName(one), factName(other)],
+        },
+        description: "stale",
+      };
     }
     operatorDecls[`op${index}`] = {
       description: `op${index}`,
@@ -203,6 +228,7 @@ export const wellFormedDecl: fc.Arbitrary<CeremonyDecl> = fc
         idempotent: fc.boolean(),
         cost: fc.integer({ min: 1, max: 5 }),
         attempts: fc.integer({ min: 1, max: 3 }),
+        vague: fc.boolean(),
         extras: fc.array(
           fc.constantFrom(
             "retry" as const,

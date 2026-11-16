@@ -46,7 +46,8 @@ type Build =
       readonly b: number;
     };
 
-const weight = fc.integer({ min: -8, max: 8 }).map((n) => n / 4);
+// Arbitrary doubles, so sums and products round.
+const weight = fc.double({ min: -2, max: 2, noNaN: true });
 const pick = fc.nat({ max: 1_000 });
 
 /** Random straight-line programs over two inputs, built from every operation. */
@@ -113,16 +114,17 @@ function build(steps: readonly Build[]): { tape: Tape; out: Ref } {
   return { tape, out: refs[refs.length - 1] as Ref };
 }
 
-const coordinate = fc.integer({ min: -64, max: 64 }).map((n) => n / 8);
+const coordinate = fc.double({ min: -8, max: 8, noNaN: true });
 const box = fc
   .tuple(coordinate, coordinate, coordinate, coordinate)
   .map(([a, b, c, d]) => ({
     x: { lo: Math.min(a, b), hi: Math.max(a, b) },
     y: { lo: Math.min(c, d), hi: Math.max(c, d) },
   }));
-const share = fc.integer({ min: 0, max: 16 }).map((n) => n / 16);
+const share = fc.double({ min: 0, max: 1, noNaN: true });
+// Clamped: `lo + (hi - lo) * part` can round to just outside the range.
 const within = (side: Interval, part: number): number =>
-  side.lo + (side.hi - side.lo) * part;
+  Math.min(side.hi, Math.max(side.lo, side.lo + (side.hi - side.lo) * part));
 
 test("the bound of a range contains the exact value at every point of it, at every node", () => {
   fc.assert(

@@ -17,6 +17,7 @@ import {
   exact,
   interval,
   nextDown,
+  nextUp,
   point,
   slopes,
   type Interval,
@@ -62,6 +63,13 @@ export function prove(
   options: ProveOptions = {},
 ): Proof {
   const wanted = typeof quantities === "number" ? [quantities] : quantities;
+  for (const [name, [lo, hi]] of Object.entries(domain)) {
+    if (!Number.isFinite(lo) || !Number.isFinite(hi) || lo > hi) {
+      throw new RangeError(
+        `the range of "${name}" must be finite and in order, got [${lo}, ${hi}]`,
+      );
+    }
+  }
   const maxBoxes = options.maxBoxes ?? 200_000;
   const resolution = options.resolution ?? 1e-7;
   const names = Object.keys(domain);
@@ -109,7 +117,10 @@ export function prove(
         const side = box[name] as Interval;
         const at = (centre[name] as Interval).lo;
         const g = (across[quantity] as Slope).gradient[index] as Interval;
-        const reach = interval.mul(g, { lo: side.lo - at, hi: side.hi - at });
+        const reach = interval.mul(g, {
+          lo: nextDown(side.lo - at),
+          hi: nextUp(side.hi - at),
+        });
         lower = nextDown(lower + reach.lo);
       });
       return lower;
@@ -143,8 +154,9 @@ export function prove(
       }
     }
     if (vacuous) continue;
+    // "Not known to be zero or more": a bound that is not a number is open too.
     let open = wanted.findIndex(
-      (quantity) => (bounds[quantity] as Interval).lo < 0,
+      (quantity) => !((bounds[quantity] as Interval).lo >= 0),
     );
     if (open < 0) continue;
 
@@ -157,8 +169,12 @@ export function prove(
       const lower = centred(box, assumed);
       open = wanted.findIndex(
         (quantity, index) =>
-          Math.max((bounds[quantity] as Interval).lo, lower[index] as number) <
-          0,
+          !(
+            Math.max(
+              (bounds[quantity] as Interval).lo,
+              lower[index] as number,
+            ) >= 0
+          ),
       );
       if (open < 0) continue;
     }
@@ -180,7 +196,7 @@ export function prove(
     for (const at of corners) {
       const values = run(tape, exact, at);
       const broken = wanted.findIndex(
-        (quantity) => (values[quantity] as number) < 0,
+        (quantity) => !((values[quantity] as number) >= 0),
       );
       if (broken >= 0) {
         return {

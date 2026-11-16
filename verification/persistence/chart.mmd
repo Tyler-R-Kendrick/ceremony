@@ -1,0 +1,47 @@
+---
+title: "A lease on one key"
+---
+stateDiagram-v2
+  state "Legend" as legend {
+    lg0: key free
+    lg1: lease held
+    lg2: lease ran out
+    lg3: old holder at work
+  }
+  class lg0 tan
+  class lg1 teal
+  class lg2 orange
+  class lg3 purple
+  s0: Key free
+  s1: Lease held
+  s2: Lease held, holder's transaction open
+  s3: Lease ran out, holder not told yet
+  s4: Old holder still at work on its old fence
+  s5: Lease ran out, nobody holds the key
+  s6: Lease ran out, holder's transaction still open
+  [*] --> s0
+  s0 --> s1: a worker claims the key
+  s0 --> s3: a worker's slow claim lands after its time ran out
+  s1 --> s2: the holder's fence is accepted
+  s1 --> s3: the lease's time runs out
+  s1 --> s4: someone cancels the key
+  s2 --> s1: the holder's heartbeat commits
+  s2 --> s0: the holder commits and releases the key
+  s2 --> s6: the lease's time runs out
+  s3 --> s5: the holder's fence is refused, its lease ran out
+  s3 --> s4: someone cancels the key or another worker takes the key over
+  s4 --> s0: the old holder's fence is refused [key is free]
+  s5 --> s0: someone cancels the key
+  s6 --> s1: the holder's heartbeat commits
+  s6 --> s0: the holder commits and releases the key
+  s5 --> s1: a worker claims the key
+  s4 --> s1: the old holder's fence is refused [newer lease is held]
+  s4 --> s3: the old holder's fence is refused [newer lease ran out, its holder not told yet]
+  s4 --> s5: the old holder's fence is refused [newer lease ran out, nobody holds the key]
+  class s0 tan
+  class s1 teal
+  class s2 teal
+  class s3 orange
+  class s4 purple
+  class s5 orange
+  class s6 orange

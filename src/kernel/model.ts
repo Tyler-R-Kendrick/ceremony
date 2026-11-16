@@ -251,7 +251,8 @@ function successors(
       fault: false,
       config: {
         ...config,
-        stale: config.stale & ~(1 << f),
+        // Seeing a fact gone ends the excuse for believing what rests on it.
+        stale: config.stale & ~(holds ? 1 << f : (compiled.above[f] as number)),
         mind: ctl.absorb(compiled, config.mind, {
           kind: "probe",
           fact: f,
@@ -357,7 +358,11 @@ function cooperativeSuccessor(
       fault: false,
       config: {
         ...config,
-        stale: config.stale & ~(1 << command.fact),
+        stale:
+          config.stale &
+          ~(holds
+            ? 1 << command.fact
+            : (compiled.above[command.fact] as number)),
         mind: ctl.absorb(compiled, config.mind, {
           kind: "probe",
           fact: command.fact,

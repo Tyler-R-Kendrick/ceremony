@@ -116,8 +116,9 @@ Scope, stated plainly:
   property is stated against what probes can find, net of single-use facts.
 - **Lint is part of the proof.** `validate` refuses declarations the
   properties do not hold for. `stale-precondition`, `observable-support`,
-  `single-use` and `consumed-detectable` each came out of a counterexample the
-  property tests produced; the rules are listed below.
+  `single-use`, `consumed-detectable`, `ambiguous-invalidation` and the bound
+  on the stale budget each came out of a counterexample; the rules are listed
+  below.
 
 Property tests carry the claims past the flows that happen to be declared:
 
@@ -157,15 +158,61 @@ found by a property, not by inspection.
    identified by where they were opened in the journal.
 6. **The layout proof assumed the wrong browser.** See below.
 
+## What an independent review found
+
+After the above, a reviewer with no part in the design was asked to break the
+claims with running code. It confirmed twelve findings; none was in a declared
+flow, several broke general claims. All are fixed or stated as limits here,
+and each fix has a regression test in `tests/kernel/review.test.ts`.
+
+| Finding                                                                                          | Now                                                                                               |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| An invalidation naming two facts made the controller forget a third that still held              | Refused by lint unless a probe can check everything resting on the named facts                    |
+| One removal could exhaust the stale-report budget on a long chain                                | The budget must exceed the number of facts; the default scales with them                          |
+| Staged values were keyed without the run and promoted whatever was committed                     | Keyed by run and journal position; promoted only for the outcome the journal committed            |
+| The interpreter could loop on a probe that says held with no value, or a vault that drops values | Both spend a budget and end the run; the loop has a hard ceiling                                  |
+| A human answer could name any declared outcome                                                   | A person's choice must be an action the interface offers; other outcomes are the host's to report |
+| The checker excused any false belief about a fact the environment had ever removed               | Seeing a fact gone ends the excuse for what rests on it; a controller that ignores it is caught   |
+| `no-duplicate-effect` had no failing-controller test                                             | It has one                                                                                        |
+| The interval reading of a maximum did not bound what the renderer computed                       | The renderer takes the operand itself; tests use arbitrary doubles                                |
+| The prover took a bound that is not a number as non-negative                                     | Non-finite ranges are refused and such a bound is open                                            |
+| Field labels were not wrapped, so a proved layout overflowed at 320 px and doubled text          | Labels are laid out like other text                                                               |
+| Text breaks after a hyphen or slash before mid-word; the model did not                           | It does                                                                                           |
+| The idempotency key did not change after a settled attempt                                       | It changes when the operator succeeds or a probe finds its fact absent                            |
+
+It tried and failed to break the planner's optimality (4,300 declarations
+against the independent search), the checked properties with single-fact
+invalidations (6,500 declarations), the interpreter under scripted crashes
+(63,000 runs) and interval arithmetic without hints (40,000 programs).
+
+What it found that stays a limit:
+
+- **One caller at a time.** A second `advance` while a machine step is in
+  flight reads it as a crash and may run the step again. The journal refuses
+  the loser's write; it does not stop the loser's effect. A host must serialize
+  calls for one run. The verified lease in `src/server/persistence` is the
+  obvious way.
+- **A write that lands late.** In the model a lost reply's effect happens at
+  once or never. A provider that applies a timed-out request after the retry
+  can still leave two.
+- **Values come from the host.** The kernel checks that an establishing answer
+  carries a value for each fact, not what the value is.
+- **Most layout rules are true by construction.** Gutters, clearance and
+  "starts below" hold because the layout is built that way; the proof's real
+  content is the breakpoint arithmetic. The rules are still worth proving: they
+  are what a change to the layout would break.
+- **What an interface shows is not laid out.** `shows` values, the only content
+  whose length is not known in advance, are neither measured nor rendered yet.
+
 ## Lint rules
 
 `support-cycle`, `observable-support` (a fact a probe can see cannot rest on
-one it cannot), `discoverable-observable`, `stale-precondition`,
-`consumed-detectable`, `single-use` (a single-use fact is an input to exactly
-one step), `ambiguous-invalidation`, `invalidates-required`,
-`operator-success`, `interface-required`, `interface-outcome`,
-`secret-exposure`, `interface-shows`, `goal`, `bounds`. Warnings:
-`repeatable-goal`, `given-fact`.
+one it cannot), `discoverable-observable`, `goal-observable`,
+`given-observable`, `stale-precondition`, `consumed-detectable`, `single-use`
+(a single-use fact is an input to exactly one step), `ambiguous-invalidation`,
+`invalidates-required`, `operator-success`, `interface-required`,
+`interface-outcome`, `secret-exposure`, `interface-shows`, `goal`, `bounds`.
+Warning: `given-fact`.
 
 ## Interfaces: the calculus
 

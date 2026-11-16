@@ -476,13 +476,17 @@ function compile(decl: CeremonyDecl, issues: Issue[]): Compiled | null {
     allOperators:
       operatorIds.length === 0 ? 0 : (2 ** operatorIds.length - 1) | 0,
     probeAttempts: decl.probeAttempts ?? DEFAULT_PROBE_ATTEMPTS,
-    staleReports: decl.staleReports ?? DEFAULT_STALE_REPORTS,
+    staleReports:
+      decl.staleReports ??
+      Math.max(DEFAULT_STALE_REPORTS, 2 * factNames.length + 2),
   };
 }
 
 /**
- * Static well-formedness. Each rule exists because the model checker can show
- * a concrete bad run when the rule is dropped; see tests/kernel/lint.test.ts.
+ * Static well-formedness. The property tests claim that a declaration these
+ * rules accept passes every checked property; several rules came out of a
+ * counterexample to that claim. tests/kernel/github-app.test.ts breaks each
+ * rule in turn.
  */
 export function validate(decl: CeremonyDecl): {
   readonly issues: readonly Issue[];
@@ -512,8 +516,18 @@ export function validate(decl: CeremonyDecl): {
       "probeAttempts must be a positive integer",
     );
   }
-  if (!Number.isInteger(compiled.staleReports) || compiled.staleReports < 1) {
-    push("error", "bounds", decl.id, "staleReports must be a positive integer");
+  // One removal can surface as one stale report per fact resting on it, so a
+  // smaller budget could end a run that only needed to re-establish them.
+  if (
+    !Number.isInteger(compiled.staleReports) ||
+    compiled.staleReports <= compiled.factNames.length
+  ) {
+    push(
+      "error",
+      "bounds",
+      decl.id,
+      `staleReports must be an integer above the number of facts (${compiled.factNames.length})`,
+    );
   }
 
   for (const op of compiled.operators) {
@@ -649,15 +663,22 @@ export function validate(decl: CeremonyDecl): {
           `outcome "${outcome.tag}" invalidates nothing`,
         );
       }
+      // Named together, each is only suspected. A probe has to be able to
+      // clear every one of them and everything resting on them, or a fact
+      // that still holds is forgotten and made again.
+      let suspectedWith = 0;
+      for (const f of bits(outcome.facts)) {
+        suspectedWith |= compiled.above[f] as number;
+      }
       if (
         bits(outcome.facts).length > 1 &&
-        (outcome.facts & ~compiled.observable) !== 0
+        (suspectedWith & ~compiled.observable) !== 0
       ) {
         push(
           "error",
           "ambiguous-invalidation",
           subject,
-          `outcome "${outcome.tag}" names several facts, and one of them no probe can check; the controller could not tell which is really gone`,
+          `outcome "${outcome.tag}" names several facts, and one of them or something resting on them no probe can check; the controller could not tell which is really gone`,
         );
       }
       for (const f of bits(outcome.facts & ~op.requires)) {
@@ -774,13 +795,26 @@ export function validate(decl: CeremonyDecl): {
       );
     }
   }
+  // Success has to be something a probe can confirm: a goal held only as
+  // custody would be reported as done long after the world took it away.
   for (const f of bits(compiled.goal & ~compiled.observable)) {
     push(
-      "warning",
-      "repeatable-goal",
+      "error",
+      "goal-observable",
       `fact ${name(f)}`,
-      "goal fact is not observable, so a second run cannot tell it is already done",
+      "a goal fact must be observable, or a run could report success on a belief nothing can check",
     );
+  }
+  for (let f = 0; f < compiled.factNames.length; f += 1) {
+    const declared = decl.facts[name(f)] as FactDecl;
+    if (declared.given && !declared.observable) {
+      push(
+        "error",
+        "given-observable",
+        `fact ${name(f)}`,
+        "host configuration must be observable, or the controller could neither find it nor notice it gone",
+      );
+    }
   }
   for (let f = 0; f < compiled.factNames.length; f += 1) {
     const producible = compiled.operators.some(
@@ -865,6 +899,7 @@ export function compose<
       other.volatile === declared.volatile &&
       other.observable === declared.observable &&
       other.discoverable === declared.discoverable &&
+      other.given === declared.given &&
       other.secret === declared.secret &&
       other.requires.length === declared.requires.length &&
       other.requires.every((item) => declared.requires.includes(item));
@@ -892,6 +927,15 @@ export function compose<
     a.probeAttempts ?? DEFAULT_PROBE_ATTEMPTS,
     b.probeAttempts ?? DEFAULT_PROBE_ATTEMPTS,
   );
+  const stale =
+    a.staleReports === undefined && b.staleReports === undefined
+      ? {}
+      : {
+          staleReports: Math.max(
+            a.staleReports ?? DEFAULT_STALE_REPORTS,
+            b.staleReports ?? DEFAULT_STALE_REPORTS,
+          ),
+        };
   const merged = {
     id: spec.id,
     title: spec.title,
@@ -899,10 +943,7 @@ export function compose<
     operators: { ...a.operators, ...b.operators },
     goal: spec.goal,
     probeAttempts,
-    staleReports: Math.max(
-      a.staleReports ?? DEFAULT_STALE_REPORTS,
-      b.staleReports ?? DEFAULT_STALE_REPORTS,
-    ),
+    ...stale,
   };
   return defineCeremony(merged as never) as unknown as Ceremony<
     FA & FB,

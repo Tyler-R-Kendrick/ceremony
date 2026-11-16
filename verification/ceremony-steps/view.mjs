@@ -7,8 +7,18 @@ const anonymousKept = (v) => v.own === "anonymous";
 // A result on screen that the adapter serving this attempt never obtained.
 const leftOver = (v) => v.own !== "none" && !v.holds;
 
+// States that only a broken rule reaches. Each gets its own label, so the chart shows which rule breaks where.
+const broken = (v) => {
+  if (v.endMoved.by !== "none") return "A finished screen was changed without you";
+  if (v.staleAccepted) return "A press from an out-of-date screen was accepted";
+  if (v.step === "complete" && v.own === "none") return "Shown as connected with nothing behind it";
+  if (leftOver(v)) return "The access you cancelled is still attached to the new attempt";
+  return undefined;
+};
+
 export const state = (v) => {
-  if (leftOver(v)) return "The access you cancelled is back on screen";
+  const wrong = broken(v);
+  if (wrong) return wrong;
   switch (v.step) {
     case "intro":
       return ["Connecting", "Start screen"];
@@ -55,7 +65,8 @@ export const step = (action, from, to) => {
     case "SubmitReturnsWaiting":
       return "the provider asks you to approve the claim";
     case "Callback":
-      return to.step === "error" ? "the provider refuses or fails" : "the provider sends you back";
+      // Without state to match it, the adapter refuses the callback at once.
+      return to.flight === "callback" ? "the provider sends you back" : "a callback arrives that nothing is waiting for";
     case "CallbackReturns":
       return "the provider sends you back";
     case "ReadPolls":
@@ -99,7 +110,7 @@ export const step = (action, from, to) => {
 };
 
 export const group = (v) => {
-  if (leftOver(v)) return undefined;
+  if (broken(v)) return undefined;
   if (v.step === "complete") return "Connected";
   if (v.own === "anonymous" && v.step !== "cancelled") return "Anonymous access";
   if (["cancelled", "expired", "error"].includes(v.step)) return "Not connected";

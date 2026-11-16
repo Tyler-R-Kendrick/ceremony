@@ -65,9 +65,6 @@ test("a finished ceremony run again does nothing but look", () => {
   fc.assert(
     fc.property(wellFormedDecl, (decl) => {
       const built = ceremony(decl);
-      fc.pre(
-        !built.warnings.some((warning) => warning.rule === "repeatable-goal"),
-      );
       for (const world of startingWorlds(built.compiled)) {
         const first = cooperate(built, names(built.compiled, world));
         if (first.status !== "success") continue;

@@ -22,8 +22,10 @@ if [ -z "$jar" ]; then
     mv "$jar.part" "$jar"
   fi
 fi
+# TLC unpacks its standard modules into Java's temp folder, so each run gets
+# its own: two runs at once would otherwise trip over each other.
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 cd "$here/$area"
-exec "${JAVA:-java}" -XX:+UseParallelGC -cp "$jar" tlc2.TLC \
-  -metadir "$work" -workers 1 -config "$config.cfg" "$spec.tla"
+"${JAVA:-java}" -XX:+UseParallelGC "-Djava.io.tmpdir=$work" -cp "$jar" tlc2.TLC \
+  -metadir "$work/states" -workers 1 -config "$config.cfg" "$spec.tla"

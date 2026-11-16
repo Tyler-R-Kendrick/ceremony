@@ -172,7 +172,12 @@ function answerFor(
       },
     };
   }
-  return { requestId: page.requestId, outcome, ...(values ? { values } : {}) };
+  // The page only ever names an action; the kernel accepts it if offered.
+  return {
+    requestId: page.requestId,
+    action: action.id,
+    ...(values ? { values } : {}),
+  };
 }
 
 async function step(page: PageAnswer): Promise<unknown> {

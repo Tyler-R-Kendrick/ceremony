@@ -1,8 +1,9 @@
 #!/bin/sh
 # Run every check of the protected-command model and compare each result with
-# what is expected today. Exit 0 only when every row matches.
+# what is expected today, and run conformance.test.ts on the real code.
+# Exit 0 only when every row matches.
 #   verification/commands/check.sh
-# README.md in this folder says what each config is and what a mismatch means.
+# README.md in this folder says what each row is and what a mismatch means.
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 area=$(basename "$here")
@@ -21,20 +22,35 @@ FindingReopenedRepeat:NeverBlindRepeat:finding 4 with finding 1 guarded
 BrokenTakeoverReruns:OneCallPerCommand:broken variant, must be caught
 BrokenHandlerBeforeIntent:EveryCallHasIntent:broken variant, must be caught
 BrokenNoAssertFence:SupersededWorkerNeverCommits:broken variant, must be caught
+Commands:Deadlock:code as written, every rule at once, first break found
+Lifecycle:Deadlock:the chart config, first break found
 '
 
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 
-echo "$rows" | while IFS=: read -r config expected what; do
-  [ -n "$config" ] || continue
-  "$tlc" "$area" Commands "$config" >"$out/$config.out" 2>&1 &
+lines=$(echo "$rows" | tr ' ' '_')
+
+# The runs are independent, so they go in parallel. Each JVM gets its own
+# temp folder: TLC unpacks its standard modules there, and two runs that
+# share one can delete each other's copy.
+for line in $lines; do
+  config=${line%%:*}
+  mkdir "$out/$config.tmp"
+  JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djava.io.tmpdir=$out/$config.tmp" \
+    "$tlc" "$area" Commands "$config" >"$out/$config.out" 2>&1 &
 done
+(
+  cd "$here/../.." &&
+    node --no-experimental-webstorage --import tsx --test \
+      "verification/$area/conformance.test.ts" >"$out/conformance.out" 2>&1
+  echo "$?" >"$out/conformance.status"
+) &
 wait
 
 status=0
 printf '%-26s %-29s %-29s %s\n' CONFIG EXPECTED GOT ''
-for line in $(echo "$rows" | tr ' ' '_'); do
+for line in $lines; do
   config=${line%%:*}
   rest=${line#*:}
   expected=${rest%%:*}
@@ -61,10 +77,24 @@ for line in $(echo "$rows" | tr ' ' '_'); do
   fi
 done
 
-if [ "$status" -eq 0 ]; then
-  echo "All rows match. The four findings are still present in the code as modelled."
+if [ "$(cat "$out/conformance.status" 2>/dev/null)" = 0 ]; then
+  got=pass
+  mark="ok        the model's facts and findings on the real code"
 else
-  echo "At least one row does not match. For the steps of a row, run:"
+  got=FAIL
+  mark="MISMATCH  the model's facts and findings on the real code"
+  status=1
+fi
+printf '%-26s %-29s %-29s %s\n' conformance.test.ts pass "$got" "$mark"
+if [ "$got" = FAIL ]; then
+  grep -E '^not ok|^# fail|message:|expected:|actual:' "$out/conformance.out" |
+    sed 's/^/    | /' | head -n 30
+fi
+
+if [ "$status" -eq 0 ]; then
+  echo "All rows match. The four findings are still present in the code."
+else
+  echo "At least one row does not match. For the steps of a model row, run:"
   echo "  verification/tlc.sh $area Commands <CONFIG>"
 fi
 exit "$status"

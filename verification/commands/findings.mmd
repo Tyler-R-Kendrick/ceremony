@@ -1,0 +1,61 @@
+---
+title: "One command for one step of a run"
+---
+stateDiagram-v2
+  state "Legend" as legend {
+    lg0: Breaks CompleteStaysVerified or NeverBlindRepeat or NoDeadlock or UncertainStaysBlocked
+    lg1: Path to the CompleteStaysVerified or NeverBlindRepeat or NoDeadlock or UncertainStaysBlocked bug
+  }
+  class lg0 breaks
+  class lg1 bugPath
+  s0: first: Not sent / second: Not sent / step not started
+  s1: first: Admitted: intent saved, handler not called / second: Not sent / step not started
+  s2: first: On record as running, no worker left / second: Not sent / step not started
+  s3: first: Result in hand, not recorded, handler was called / second: Not sent / step not started
+  s4: first: Worker still going, its lease gone / second: Not sent / step not started
+  s5: first: Stuck: on record as running, run cancelled / second: Not sent / step not started
+  s6: first: Worker still going, its lease gone, handler was called / second: Not sent / step not started
+  s7: first: Worker still going, its lease gone / second: Admitted: intent saved, handler not called / step not started
+  s8: first: Recorded uncertain by its worker / second: Not sent / step uncertain
+  s9: first: Worker still going, its lease gone, handler was called / second: Admitted: intent saved, handler not called / step not started
+  s10: first: Worker still going, its lease gone / second: Result in hand, not recorded, handler was called / step not started
+  s11: first: Worker still going, its lease gone, handler was called / second: Result in hand, not recorded, handler was called / step not started
+  s12: first: Worker still going, its lease gone / second: Recorded complete / step complete and verified
+  s13: first: Uncertain, but the step is open again / second: Not sent / step failed, open to a new command
+  s14: first: Marked uncertain, reconciliation queued / second: Recorded complete, but the step no longer is / step uncertain
+  [*] --> s0
+  s0 --> s1: a caller sends the command (first)
+  s1 --> s2: the worker dies (first)
+  s1 --> s3: the handler is called and returns (first)
+  s1 --> s4: the lease runs out
+  s2 --> s5: the run is cancelled
+  s3 --> s6: the lease runs out
+  s3 --> s8: the result is recorded as uncertain (first)
+  s4 --> s7: a caller sends the command (second)
+  s6 --> s9: a caller sends the command (second)
+  s7 --> s10: the handler is called and returns (second)
+  s8 --> s8: revalidation takes the lease
+  s9 --> s11: the handler is called and returns (second)
+  s10 --> s12: the result is recorded as complete (second)
+  s8 --> s13: revalidation rejects an earlier step
+  s12 --> s14: the same id is sent again: marked uncertain (first)
+  classDef breaks fill:#ffecee,stroke:#e72e3b,stroke-width:2.5px,color:#cd2834
+  class s0 bugPath
+  class s1 bugPath
+  class s2 bugPath
+  class s3 bugPath
+  class s4 bugPath
+  class s5 breaks
+  class s5 bugPath
+  class s6 bugPath
+  class s7 bugPath
+  class s8 bugPath
+  class s9 bugPath
+  class s10 bugPath
+  class s11 breaks
+  class s11 bugPath
+  class s12 bugPath
+  class s13 breaks
+  class s13 bugPath
+  class s14 breaks
+  class s14 bugPath

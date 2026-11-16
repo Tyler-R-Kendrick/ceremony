@@ -40,8 +40,8 @@ test("the browser properties allow exactly the endings the model checker finds",
           : ending.failure.kind,
     ),
   );
-  // "unstable" needs a probe and an operator to disagree, which the model's
-  // truthful world never does; the interpreter can still end that way.
+  // "unstable" needs more stale reports than this flow's budget, which the
+  // bounds used here do not reach; the interpreter can still end that way.
   found.add("unstable");
   assert.deepEqual([...found].sort(), [...model.endings].sort());
 });

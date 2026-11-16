@@ -19,6 +19,19 @@ export const exact: Algebra<number> = {
   mul: (a, b) => a * b,
   relu: (a) => (a > 0 ? a : 0),
   step: (a) => (a >= 0 ? 1 : 0),
+  // A maximum built from a ReLU rounds: `b + relu(a - b)` is not exactly
+  // `a`. The renderer takes the operand itself, which is what the node means
+  // and what the interval reading bounds.
+  refine: (value, hint, at) => {
+    if (hint.kind === "blend") {
+      const gate = at(hint.gate);
+      if (gate === 1) return at(hint.then);
+      return gate === 0 ? at(hint.otherwise) : value;
+    }
+    return hint.kind === "max"
+      ? Math.max(at(hint.a), at(hint.b))
+      : Math.min(at(hint.a), at(hint.b));
+  },
 };
 
 /** Every kink smoothed; `sharpness` goes to infinity as the layout hardens. */
@@ -73,6 +86,17 @@ export function dual(size: number): Algebra<Dual> & {
     }),
     relu: (a) => (a.value > 0 ? a : { value: 0, gradient: zero() }),
     step: (a) => ({ value: a.value >= 0 ? 1 : 0, gradient: zero() }),
+    refine: (value, hint, at) => {
+      if (hint.kind === "blend") {
+        const gate = at(hint.gate).value;
+        if (gate === 1) return at(hint.then);
+        return gate === 0 ? at(hint.otherwise) : value;
+      }
+      const a = at(hint.a);
+      const b = at(hint.b);
+      if (hint.kind === "max") return a.value >= b.value ? a : b;
+      return a.value <= b.value ? a : b;
+    },
   };
 }
 
