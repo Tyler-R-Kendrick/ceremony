@@ -272,6 +272,64 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test --project=chromium tests/browser/connection-plan.spec.ts tests/browser/ceremony.spec.ts
+  kernel:
+    # The kernel's property tests at 1000 runs per property; without
+    # FUZZ_RUNS they use 200.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run test:kernel
+        env:
+          FUZZ_RUNS: "1000"
+  models:
+    # The TLA+ verifications: each area's check.sh compares every config's
+    # result with its expected row and runs that area's conformance test, and
+    # the kernel flow model must pass. The TLC jar is cached under the key of
+    # verification/tlc.sh, which pins its version and sha256, so a new pin
+    # fetches a new jar and tlc.sh checks its hash.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ceremony-tla
+          key: tla2tools-${{ hashFiles('verification/tlc.sh') }}
+      - run: npm ci
+      - run: npm run verify:models
+  bombadil:
+    # Bombadil explores the kernel example in headless Chromium for 90 seconds
+    # and fails on the first violated property in examples/kernel/properties.ts.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:bombadil -- 90s
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bombadil
+          path: artifacts/bombadil/
   mutation:
     name: mutation (${{ matrix.target }})
     runs-on: ubuntu-24.04
