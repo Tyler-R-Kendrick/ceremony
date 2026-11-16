@@ -196,7 +196,7 @@ export function operator<
   readonly attempts?: number;
   readonly outcomes: Out;
   readonly interface?: InterfaceSpec<keyof Out & string>;
-}): OperatorDecl<Est, Req, Out, A> {
+}): OperatorDecl<Est, NoInfer<Req>, Out, A> {
   return {
     description: spec.description,
     establishes: spec.establishes,
@@ -819,6 +819,24 @@ export function defineCeremony<
     compiled,
     warnings: issues.filter((issue) => issue.severity === "warning"),
   };
+}
+
+/**
+ * A part of a ceremony: facts and operators with no goal of its own. Its
+ * operators may name facts another part declares; `compose` checks the whole.
+ */
+export function fragment<
+  const F extends Facts,
+  const O extends Record<
+    string,
+    OperatorDecl<string, string, Record<string, OutcomeDecl>, Actor>
+  >,
+>(part: {
+  readonly id: string;
+  readonly facts: F;
+  readonly operators: O;
+}): CeremonyDecl<F, O> {
+  return { ...part, title: part.id, goal: [] };
 }
 
 /**

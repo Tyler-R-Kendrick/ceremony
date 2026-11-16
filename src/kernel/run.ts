@@ -115,7 +115,9 @@ export type JournalResult =
       readonly outcome: string;
     }
   /** A fact the controller believed it held, whose value is not in the vault. */
-  | { readonly kind: "lost"; readonly fact: string };
+  | { readonly kind: "lost"; readonly fact: string }
+  /** First entry of a run: facts no probe can check whose values the vault holds. */
+  | { readonly kind: "custody"; readonly facts: readonly string[] };
 
 /** Names and tags only. No fact value is ever written here. */
 export type JournalEntry =
@@ -218,6 +220,15 @@ function toObservation(
       fact: compiled.factIndex.get(result.fact) as number,
     };
   }
+  if (result.kind === "custody") {
+    return {
+      kind: "custody",
+      facts: result.facts.reduce(
+        (mask, name) => mask | (1 << (compiled.factIndex.get(name) as number)),
+        0,
+      ),
+    };
+  }
   const op = compiled.operators[
     compiled.operatorIndex.get(result.operator) as number
   ] as CompiledOperator;
@@ -284,11 +295,29 @@ export async function advance<F extends Facts, O extends Operators>(
     const full = { seq: entries.length, ...entry } as JournalEntry;
     await deps.journal.append(full);
     entries.push(full);
+    const before = mind.absent;
     mind =
       full.kind === "end"
         ? absorb(compiled, mind, toObservation(compiled, full.result))
         : replay(compiled, entries);
+    // What is now known to be gone is not kept.
+    for (const f of bits(mind.absent & ~before)) {
+      await deps.vault.delete(factName(f));
+    }
   };
+
+  if (entries.length === 0) {
+    const remembered: string[] = [];
+    for (const f of bits(compiled.all & ~compiled.observable)) {
+      if ((await deps.vault.get(factName(f))) !== undefined) {
+        remembered.push(factName(f));
+      }
+    }
+    await write({
+      kind: "end",
+      result: { kind: "custody", facts: remembered },
+    });
+  }
 
   /**
    * Values are staged under the attempt before the result is journaled and

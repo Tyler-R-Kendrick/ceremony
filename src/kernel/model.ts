@@ -74,6 +74,13 @@ export interface CheckOptions {
    * out, so a small one covers the same branches in far fewer states. Default 2.
    */
   readonly attempts?: number;
+  /**
+   * Explore only runs in which at most this many things go wrong. Default:
+   * no limit. A large ceremony that cannot be explored without one is checked
+   * against every combination of up to this many faults instead, and the
+   * result says so.
+   */
+  readonly faultDepth?: number;
   /** Stop after this many states and report an incomplete check. */
   readonly maxStates?: number;
   /** Starting worlds, as fact-name lists. Default: every world a run can start in. */
@@ -101,6 +108,8 @@ export interface CheckResult {
     readonly invalidations: number;
     readonly faults: number;
     readonly attempts: number;
+    /** Faults per run explored; null when every run was explored. */
+    readonly faultDepth: number | null;
   };
   readonly violations: readonly Violation[];
   readonly endings: readonly Ending[];
@@ -139,10 +148,9 @@ function show(compiled: Compiled, mask: number): string {
 }
 
 /**
- * Every world a run can start in: no fact holds without what it requires, and
- * a fact no probe can see holds only where a visible fact implies it. A fact
- * nobody can observe exists only as a running controller's own knowledge, so a
- * fresh controller never starts beside one.
+ * Every world a run can start in: any set of facts in which nothing holds
+ * without what it requires. Facts no probe can check exist only as custody,
+ * so a run starts already believing the ones that hold.
  */
 export function startingWorlds(compiled: Compiled): number[] {
   const order = compiled.factNames
@@ -155,11 +163,7 @@ export function startingWorlds(compiled: Compiled): number[] {
   const out: number[] = [];
   const walk = (at: number, world: number): void => {
     if (at === order.length) {
-      let implied = 0;
-      for (const f of bits(world & compiled.observable)) {
-        implied |= compiled.below[f] as number;
-      }
-      if ((world & ~implied) === 0) out.push(world);
+      out.push(world);
       return;
     }
     const f = order[at] as number;
@@ -169,6 +173,17 @@ export function startingWorlds(compiled: Compiled): number[] {
   };
   walk(0, 0);
   return out;
+}
+
+function startingMind(
+  ctl: Controller,
+  compiled: Compiled,
+  world: number,
+): Mind {
+  return ctl.absorb(compiled, freshMind(compiled), {
+    kind: "custody",
+    facts: world,
+  });
 }
 
 function applyToWorld(
@@ -448,7 +463,7 @@ export function cooperate(
     stale: 0,
     residue: 0,
     invalidations: 0,
-    mind: freshMind(compiled),
+    mind: startingMind(ctl, compiled, resolveWorld(compiled, world)),
   };
   const acts: string[] = [];
   const probes: string[] = [];
@@ -552,6 +567,7 @@ export function check(
   const compiled = capBudgets(ceremony.compiled, attempts);
   const invalidations = options.invalidations ?? 1;
   const faultBound = options.faults ?? 1;
+  const faultDepth = options.faultDepth ?? null;
   const maxStates = options.maxStates ?? 1_000_000;
   const worlds =
     options.worlds === undefined
@@ -562,7 +578,7 @@ export function check(
     stale: 0,
     residue: 0,
     invalidations,
-    mind: freshMind(compiled),
+    mind: startingMind(ctl, compiled, world),
   });
 
   const violations = new Map<Property, Violation>();
@@ -602,6 +618,7 @@ export function check(
     }
     const config = all.queue[id] as Config;
     const mind = config.mind;
+    const faultsSoFar = all.extras[id] as number;
 
     const falselyHeld = mind.held & ~config.world & ~config.stale;
     const falselyAbsent = mind.absent & compiled.observable & config.world;
@@ -690,7 +707,14 @@ export function check(
           next.label,
         );
       }
-      all.enqueue(next.config, id, next.label, 0);
+      if (faultDepth === null) {
+        all.enqueue(next.config, id, next.label, 0);
+      } else {
+        const after = faultsSoFar + (next.fault ? 1 : 0);
+        if (after <= faultDepth) {
+          all.enqueue(next.config, id, next.label, after);
+        }
+      }
     }
   }
 
@@ -764,7 +788,7 @@ export function check(
     states: all.ids.size + few.ids.size,
     transitions,
     initialWorlds: worlds.length,
-    bounds: { invalidations, faults: faultBound, attempts },
+    bounds: { invalidations, faults: faultBound, attempts, faultDepth },
     violations: [...violations.values()],
     endings: [...endings.entries()]
       .map(([key, ending]) => ({

@@ -51,7 +51,13 @@ export type Observation =
     }
   | { readonly kind: "act"; readonly op: number; readonly outcome: number }
   /** A fact believed held whose value is no longer in custody. */
-  | { readonly kind: "lost"; readonly fact: number };
+  | { readonly kind: "lost"; readonly fact: number }
+  /**
+   * What the vault already holds as the run starts. For facts no probe can
+   * check, custody is the only knowledge there is, so it is taken as belief
+   * and left to the operators that use it to report it stale.
+   */
+  | { readonly kind: "custody"; readonly facts: number };
 
 export interface Mind {
   readonly held: number;
@@ -245,6 +251,14 @@ export function absorb(
   before: Mind,
   observation: Observation,
 ): Mind {
+  if (observation.kind === "custody") {
+    const remembered = observation.facts & ~compiled.observable;
+    return {
+      ...before,
+      held: before.held | remembered,
+      absent: before.absent & ~remembered,
+    };
+  }
   if (observation.kind === "lost") {
     return reportStale(compiled, before, 1 << observation.fact, (counted) =>
       withAbsent(compiled, counted, 1 << observation.fact),

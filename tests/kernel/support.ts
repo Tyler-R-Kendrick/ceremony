@@ -301,7 +301,10 @@ export function cheapestCost(
   return cost[encode(below(held))] as number;
 }
 
-/** What a fresh controller can know of a world: what probes see, and what that implies. */
+/**
+ * What a starting controller can know of a world: all of it. Probes see what
+ * can be observed, and the rest it already holds.
+ */
 export function knowable(
   decl: CeremonyDecl,
   world: readonly string[],
@@ -312,8 +315,6 @@ export function knowable(
     out.add(name);
     for (const dep of (decl.facts[name] as FactDecl).requires) visit(dep);
   };
-  for (const name of world) {
-    if ((decl.facts[name] as FactDecl).observable) visit(name);
-  }
+  for (const name of world) visit(name);
   return [...out];
 }

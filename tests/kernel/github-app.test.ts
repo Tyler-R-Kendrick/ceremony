@@ -70,6 +70,10 @@ test("from each starting point only the missing steps run, and nothing is looked
       probes: ["token", "installation", "app", "target", "appConfig"],
       acts: ["registerApp", "convertManifest", "installApp", "mintToken"],
     },
+    "target,manifestCode": {
+      probes: ["token", "installation", "app", "target", "appConfig"],
+      acts: ["convertManifest", "installApp", "mintToken"],
+    },
     "target,appConfig": {
       probes: ["token", "installation", "app", "target", "appConfig"],
       acts: ["adoptConfiguredApp", "installApp", "mintToken"],

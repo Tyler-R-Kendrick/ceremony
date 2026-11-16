@@ -304,7 +304,9 @@ export async function runAndCheck(
     const current = world.entries[i] as JournalEntry;
     assert.ok(
       previous.kind !== "begin" ||
-        (current.kind === "end" && current.result.kind !== "lost"),
+        (current.kind === "end" &&
+          current.result.kind !== "lost" &&
+          current.result.kind !== "custody"),
       "work was begun and something else was written before it ended",
     );
   }
