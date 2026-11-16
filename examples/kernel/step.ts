@@ -50,7 +50,7 @@ export const ceremonyStep = definePrimitive({
     }),
     field: slot<{ name: string }>({
       props: { name: "string" },
-      attrs: (state: StepState) => (state.answered ? { disabled: true } : {}),
+      attrs: (state: StepState) => (state.answered ? { disabled: "" } : {}),
       on: {
         input: (event, { api, props }) =>
           api.setField(props.name, (event.target as HTMLInputElement).value),
@@ -59,9 +59,7 @@ export const ceremonyStep = definePrimitive({
     action: slot<{ value: string }>({
       props: { value: "string" },
       attrs: (state: StepState) =>
-        state.answered
-          ? { type: "button", disabled: true }
-          : { type: "button" },
+        state.answered ? { type: "button", disabled: "" } : { type: "button" },
       press: ({ api, props }) => api.answer(props.value),
     }),
   }),

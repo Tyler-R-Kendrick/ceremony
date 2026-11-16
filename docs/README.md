@@ -20,6 +20,7 @@
 
 - [Development setup](development.md) and [contributing](../CONTRIBUTING.md): root layout, Node, devcontainer, local state and safe cleanup.
 - [Architecture](architecture.md): current ownership and trust boundaries; [product scope](../PRODUCT.md) and [reference design](../DESIGN.md).
+- [Ceremony kernel](kernel.md): flows declared as facts and operators with every outcome named, a model checker that runs the real controller, layouts proved for every width and text scale, and browser properties; what each check establishes and what it does not.
 - [Testing](testing.md) and [contract testing](contract-testing.md): reproducible checks and honest coverage boundaries.
 - [Auth scenario doubles](auth-scenario-doubles.md): self-hosted provider pages for each auth situation, and the ceremony contracts driven against them.
 - [Demo videos](demos.md): webreel recordings of the real driver against those doubles, led by account registration, plus a stitched run from "no account" to verified API access. They show what is real and what is a double, and how to regenerate them.

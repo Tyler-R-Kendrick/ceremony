@@ -8,8 +8,8 @@
  * The model checker proves the flow and the layout prover proves the
  * geometry; this checks that the pixels and the page obey what was proved.
  */
-import { always, eventually, extract, next, now } from "@antithesishq/bombadil";
-import { actions } from "@antithesishq/bombadil/browser";
+import { always, eventually, next, now } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/browser";
 import model from "./model.json" with { type: "json" };
 
 export * from "@antithesishq/bombadil/browser/defaults";
