@@ -29,7 +29,7 @@ CONSTANTS
                      \* hold no lease; FALSE only for the small chart model
 
     \* Each switch below is TRUE in the code as written.  FALSE removes one
-    \* check, to show that a rule can fail (the Mutant-*.cfg files).
+    \* check, to show that a rule can fail (the Broken*.cfg files).
     CheckGeneration,      \* index.ts:188  Number(row.generation) !== fence.generation
     CheckExpiry,          \* index.ts:190  Number(row.expires) <= (await now())
     LockFenceRow,         \* index.ts:166  " FOR UPDATE" on the claim row read
@@ -293,6 +293,7 @@ CancelKey ==
 \* (index.ts:358, :523) and what it held in memory is gone.  The claim row
 \* stays as it is until it expires.
 ProcessRestarts(p) ==
+    /\ WithEnvironment
     /\ pc[p] # "idle"
     /\ pc' = [pc EXCEPT ![p] = "idle"]
     /\ fence' = [fence EXCEPT ![p] = NoFence]
@@ -310,6 +311,7 @@ ProcessRestarts(p) ==
 \*   delete  - tx.get/list then tx.delete(record.revision)
 \*             (maintenance.ts:76-100, collections.ts:219-232, :250-268)
 OtherWriterCreates ==
+    /\ WithEnvironment
     /\ rec = NoRecord
     /\ nextWrite < MaxWrites
     /\ rec' = [revision |-> 1, write |-> nextWrite + 1]
@@ -319,6 +321,7 @@ OtherWriterCreates ==
                    expiredFencePassed, staleRevisionWrote>>
 
 OtherWriterRewrites ==
+    /\ WithEnvironment
     /\ rec # NoRecord
     /\ nextWrite < MaxWrites
     /\ rec' = [revision |-> rec.revision + 1, write |-> nextWrite + 1]
@@ -328,6 +331,7 @@ OtherWriterRewrites ==
                    expiredFencePassed, staleRevisionWrote>>
 
 OtherWriterDeletes ==
+    /\ WithEnvironment
     /\ Deletes
     /\ rec # NoRecord
     /\ rec' = NoRecord
@@ -350,10 +354,10 @@ Next ==
     \/ \E p \in Processes : \E release \in BOOLEAN : FencedCommit(p, "delete", release)
     \/ \E p \in Processes : FencedCommit(p, "nothing", TRUE)
     \/ CancelKey
-    \/ (WithEnvironment /\ \E p \in Processes : ProcessRestarts(p))
-    \/ (WithEnvironment /\ OtherWriterCreates)
-    \/ (WithEnvironment /\ OtherWriterRewrites)
-    \/ (WithEnvironment /\ OtherWriterDeletes)
+    \/ \E p \in Processes : ProcessRestarts(p)
+    \/ OtherWriterCreates
+    \/ OtherWriterRewrites
+    \/ OtherWriterDeletes
     \/ ClockBoundReached
 
 Spec == Init /\ [][Next]_vars

@@ -51,11 +51,16 @@ const life = (v, c) => {
 
 const ids = (v) => Object.keys(v.cmd).sort();
 
+// With several commands, an unrecorded command also says whether its handler
+// was called: that decides whether a second call is a repeat.
+const called = (v, c) =>
+  v.cmd[c] === "running" && v.calls[c] > 0 ? ", handler was called" : "";
+
 export const state = (v) => {
   const commands = ids(v);
   if (commands.length === 1) return life(v, commands[0]);
   return [
-    ...commands.map((c) => `${c}: ${life(v, c)}`),
+    ...commands.map((c) => `${c}: ${life(v, c)}${called(v, c)}`),
     stepRecord[v.node],
   ].join(" / ");
 };
