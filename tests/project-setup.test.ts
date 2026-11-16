@@ -15,6 +15,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import ts from "typescript";
+import { parse as parseYaml } from "yaml";
 
 const exec = promisify(execFile);
 const root = resolve(import.meta.dirname, "..");
@@ -306,4 +307,151 @@ test("every TypeScript source in src, examples, tests, scripts and extensions be
   assert.ok(required.length > 0);
   const missing = required.filter((file) => !covered.has(join(root, file)));
   assert.deepEqual(missing, [], "files no type-check project includes");
+});
+
+type WorkflowStep = {
+  uses?: string;
+  run?: string;
+  with?: Record<string, unknown>;
+  env?: Record<string, unknown>;
+};
+type WorkflowJob = { env?: Record<string, unknown>; steps?: WorkflowStep[] };
+
+// The commands a job runs, with each `npm run <script>` followed into the
+// package script it names and each `scripts/...` or `verification/...` file a
+// command names read in full, so a job that delegates to a script is judged on
+// what that script runs. Each check.sh must be named, not reached by a glob:
+// the test below finds every check.sh on disk, so a new area that is not named
+// fails here instead of being skipped in CI.
+async function jobCommands(job: WorkflowJob) {
+  const scripts: Record<string, string> = JSON.parse(
+    await readFile(join(root, "package.json"), "utf8"),
+  ).scripts;
+  const seen = new Set<string>();
+  const texts: string[] = [];
+  const visit = async (text: string) => {
+    texts.push(text);
+    for (const match of text.matchAll(/npm run ([\w:.-]+)/g)) {
+      const name = match[1]!;
+      if (seen.has(`script:${name}`)) continue;
+      seen.add(`script:${name}`);
+      const script = scripts[name];
+      assert.ok(script !== undefined, `package script ${name} is missing`);
+      await visit(script);
+    }
+    for (const match of text.matchAll(
+      /(?:^|[\s"'])((?:scripts|verification)\/[\w./-]+\.(?:sh|mjs|ts|js))/g,
+    )) {
+      const file = match[1]!;
+      if (seen.has(`file:${file}`)) continue;
+      seen.add(`file:${file}`);
+      const body = await readFile(join(root, file), "utf8").catch(() => "");
+      if (body) await visit(body);
+    }
+  };
+  for (const step of job.steps ?? []) if (step.run) await visit(step.run);
+  return texts.join("\n");
+}
+
+function stepEnv(job: WorkflowJob, step: WorkflowStep, name: string) {
+  const value = step.env?.[name] ?? job.env?.[name];
+  return value === undefined ? undefined : String(value);
+}
+
+test("CI runs the kernel properties, the TLA+ models and the Bombadil browser properties as separate jobs", async () => {
+  const workflow = parseYaml(
+    await readFile(join(root, ".github/workflows/verify.yml"), "utf8"),
+  ) as { jobs: Record<string, WorkflowJob> };
+  for (const name of ["kernel", "models", "bombadil"]) {
+    const job = workflow.jobs[name];
+    assert.ok(job, `verify.yml has no ${name} job`);
+    const node = (job.steps ?? []).filter((step) =>
+      step.uses?.startsWith("actions/setup-node@"),
+    );
+    assert.equal(node.length, 1, `${name} job sets up Node once`);
+    assert.equal(node[0]!.with?.["node-version-file"], ".nvmrc");
+  }
+
+  // kernel: the kernel property tests at 1000 runs per property.
+  const kernel = workflow.jobs.kernel!;
+  const kernelStep = (kernel.steps ?? []).find((step) =>
+    /\bnpm run test:kernel\b/.test(step.run ?? ""),
+  );
+  assert.ok(kernelStep, "kernel job does not run npm run test:kernel");
+  assert.equal(stepEnv(kernel, kernelStep, "FUZZ_RUNS"), "1000");
+
+  // models: Java 21, the TLC jar cached under the hash tlc.sh pins, every
+  // area's check.sh and the kernel flow model.
+  const models = workflow.jobs.models!;
+  const java = (models.steps ?? []).find((step) =>
+    step.uses?.startsWith("actions/setup-java@"),
+  );
+  assert.ok(java, "models job does not set up Java");
+  assert.equal(String(java.with?.["java-version"]), "21");
+  const tlc = await readFile(join(root, "verification/tlc.sh"), "utf8");
+  const sum = /^sum=([0-9a-f]{64})$/m.exec(tlc)?.[1];
+  assert.ok(sum, "verification/tlc.sh pins no jar hash");
+  const cache = (models.steps ?? []).find((step) =>
+    step.uses?.startsWith("actions/cache@"),
+  );
+  assert.ok(cache, "models job does not cache the TLC jar");
+  assert.match(String(cache.with?.path), /ceremony-tla/);
+  const key = String(cache.with?.key);
+  assert.ok(
+    key.includes(sum) || key.includes("hashFiles('verification/tlc.sh')"),
+    `TLC jar cache key ${key} is not tied to the jar's hash`,
+  );
+  const checks: string[] = [];
+  for (const entry of await readdir(join(root, "verification"), {
+    withFileTypes: true,
+  })) {
+    if (!entry.isDirectory()) continue;
+    const check = `verification/${entry.name}/check.sh`;
+    if (
+      await readFile(join(root, check)).then(
+        () => true,
+        () => false,
+      )
+    )
+      checks.push(check);
+  }
+  assert.ok(checks.length >= 4, `found only ${checks.join(", ")}`);
+  const modelCommands = await jobCommands(models);
+  for (const check of checks)
+    assert.ok(
+      modelCommands.includes(check),
+      `models job does not run ${check}`,
+    );
+  assert.match(
+    modelCommands,
+    /verification\/tlc\.sh connect-github ConnectGitHub\b/,
+  );
+  const scripts: Record<string, string> = JSON.parse(
+    await readFile(join(root, "package.json"), "utf8"),
+  ).scripts;
+  assert.ok(
+    scripts["verify:models"],
+    "package script verify:models is missing",
+  );
+  const local = await jobCommands({
+    steps: [{ run: "npm run verify:models" }],
+  });
+  for (const check of checks)
+    assert.ok(local.includes(check), `verify:models does not run ${check}`);
+  assert.match(local, /verification\/tlc\.sh connect-github ConnectGitHub\b/);
+
+  // bombadil: Chromium installed, then the browser properties for 90 seconds.
+  const bombadil = workflow.jobs.bombadil!;
+  assert.ok(
+    (bombadil.steps ?? []).some((step) =>
+      /playwright install\b.*\bchromium\b/.test(step.run ?? ""),
+    ),
+    "bombadil job does not install Chromium",
+  );
+  assert.ok(
+    (bombadil.steps ?? []).some((step) =>
+      /\bnpm run test:bombadil -- 90s\b/.test(step.run ?? ""),
+    ),
+    "bombadil job does not run npm run test:bombadil -- 90s",
+  );
 });
