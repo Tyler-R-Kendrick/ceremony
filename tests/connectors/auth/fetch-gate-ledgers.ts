@@ -12,6 +12,10 @@ export const ACCEPTED: Record<string, Accepted> = {
     count: 1,
     why: "the statechart skill's worker loading the view module the operator names on the command line",
   },
+  "verification/persistence/replay.mts": {
+    count: 1,
+    why: "loads a temporary copy of the persistence store with one check removed, to show the real store doing what the model's broken variant says",
+  },
   "scripts/certify-attended.ts": {
     count: 1,
     why: "loads the certification plan of the flow file the operator names on the command line",
