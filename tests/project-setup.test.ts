@@ -14,6 +14,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import ts from "typescript";
 
 const exec = promisify(execFile);
 const root = resolve(import.meta.dirname, "..");
@@ -172,4 +173,137 @@ test("project onboarding and architecture relative documentation links resolve",
       await readFile(resolve(root, dirname(file), target.split("#")[0]!));
     }
   }
+});
+
+// The type check is every `tsc` invocation that `npm run check` reaches,
+// following `npm run <script>` into other package scripts. A `-b` invocation
+// builds each referenced project, so it runs with `--force` to measure a full
+// check rather than an up-to-date one.
+type TypeCheck = { args: string[]; build: boolean; projects: string[] };
+
+async function typeChecks(): Promise<TypeCheck[]> {
+  const scripts: Record<string, string> = JSON.parse(
+    await readFile(join(root, "package.json"), "utf8"),
+  ).scripts;
+  const found: TypeCheck[] = [];
+  const visit = (name: string, seen: Set<string>) => {
+    const script = scripts[name];
+    assert.ok(script !== undefined, `package script ${name} is missing`);
+    assert.ok(!seen.has(name), `package script ${name} runs itself`);
+    for (const part of script.split(/&&|;|\|\|/)) {
+      const words = part.trim().split(/\s+/).filter(Boolean);
+      if (words[0] === "npm" && words[1] === "run" && words[2])
+        visit(words[2], new Set([...seen, name]));
+      if (words[0] !== "tsc") continue;
+      const args = words.slice(1);
+      const build = args[0] === "-b" || args[0] === "--build";
+      let projects: string[];
+      if (build) {
+        projects = args.slice(1).filter((arg) => !arg.startsWith("-"));
+        if (projects.length === 0) projects = ["."];
+      } else {
+        const flag = args.findIndex((a) => a === "-p" || a === "--project");
+        projects = [flag === -1 ? "." : args[flag + 1]!];
+      }
+      found.push({ args, build, projects });
+    }
+  };
+  visit("check", new Set());
+  return found;
+}
+
+function configPath(project: string) {
+  const path = resolve(root, project);
+  return path.endsWith(".json") ? path : join(path, "tsconfig.json");
+}
+
+// Every project a type check reaches, with its references, and the files it
+// checks.
+function projectFiles(checks: TypeCheck[]) {
+  const projects = new Map<string, string[]>();
+  const host: ts.ParseConfigFileHost = {
+    ...ts.sys,
+    onUnRecoverableConfigFileDiagnostic: (diagnostic) => {
+      throw new Error(
+        ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),
+      );
+    },
+  };
+  const visit = (path: string) => {
+    if (projects.has(path)) return;
+    const parsed = ts.getParsedCommandLineOfConfigFile(path, undefined, host);
+    assert.ok(parsed, `${path} does not parse`);
+    projects.set(
+      path,
+      parsed.fileNames.map((file) => resolve(file)),
+    );
+    for (const reference of parsed.projectReferences ?? [])
+      visit(configPath(reference.path));
+  };
+  for (const check of checks)
+    for (const project of check.projects) visit(configPath(project));
+  return projects;
+}
+
+const memoryLimitKilobytes = 1_200_000;
+
+test("every type-check project in npm run check finishes under 1.2 GB of memory", async (t) => {
+  const checks = await typeChecks();
+  assert.ok(checks.length > 0, "npm run check runs no tsc type check");
+  for (const check of checks) {
+    const args = [
+      ...check.args,
+      ...(check.build ? ["--force"] : []),
+      "--extendedDiagnostics",
+    ];
+    const label = `tsc ${args.join(" ")}`;
+    const result = await exec(
+      process.execPath,
+      [join(root, "node_modules/typescript/bin/tsc"), ...args],
+      { cwd: root, maxBuffer: 256 * 1024 * 1024 },
+    ).then(
+      ({ stdout }) => ({ code: 0, stdout }),
+      (error: { code?: number; stdout?: string; stderr?: string }) => ({
+        code: error.code ?? 1,
+        stdout: `${error.stdout ?? ""}${error.stderr ?? ""}`,
+      }),
+    );
+    assert.equal(
+      result.code,
+      0,
+      `${label} exited ${result.code}:\n${result.stdout.slice(-4000)}`,
+    );
+    const used = [...result.stdout.matchAll(/^Memory used:\s+(\d+)K$/gm)].map(
+      (match) => Number(match[1]),
+    );
+    assert.ok(used.length > 0, `${label} reported no memory use`);
+    t.diagnostic(`${label}: ${used.map((k) => `${k}K`).join(", ")}`);
+    for (const kilobytes of used)
+      assert.ok(
+        kilobytes < memoryLimitKilobytes,
+        `${label} used ${kilobytes}K, limit ${memoryLimitKilobytes}K`,
+      );
+  }
+});
+
+test("every TypeScript source in src, examples, tests, scripts and extensions belongs to a type-check project", async () => {
+  const projects = projectFiles(await typeChecks());
+  const covered = new Set([...projects.values()].flat());
+  const { stdout } = await exec("git", ["ls-files", "-z"], {
+    cwd: root,
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  const required = stdout
+    .split("\0")
+    .filter((file) => /\.(ts|tsx|mts|cts)$/.test(file))
+    .filter(
+      (file) =>
+        /^(src|examples|tests|scripts|extensions)\//.test(file) ||
+        file === "vite.config.ts" ||
+        file === "playwright.config.ts",
+    )
+    .filter((file) => !file.startsWith("tests/consumers/"));
+  assert.ok(required.length > 0);
+  const missing = required.filter((file) => !covered.has(join(root, file)));
+  assert.deepEqual(missing, [], "files no type-check project includes");
 });
