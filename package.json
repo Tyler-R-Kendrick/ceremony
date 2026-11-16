@@ -131,6 +131,9 @@
     "test:snapshots": "node --import tsx --test tests/characterization.test.ts",
     "test:snapshots:update": "node --import tsx --test --test-update-snapshots tests/characterization.test.ts",
     "test:fuzz": "node --import tsx --test tests/fuzz.test.ts",
+    "test:kernel": "node --no-experimental-webstorage --import tsx --test \"tests/kernel/*.test.ts\"",
+    "kernel:harness": "node --import tsx examples/kernel/server.ts",
+    "test:bombadil": "node --import tsx scripts/kernel-bombadil.mjs",
     "test:chaos": "node --import tsx --test tests/chaos.test.ts",
     "test:coverage": "c8 --all --include 'src/**/*.ts' --include 'src/**/*.tsx' --check-coverage --lines 90 --statements 90 --branches 80 --functions 90 --reporter text --reporter json-summary --reporter json --reports-dir artifacts/coverage node scripts/test.mjs all",
     "test:crap": "npm run test:coverage && node --import tsx scripts/crap.ts",
@@ -164,6 +167,7 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
+    "@antithesishq/bombadil": "0.7.10",
     "@axe-core/playwright": "^4.13.0",
     "@openuidev/react-lang": "0.2.15",
     "@pact-foundation/pact": "17.1.4",
@@ -174,6 +178,8 @@
     "@types/pg": "8.23.1",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
+    "@ui-sdk/core": "0.1.0-beta.6",
+    "@ui-sdk/web": "0.1.0-beta.6",
     "@webreel/core": "0.1.4",
     "@workflow/vitest": "5.0.5",
     "agent-browser": "^0.37.1",
