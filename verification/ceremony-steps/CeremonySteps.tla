@@ -23,25 +23,31 @@ CONSTANTS
 (***************************************************************************)
 (* Each name in Removed takes one check out, to show a rule can fail.      *)
 (* The code has every one of them.                                         *)
-(*   "revision-check"       controller.ts:511  revision !== snapshot.revision *)
-(*   "busy-check"           controller.ts:511  || instance.busy             *)
-(*   "offered-check"        controller.ts:516  !snapshot.actions.includes   *)
+(*   "revision-check"       controller.ts:518  revision !== snapshot.revision *)
+(*   "busy-check"           controller.ts:518  || instance.busy             *)
+(*   "offered-check"        controller.ts:523  !snapshot.actions.includes   *)
 (*   "end-exemption"        controller.ts:304  complete, cancelled and      *)
 (*                          expired are never expired                       *)
-(*   "expired-guard"        controller.ts:627  step !== "expired", for an   *)
+(*   "expired-guard"        controller.ts:643  step !== "expired", for an   *)
 (*                          answer the adapter returns                      *)
-(*   "expired-guard-on-error" controller.ts:644 step !== "expired", for an  *)
+(*   "human-expired-guard"  controller.ts:539  step !== "expired", for a    *)
+(*                          requestHuman answer                             *)
+(*   "expired-guard-on-error" controller.ts:660 step !== "expired", for an  *)
 (*                          error the adapter throws                        *)
-(*   "callback-guard"       controller.ts:614  step !== "redirect"          *)
-(*   "revision-bump"        controller.ts:329  revision: previous.revision+1*)
-(*   "retry-keeps-revision" controller.ts:576  retry goes through update(), *)
+(*   "callback-guard"       controller.ts:630  step !== "redirect"          *)
+(*   "revision-bump"        controller.ts:336  revision: previous.revision+1*)
+(*   "retry-keeps-revision" controller.ts:588  retry goes through update(), *)
 (*                          so the revision carries on; removed, retry      *)
 (*                          starts again at 0 as startLocked does (:248)    *)
 (*   "retry-after-cancel"   schema.ts:322-323  cancelled offers "retry"     *)
+(*   "retry-drops-outcome"  controller.ts:595  retry drops an outcome that  *)
+(*                          is not claimed; removed, update() keeps it      *)
 (***************************************************************************)
 Checks == {"revision-check", "busy-check", "offered-check", "end-exemption",
-           "expired-guard", "expired-guard-on-error", "callback-guard",
-           "revision-bump", "retry-keeps-revision", "retry-after-cancel"}
+           "expired-guard", "human-expired-guard", "expired-guard-on-error",
+           "callback-guard",
+           "revision-bump", "retry-keeps-revision", "retry-after-cancel",
+           "retry-drops-outcome"}
 
 Steps == {"intro", "input", "redirect", "waiting", "anonymous", "claim",
           "complete", "error", "cancelled", "expired"}       \* schema.ts:189-200
@@ -84,7 +90,7 @@ vars == <<kind, step, revision, own, late, codeAsked, flight, stopped, armed,
 
 Has(check) == check \notin Removed
 
-\* controller.ts:237-239 and :573-575
+\* controller.ts:237-239 and :583-585
 InitialStep == IF kind \in InputKinds THEN "input" ELSE "intro"
 
 \* actionsFor, schema.ts:317-344
@@ -99,7 +105,7 @@ ActionsFor(s, anonymous) ==
          IF anonymous THEN {"finish", "claim", "cancel"} ELSE {"retry", "cancel"}
 
 \* snapshot.actions.  It is stored, but update() recomputes it from the step
-\* and the outcome every time: controller.ts:259-261, :337, :351-355.
+\* and the outcome every time: controller.ts:259-261, :344, :358-362.
 Offered ==
   ActionsFor(step, own = "anonymous")
     \cup (IF RequestHuman /\ step \in {"redirect", "input"}
@@ -115,7 +121,7 @@ NextRevision == IF Has("revision-bump") THEN revision + 1 ELSE revision
 
 Same == UNCHANGED snapshot
 
-\* update(), controller.ts:315-357, when something differs.  `by` is who
+\* update(), controller.ts:315-364, when something differs.  `by` is who
 \* caused it: "you" for an accepted action, "provider" for an adapter answer,
 \* "clock" for expiry.
 ChangeAt(s, o, renew, code, by, rev) ==
@@ -130,7 +136,7 @@ ChangeAt(s, o, renew, code, by, rev) ==
 
 Change(s, o, renew, code, by) == ChangeAt(s, o, renew, code, by, NextRevision)
 
-\* update() returns early when the update repeats the snapshot: controller.ts:317-323.
+\* update() returns early when the update repeats the snapshot: controller.ts:321-328.
 Update(s, o, renew, code, by) ==
   IF s = step /\ o = own /\ ~renew /\ code = codeAsked
   THEN Same
@@ -145,7 +151,7 @@ ExpiryDue ==
   /\ late
   /\ IF Has("end-exemption") THEN step \notin EndSteps ELSE step # "expired"
 
-\* actLocked's checks, controller.ts:509-517.  A client can send any action
+\* actLocked's checks, controller.ts:516-524.  A client can send any action
 \* name with the revision of the screen it has.
 Accepts(a) ==
   /\ ~ExpiryDue
@@ -157,19 +163,19 @@ Press(a) ==
   /\ Accepts(a)
   /\ staleAccepted' = (staleAccepted \/ seen.n # shown)
 
-\* A success answer in run(), controller.ts:625-628.
+\* A success answer in run(), controller.ts:641-644.
 Applies == ~Has("expired-guard") \/ step # "expired"
 
 \* The catch in run() for an error while the step is not "waiting":
-\* controller.ts:644-651.
+\* controller.ts:660-667.
 ErrorUpdate ==
   IF Has("expired-guard-on-error") /\ step = "expired" THEN Same
   ELSE Update("error", own, FALSE, FALSE, "provider")
 
 ---------------------------------------------------------------------------
-(* The person's actions: actLocked, controller.ts:501-595                  *)
+(* The person's actions: actLocked, controller.ts:508-611                  *)
 
-\* case "begin", :535-537.  adapter.begin runs to its first await:
+\* case "begin", :545-547.  adapter.begin runs to its first await:
 \* adapters.ts:229-232.
 ActBegin ==
   /\ Press("begin")
@@ -180,7 +186,7 @@ ActBegin ==
   /\ Same /\ Tab
   /\ UNCHANGED <<kind, holds>>
 
-\* case "submit", :538-549.  For a claim, adapter.submit checks the claim
+\* case "submit", :548-559.  For a claim, adapter.submit checks the claim
 \* token before it clears `stopped`: adapters.ts:300-305.
 ActSubmit ==
   /\ Press("submit")
@@ -191,32 +197,36 @@ ActSubmit ==
   /\ Same /\ Tab
   /\ UNCHANGED <<kind, armed, holds>>
 
-\* case "claim", :550-555
+\* case "claim", :560-565
 ActClaim ==
   /\ Press("claim")
   /\ Change("claim", own, TRUE, FALSE, "you")
   /\ Tab
   /\ UNCHANGED <<kind, flight, adapter>>
 
-\* case "finish", :556-558
+\* case "finish", :566-568
 ActFinish ==
   /\ Press("finish")
   /\ Update("complete", own, FALSE, FALSE, "you")
   /\ Tab
   /\ UNCHANGED <<kind, flight, adapter>>
 
-\* case "retry", :559-582.  The protocol adapter has no retry(), so the
+\* case "retry", :569-598.  The protocol adapter has no retry(), so the
 \* controller cancels it, makes a new one and goes back to the first step.
-\* update() keeps previous.outcome (:324-326), so `own` carries over.
+\* update() drops previous.outcome unless it is claimed (:595, :329-333).
+\* Without "retry-drops-outcome", update() keeps it and `own` carries over.
+RetryOwn ==
+  IF Has("retry-drops-outcome") /\ own # "claimed" THEN "none" ELSE own
+
 ActRetry ==
   /\ Press("retry")
   /\ stopped' = FALSE /\ armed' = FALSE /\ holds' = FALSE
-  /\ ChangeAt(InitialStep, own, TRUE, FALSE, "you",
+  /\ ChangeAt(InitialStep, RetryOwn, TRUE, FALSE, "you",
               IF Has("retry-keeps-revision") THEN NextRevision ELSE 0)
   /\ Tab
   /\ UNCHANGED <<kind, flight>>
 
-\* case "cancel", :583-592
+\* case "cancel", :599-608
 ActCancel ==
   /\ Press("cancel")
   /\ AdapterCancel
@@ -225,7 +235,7 @@ ActCancel ==
   /\ Tab
   /\ UNCHANGED <<kind, flight, holds>>
 
-\* case "request-human", :525-534.  The answer carries the step the adapter
+\* case "request-human", :532-544.  The answer carries the step the adapter
 \* projected before its await (github.ts:502, :520-524), which is the step
 \* the request was accepted in.
 ActRequestHuman ==
@@ -238,7 +248,7 @@ ActRequestHuman ==
   /\ UNCHANGED <<kind, adapter>>
 
 ---------------------------------------------------------------------------
-(* The adapter's answers: run(), controller.ts:619-655                     *)
+(* The adapter's answers: run(), controller.ts:635-671                     *)
 
 \* adapter.begin returns: adapters.ts:243 (oauth-code), :261-266 (device),
 \* :288-295 (authmd-anonymous), :297 (the others).
@@ -300,7 +310,7 @@ SubmitThrows ==
   /\ ErrorUpdate /\ Tab
   /\ UNCHANGED <<kind, adapter, staleAccepted>>
 
-\* controller.callback, :596-618, then adapter.callback to its first await,
+\* controller.callback, :612-634, then adapter.callback to its first await,
 \* adapters.ts:393-399.  A callback can arrive at any time; without state
 \* the adapter throws at once.
 Callback ==
@@ -329,7 +339,7 @@ CallbackThrows ==
   /\ ErrorUpdate /\ Tab
   /\ UNCHANGED <<kind, adapter, staleAccepted>>
 
-\* read() polls while the step is "waiting": controller.ts:415-423.  A
+\* read() polls while the step is "waiting": controller.ts:422-430.  A
 \* stopped adapter returns at once: adapters.ts:423.
 ReadPolls ==
   /\ ~ExpiryDue
@@ -368,7 +378,7 @@ PollThrowsCeremonyError ==
   /\ UNCHANGED <<kind, adapter, staleAccepted>>
 
 \* adapter.poll throws another error while the step is "waiting":
-\* controller.ts:630-643 keeps the step and sets a message.  The message
+\* controller.ts:646-659 keeps the step and sets a message.  The message
 \* is new the first time and the same after that.
 PollThrowsOther ==
   /\ flight = "poll"
@@ -379,19 +389,22 @@ PollThrowsOther ==
   /\ Tab
   /\ UNCHANGED <<kind, adapter, staleAccepted>>
 
-\* adapter.requestHuman returns, and controller.ts:530 applies it with no
-\* check that the snapshot is still the one the request was accepted on.
-\* The answer may carry its own expiresAt (github.ts:468).
+\* adapter.requestHuman returns, controller.ts:537, and controller.ts:539-540
+\* applies it unless the snapshot is "expired".  There is no other check that
+\* the snapshot is still the one the request was accepted on.  The answer may
+\* carry its own expiresAt (github.ts:468).
 RequestHumanReturns ==
   /\ flight \in {"human-redirect", "human-input"}
   /\ flight' = "none"
-  /\ \E renew \in BOOLEAN :
-       Change(IF flight = "human-redirect" THEN "redirect" ELSE "input",
-              own, renew, codeAsked, "provider")
+  /\ IF Has("human-expired-guard") /\ step = "expired"
+     THEN Same
+     ELSE \E renew \in BOOLEAN :
+            Change(IF flight = "human-redirect" THEN "redirect" ELSE "input",
+                   own, renew, codeAsked, "provider")
   /\ Tab
   /\ UNCHANGED <<kind, adapter, staleAccepted>>
 
-\* adapter.requestHuman throws: controller.ts:529-533 only clears busy
+\* adapter.requestHuman throws: controller.ts:536-543 only clears busy
 RequestHumanThrows ==
   /\ flight \in {"human-redirect", "human-input"}
   /\ flight' = "none"
@@ -419,7 +432,7 @@ ExpireOnAccess ==
   /\ Tab
   /\ UNCHANGED <<kind, flight, holds, staleAccepted>>
 
-\* The person looks at the page again: read(), controller.ts:402-425
+\* The person looks at the page again: read(), controller.ts:409-432
 TabRefreshes ==
   /\ StaleTabs
   /\ ~ExpiryDue
@@ -492,8 +505,10 @@ EndScreensStayPut == endMoved.by = "none"
 \* Every screen but the last one offers the person a button.
 EveryScreenOffersAWayOn == step = "complete" \/ Offered # {}
 
-\* Open finding F2: a result on screen was obtained by the adapter that is
-\* serving this attempt.  Retry makes a new adapter and keeps the old result.
+\* Finding F2, fixed: a result on screen was obtained by the adapter that is
+\* serving this attempt.  Retry makes a new adapter and drops the old result.
+\* A claimed result is kept; it is reached only on "complete", which offers
+\* no retry.
 TryAgainStartsClean == own # "none" => holds
 
 \* Bound for the checks: the snapshot changes at most MaxRevision times.
