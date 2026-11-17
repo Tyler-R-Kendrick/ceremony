@@ -19,9 +19,9 @@ The script runs TLC on every config, then `conformance.test.ts` on the real cont
 | Config | Expected today | Why |
 |---|---|---|
 | `CeremonySteps.cfg` | holds | the code as written |
-| `FindingRequestHuman.cfg` | `EndScreensStayPut` breaks | open finding F1 |
+| `FindingRequestHuman.cfg` | holds | finding F1, fixed |
 | `FindingTryAgain.cfg` | `TryAgainStartsClean` breaks | open finding F2 |
-| ten `Broken*.cfg` | one rule breaks each | a check removed on purpose, to show the rule can fail |
+| `Broken*.cfg` listed in `check.sh` | one rule breaks each | a check removed on purpose, to show the rule can fail |
 
 Exit 0 means every result is the expected one. To run one config alone: `verification/tlc.sh ceremony-steps CeremonySteps FindingTryAgain`.
 
@@ -41,19 +41,19 @@ The question is whether events can happen in a bad order: a button press, an ada
 
 ## Findings
 
-Both are reproduced on the real controller by `conformance.test.ts`. Neither is fixed here.
+F2 is open and reproduced on the real controller by `conformance.test.ts`. F1 is fixed; the same test shows the fix.
 
-### F1. An answer to `request-human` that lands after expiry revives the ceremony
+### F1, fixed. An answer to `request-human` that landed after expiry revived the ceremony
 
-Rule: `EndScreensStayPut`. Config: `FindingRequestHuman.cfg`.
+Rule: `EndScreensStayPut`. Config: `FindingRequestHuman.cfg`, which now holds.
 
 1. A ceremony is on `input` (or `redirect`) at revision 0. Its adapter implements `requestHuman`, so the snapshot offers `request-human`.
 2. `act({action: "request-human", revision: 0})` is accepted. The controller sets `busy` and awaits `adapter.requestHuman()` (`controller.ts:528-530`).
 3. `now()` passes `snapshot.expiresAt`.
 4. Any `read()` runs `instance()`, which calls `adapter.cancel()` and sets `step: "expired"`, revision 1 (`controller.ts:303-312`).
-5. `requestHuman()` resolves. `controller.ts:530` passes its answer straight to `update()`: the step is `input` again, revision 2.
+5. `requestHuman()` resolves. The `request-human` case applies its answer only while `instance.snapshot.step !== "expired"` (`controller.ts:532-533`), the same check `run()` makes (`controller.ts:630`). The step stays `expired` at revision 1.
 
-`run()` drops a late answer with `instance.snapshot.step !== "expired"` (`controller.ts:627`); the `request-human` case has no such check. No shipped setup reaches it easily. `createProtocolAdapter` has no `requestHuman`. The GitHub App adapter has one (`github.ts:501-525`) and runs on a controller with a database, where the lease in `act` and `read` (`controller.ts:403`, `:431`) keeps a `read` out for 60 seconds (`storage.ts:98`); the path opens if the human relay takes longer than that. An in-memory controller with any adapter that implements `requestHuman` has no such cover.
+Before the fix the case passed the answer straight to `update()`, and the step went back to `input` at revision 2. `BrokenNoHumanExpiredGuard.cfg` removes the check (`human-expired-guard`) and TLC finds that path again.
 
 ### F2. Retry keeps the cancelled attempt's outcome, and cancel then shows it again
 
@@ -79,16 +79,17 @@ Every `Broken*.cfg` puts one name in `Removed`, which takes one check out of the
 |---|---|---|---|
 | `BrokenNoRevisionCheck` | `revision !== snapshot.revision`, `controller.ts:511` | `YouActOnTheScreenYouSee` | A tab holds revision 0. `act(cancel, 0)`: `cancelled`, revision 1. The same tab sends `act(retry, 0)` and it is accepted at revision 1. |
 | `BrokenNoRevisionBump` | `revision: previous.revision + 1`, `controller.ts:329` | `YouActOnTheScreenYouSee` | `act(cancel, 0)`: `cancelled`, and the revision is still 0. The tab that never saw the cancelled screen sends `act(retry, 0)` and it is accepted. |
-| `BrokenRetryRestartsRevision` | retry goes through `update()`, `controller.ts:576`; removed, it starts again at 0 as `startLocked` does (`:248`) | `YouActOnTheScreenYouSee` | `act(cancel, 0)`: revision 1. The tab reads it. `act(retry, 1)`: `input` at revision 0. The deadline passes and a read expires it: `expired` at revision 1. The tab, still on the cancelled screen of revision 1, sends `act(retry, 1)` and it is accepted. |
+| `BrokenRetryRestartsRevision` | retry goes through `update()`, `controller.ts:579`; removed, it starts again at 0 as `startLocked` does (`:248`) | `YouActOnTheScreenYouSee` | `act(cancel, 0)`: revision 1. The tab reads it. `act(retry, 1)`: `input` at revision 0. The deadline passes and a read expires it: `expired` at revision 1. The tab, still on the cancelled screen of revision 1, sends `act(retry, 1)` and it is accepted. |
 | `BrokenNoOfferedCheck` | `!snapshot.actions.includes(action)`, `controller.ts:516` | `ConnectedMeansConfirmed` | `act(finish, 0)` on `input`: `update({step: "complete"})`. Connected with no outcome. |
 | `BrokenNoBusyCheck` | `\|\| instance.busy`, `controller.ts:511` | `EndScreensStayPut` | `act(submit, 0)`: `adapter.submit` is in flight. `act(cancel, 0)` is accepted: `cancelled`. `adapter.submit`, already past its own `stopped` check (`adapters.ts:353`), returns `{step: "complete"}`; `run()` applies it. Cancelled, then connected. |
-| `BrokenNoExpiredGuard` | `instance.snapshot.step !== "expired"`, `controller.ts:627` | `EndScreensStayPut` | `act(submit, 0)`: in flight. The deadline passes; a read sets `expired`. `adapter.submit`, already past its own `stopped` check (`adapters.ts:353`), returns `{step: "complete"}` and `run()` applies it. Expired, then connected. |
-| `BrokenNoExpiredGuardOnError` | `instance.snapshot.step !== "expired"` in the catch, `controller.ts:644` | `EndScreensStayPut` | `act(submit, 0)`: in flight. The deadline passes; a read sets `expired` and calls `adapter.cancel()`. `adapter.submit` throws, as the built-in adapter does once stopped ("Attempt cancelled", `adapters.ts:353`); the catch sets `error`. Expired, then error. |
+| `BrokenNoExpiredGuard` | `instance.snapshot.step !== "expired"`, `controller.ts:630` | `EndScreensStayPut` | `act(submit, 0)`: in flight. The deadline passes; a read sets `expired`. `adapter.submit`, already past its own `stopped` check (`adapters.ts:353`), returns `{step: "complete"}` and `run()` applies it. Expired, then connected. |
+| `BrokenNoExpiredGuardOnError` | `instance.snapshot.step !== "expired"` in the catch, `controller.ts:647` | `EndScreensStayPut` | `act(submit, 0)`: in flight. The deadline passes; a read sets `expired` and calls `adapter.cancel()`. `adapter.submit` throws, as the built-in adapter does once stopped ("Attempt cancelled", `adapters.ts:353`); the catch sets `error`. Expired, then error. |
 | `BrokenNoEndExemption` | the steps that never expire, `controller.ts:304` | `EndScreensStayPut` | `act(cancel, 0)`: `cancelled`. The deadline passes; a read sets `expired`. Cancelled, then expired, with no one pressing anything. |
-| `BrokenNoCallbackGuard` | `instance.snapshot.step !== "redirect"`, `controller.ts:614` | `EndScreensStayPut` | `act(cancel, 0)`: `cancelled`. A callback arrives; `adapter.callback` throws "Callback is no longer valid" (`adapters.ts:394-395`) and the catch in `run()` sets `error`. Cancelled, then error. |
+| `BrokenNoCallbackGuard` | `instance.snapshot.step !== "redirect"`, `controller.ts:617` | `EndScreensStayPut` | `act(cancel, 0)`: `cancelled`. A callback arrives; `adapter.callback` throws "Callback is no longer valid" (`adapters.ts:394-395`) and the catch in `run()` sets `error`. Cancelled, then error. |
 | `BrokenNoRetryAfterCancel` | `actionsFor("cancelled")` returns `["retry"]`, `schema.ts:322-323` | `EveryScreenOffersAWayOn` | `act(cancel, 0)`: `cancelled`, which offers nothing. |
+| `BrokenNoHumanExpiredGuard` | `instance.snapshot.step !== "expired"` in `case "request-human"`, `controller.ts:532`; with `RequestHuman = TRUE` | `EndScreensStayPut` | the F1 path above: `request-human` in flight, the deadline passes, a read sets `expired`, the answer sets `input` or `redirect` again. Not yet listed in `check.sh`; run it with `verification/tlc.sh ceremony-steps CeremonySteps BrokenNoHumanExpiredGuard`. |
 
-`conformance.test.ts` shows each of these ten checks on the real controller, so the claim "the code has them" is tested, not assumed. It also tests two more things the model takes as given: that `actionsFor` is the table in the model's `ActionsFor`, and that a callback or a second poll does not start while an adapter call is in flight (`controller.ts:418`, `:614`).
+`conformance.test.ts` shows each of these eleven checks on the real controller (`human-expired-guard` in its F1 test), so the claim "the code has them" is tested, not assumed. It also tests two more things the model takes as given: that `actionsFor` is the table in the model's `ActionsFor`, and that a callback or a second poll does not start while an adapter call is in flight (`controller.ts:418`, `:617`).
 
 ## The model and the code
 
@@ -116,38 +117,38 @@ Paths are under `src/`. `controller.ts` and `adapters.ts` are in `server/`; `sch
 |---|---|
 | `Init` | `startLocked`, `controller.ts:237-258` |
 | `Accepts`, `Press` | `actLocked`'s checks, `controller.ts:509-517` |
-| `ActBegin` | `case "begin"`, `controller.ts:535-537`; `run()` to `await operation()`, `:623-625`; `adapter.begin` to its first await, `adapters.ts:229-232` |
-| `ActSubmit` | `case "submit"`, `controller.ts:538-549`; `adapter.submit` to its first await, `adapters.ts:300-305` |
-| `ActClaim` | `case "claim"`, `controller.ts:550-555` |
-| `ActFinish` | `case "finish"`, `controller.ts:556-558` |
-| `ActRetry` | `case "retry"`, `controller.ts:559-582` (the branch without `adapter.retry`) |
-| `ActCancel` | `case "cancel"`, `controller.ts:583-592`; `adapter.cancel`, `adapters.ts:491-497` |
+| `ActBegin` | `case "begin"`, `controller.ts:538-540`; `run()` to `await operation()`, `:626-628`; `adapter.begin` to its first await, `adapters.ts:229-232` |
+| `ActSubmit` | `case "submit"`, `controller.ts:541-552`; `adapter.submit` to its first await, `adapters.ts:300-305` |
+| `ActClaim` | `case "claim"`, `controller.ts:553-558` |
+| `ActFinish` | `case "finish"`, `controller.ts:559-561` |
+| `ActRetry` | `case "retry"`, `controller.ts:562-585` (the branch without `adapter.retry`) |
+| `ActCancel` | `case "cancel"`, `controller.ts:586-595`; `adapter.cancel`, `adapters.ts:491-497` |
 | `ActRequestHuman` | `case "request-human"`, `controller.ts:525-529` |
-| `RequestHumanReturns`, `RequestHumanThrows` | `controller.ts:530-533`; the answer's shape from `github.ts:520-524` |
-| `BeginReturns` | `adapters.ts:243`, `:261-266`, `:288-295`, `:297`; applied at `controller.ts:625-628` |
-| `BeginThrows` | a failed request in `adapters.ts:246-287`; caught at `controller.ts:644-651` |
+| `RequestHumanReturns`, `RequestHumanThrows` | `controller.ts:530-536`, with the expired check at `:532`; the answer's shape from `github.ts:520-524` |
+| `BeginReturns` | `adapters.ts:243`, `:261-266`, `:288-295`, `:297`; applied at `controller.ts:628-631` |
+| `BeginThrows` | a failed request in `adapters.ts:246-287`; caught at `controller.ts:647-654` |
 | `SubmitReturnsComplete` | `adapters.ts:380-383`, `:386-391` |
 | `SubmitReturnsCodeInput` | `adapters.ts:356-378`; a repeat is dropped at `controller.ts:317-323` |
 | `SubmitReturnsWaiting` | `adapters.ts:318-329` |
-| `SubmitThrows` | `adapters.ts:301-304`, `:331-332`, `:352-353`; caught at `controller.ts:644-651` |
-| `Callback` | `callbackLocked`, `controller.ts:608-618`; `adapter.callback` to its first await, `adapters.ts:393-399` |
-| `CallbackReturns`, `CallbackThrows` | `adapters.ts:400-420`; `controller.ts:625-628`, `:644-651` |
+| `SubmitThrows` | `adapters.ts:301-304`, `:331-332`, `:352-353`; caught at `controller.ts:647-654` |
+| `Callback` | `callbackLocked`, `controller.ts:611-621`; `adapter.callback` to its first await, `adapters.ts:393-399` |
+| `CallbackReturns`, `CallbackThrows` | `adapters.ts:400-420`; `controller.ts:628-631`, `:647-654` |
 | `ReadPolls` | `readLocked`, `controller.ts:410-423`; `adapters.ts:423` |
 | `PollReturnsNothing`, `PollReturnsComplete`, `PollThrowsCeremonyError` | `adapters.ts:437-447`, `:449-456`, `:470-473`, `:476-486` |
-| `PollThrowsOther` | `controller.ts:630-643` |
+| `PollThrowsOther` | `controller.ts:633-646` |
 | `DeadlinePasses` | the clock, `controller.ts:85` (`now`) against `snapshot.expiresAt` |
 | `ExpireOnAccess` | `instance()`, `controller.ts:303-312` |
 | `TabRefreshes` | `read`, `controller.ts:402-425` |
 | `Done` | `complete` with no action left, `schema.ts:324-325` |
 | `Update`, `Change` | `update()`, `controller.ts:315-357` |
-| `Applies`, `ErrorUpdate` | the two guards in `run()`, `controller.ts:627`, `:644` |
+| `Applies`, `ErrorUpdate` | the two guards in `run()`, `controller.ts:630`, `:647`; `RequestHumanReturns` has its own, `:532` |
 | `ExpiryDue` | the test in `instance()`, `controller.ts:303-306` |
 
 `ExpireOnAccess` is its own step, although the code runs it at the start of every request. A request that finds the deadline passed behaves as a `read` that expires the snapshot followed by the request, and the model takes those two steps one after the other.
 
 ## Bounds and assumptions
 
-- One ceremony, one person, one tab that can be out of date. One adapter call in flight at a time, which `busy` enforces at `controller.ts:418`, `:511` and `:614`.
+- One ceremony, one person, one tab that can be out of date. One adapter call in flight at a time, which `busy` enforces at `controller.ts:418`, `:511` and `:617`.
 - The six built-in kinds. `RequestHuman = FALSE` in `CeremonySteps.cfg`, because `createProtocolAdapter` has no `requestHuman`.
 - The snapshot changes at most 12 times (`MaxRevision`). Everything in a state except the counters stops growing at 6 changes: 270 combinations at every bound from 6 to 24.
 - The in-memory controller: no `database` option, so no lease and no reload.
@@ -159,7 +160,7 @@ Paths are under `src/`. `controller.ts` and `adapters.ts` are in `server/`; `sch
 ## What is left out
 
 - The durable controller: the `database` option, leases, the reload in `instance()` (`controller.ts:274-299`), `persist`, events, and polling on `redirect` (`controller.ts:417`).
-- `connect`, resume, the 100-attempt limit, and `sweep` (`controller.ts:110-189`, `:225-235`, `:656-666`).
+- `connect`, resume, the 100-attempt limit, and `sweep` (`controller.ts:110-189`, `:225-235`, `:659-669`).
 - `collect`, the credential broker and field validation (`controller.ts:380-401`, `:470-500`). A rejected submission changes nothing.
 - The kinds `github-app` and `account-registration`, the adapters in `services.ts`, `github.ts`, `neon.ts` and `connectors/commands/registration.ts`, and the `adapter.retry()` and `adapter.initial()` hooks. F1 models only the shape of `requestHuman`.
 - What the snapshot shows apart from the step: fields, messages, URLs, user codes, scopes.
@@ -181,10 +182,10 @@ The chart hides three kinds of step, all from the stopped screens: cancel on `ex
 |---|---|
 | `CeremonySteps.tla` | the model and the rules |
 | `CeremonySteps.cfg` | the code as written; must hold |
-| `Finding*.cfg` | the code as written, where it breaks a rule today |
+| `Finding*.cfg` | the code as written with one setting or rule of a finding; an open finding breaks it, a fixed one holds |
 | `Broken*.cfg` | one check removed each; must fail |
 | `check.sh` | runs all of the above and `conformance.test.ts`, and compares with what is expected |
-| `conformance.test.ts` | what the model takes as given, and the two findings, on the real controller |
+| `conformance.test.ts` | what the model takes as given, the fix for F1 and the open F2, on the real controller |
 | `Chart.cfg`, `view.mjs`, `chart.mmd` | the chart, and how it is drawn |
 
 ## Kept in step with the code
