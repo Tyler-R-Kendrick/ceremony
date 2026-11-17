@@ -521,6 +521,7 @@ export class PostgresCeremonyStore implements AsyncCeremonyStore {
         id: r.id,
         generation: Number(r.generation),
       }));
+      // More than 50,000 retired revisions: the schema refuses the backup.
       const retired = (
         await client.query(
           "SELECT tenant,kind,id,revision FROM ceremony_retired ORDER BY tenant,kind,id LIMIT 50001",
@@ -531,12 +532,11 @@ export class PostgresCeremonyStore implements AsyncCeremonyStore {
         id: r.id,
         revision: Number(r.revision),
       }));
-      return encryptedBackupSchema.parse({
-        schemaVersion: 2,
-        records,
-        claims,
-        retired,
-      });
+      const backup = { schemaVersion: 2 as const, records, claims, retired };
+      // restoreEncryptedBackup refuses a backup longer than this, so the
+      // backup is refused here rather than written and found unusable.
+      if (JSON.stringify(backup).length > 24_000_000) throw new Error();
+      return encryptedBackupSchema.parse(backup);
     });
   }
   /** Fresh, offline database only. Authenticate every envelope before importing; invalidate every historical worker generation. */
