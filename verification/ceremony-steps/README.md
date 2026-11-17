@@ -123,8 +123,11 @@ The same path ended a connected ceremony (worker 2 runs begin and the callback t
 The fix is three parts of the code:
 
 - `lease-fence`: `persist()` stores a snapshot after an adapter call only while the request's lease row still carries its token and has not run out, checked in the write's transaction (`controller.ts:400-405`, `storage.ts:113-120`). Otherwise `update()` puts the worker's copy back (`controller.ts:384-390`), `run()` rethrows (`controller.ts:695`) and the request fails with 409. At step 4 worker 1's answer is not stored.
-- `busy-refuses`: `instance()` refuses a request that finds the worker's copy busy (`controller.ts:293-294`). With a database a request gets there only after the busy request's lease ran out, and that copy is not reloaded.
+- `busy-refuses`: `instance()` refuses a request that finds the worker's copy busy (`controller.ts:293-294`). With a database a request gets there only after the busy request's lease ran out, and that copy is not reloaded. Without the refusal, a read sent past the deadline to the worker whose lease ran out would expire its old copy and store `expired` over what another worker stored.
+- The `request-human` case passes its lease to `update()` as `run()` does (`controller.ts:580-581`), so `lease-fence` covers its answer too. The model's `ActRequestHuman` and the `human` flight are that case.
 - The lease is renewed every 20 seconds while an adapter call is in flight (`controller.ts:740-758`, `storage.ts:121-135`), so a call longer than 60 seconds keeps its lease and its answer is stored (`lease-renewal.test.ts`). A renewal that finds the lease gone stops and never revives it. The model's `LeaseExpires` is a renewal that did not land in time; the first two checks keep the rules then.
+
+`lease-renewal.test.ts` also runs the fence where `durable-conformance.test.ts` does not reach: a second request to the worker whose lease ran out, past the deadline (`busy-refuses`); a `request-human` answer after its lease ran out; a late answer while another worker holds a fresh lease, which needs the fence to check the token; and `CeremonyDatabase.holds` and `renew` on a lease that ran out.
 
 `DurableLeaseHeld.cfg` holds: while every lease lasts, the lease and the reload are enough.
 
@@ -157,9 +160,9 @@ The fix for F3 is two checks in `Checks`: `busy-refuses` (`instance()` refuses a
 | `Expire` | `instance()`, `controller.ts:324-333`, then `persist()` |
 | `Read` | `readLocked` without a poll, `controller.ts:454-469` |
 | `ReadPolls` | `readLocked` polling on `redirect`, the database path only, `controller.ts:460-468` |
-| `ActBegin`, `ActCancel`, `ActRetry` | `actLocked`, `controller.ts:546-655`: its checks at `:555-563`, `case "begin"` `:587-589`, `case "cancel"` `:643-652`, `case "retry"` `:613-642` |
+| `ActBegin`, `ActCancel`, `ActRetry`, `ActRequestHuman` | `actLocked`, `controller.ts:546-655`: its checks at `:555-563`, `case "begin"` `:587-589`, `case "cancel"` `:643-652`, `case "retry"` `:613-642`, `case "request-human"` `:571-586` |
 | `Callback` | `callbackLocked`, `controller.ts:668-679` |
-| `Answer`, `Fenced` | the rest of `run()`, `controller.ts:689-731`, `update()` and `persist()`, `:336-422`, then the release in the request's `finally`; the fence at `:400-405`, `storage.ts:113-120` |
+| `Answer`, `Fenced` | the rest of `run()`, `controller.ts:689-731`, or of `case "request-human"`, `:577-585`; `update()` and `persist()`, `:336-422`, then the release in the request's `finally`; the fence at `:400-405`, `storage.ts:113-120` |
 | `NotBusy` | `instance()`, `controller.ts:293-294` |
 | `Write` | `update()` and `persist()`, `controller.ts:336-422`: `INSERT OR REPLACE`, `storage.ts:69-71`; the fence checks the lease, not what is stored |
 | `LeaseExpires` | the lease row's `expires`, `storage.ts:101`, `:107`; renewed every 20 seconds while an adapter call is in flight, `controller.ts:740-758`, `storage.ts:121-135`; it runs out when a renewal does not land in time |
@@ -168,7 +171,7 @@ The fix for F3 is two checks in `Checks`: `busy-refuses` (`instance()` refuses a
 ### Bounds and what is left out
 
 - Two workers, one ceremony, one person with a tab that can be out of date. The stored snapshot is written at most 8 times.
-- One flow: `intro`, `begin` to `redirect`, a callback or a poll to `complete` or `error`, cancel, retry, expiry. The adapter is a recoverable one (`controller.ts:115-119`): any worker's adapter may answer anything an `oauth-code` adapter can. `createProtocolAdapter` is not recoverable and a durable controller refuses it.
+- One flow: `intro`, `begin` to `redirect`, a callback or a poll to `complete` or `error`, `request-human` on `redirect` (its answer is `redirect` with a new deadline, or a throw), cancel, retry, expiry. The adapter is a recoverable one (`controller.ts:115-119`): any worker's adapter may answer anything an `oauth-code` adapter can. `createProtocolAdapter` is not recoverable and a durable controller refuses it.
 - A request that makes no adapter call is one step, from `acquire` to `release`; JavaScript does not interleave it with another request in the same process.
 - `DeadlinePasses` marks the stored snapshot and every copy late at once: a copy older than a retry, which has the earlier deadline, is late no later than the stored one.
 - Left out: `start` and its lease `start:<owner>:<connector>:<method>`, `connect` and `resume`, events and `deliverEvents`, `collect` and the broker, `sweep`, the intro-to-redirect update on reload (`controller.ts:314-318`), and the poll throttle, which the model lets pass at any time.
@@ -271,7 +274,7 @@ The chart hides three kinds of step, all from the stopped screens: cancel on `ex
 | `check.sh` | runs all of the above, `conformance.test.ts`, `durable-conformance.test.ts` and `lease-renewal.test.ts`, and compares with what is expected |
 | `conformance.test.ts` | what the model takes as given, the fixes for F1 and F2, on the real controller |
 | `durable-conformance.test.ts` | the lease, the reload and the poll on redirect, and the F3 paths, on the durable controller over SQLite |
-| `lease-renewal.test.ts` | an adapter call longer than the lease keeps it, on a fake clock |
+| `lease-renewal.test.ts` | an adapter call longer than the lease keeps it, on a fake clock; the fence on a busy worker, on `request-human` and under another worker's fresh lease; `holds` and `renew` |
 | `Chart.cfg`, `view.mjs`, `chart.mmd` | the chart, and how it is drawn |
 
 ## Kept in step with the code

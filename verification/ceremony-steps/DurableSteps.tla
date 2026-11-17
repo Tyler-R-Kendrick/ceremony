@@ -49,7 +49,7 @@ Checks == {"lease", "reload-each-request", "busy-refuses", "lease-fence"}
 
 Steps == {"intro", "redirect", "complete", "error", "cancelled", "expired"}
 EndSteps == {"complete", "cancelled", "expired"}             \* controller.ts:325
-Flights == {"none", "begin", "callback", "poll"}
+Flights == {"none", "begin", "callback", "poll", "human"}
 Owns == {"none", "authenticated"}
 
 \* A snapshot: snapshot.step, snapshot.revision, snapshot.outcome?.ownership,
@@ -76,10 +76,12 @@ vars == <<db, mem, flight, lease, seen, writes, staleWrite, reloadMoved>>
 
 Has(check) == check \notin Removed
 
-\* actionsFor, schema.ts:317-344, for an outcome that is not anonymous
+\* actionsFor, schema.ts:317-344, for an outcome that is not anonymous, with
+\* "request-human" on redirect for an adapter that implements requestHuman
+\* (controller.ts:276-277, :380-384).
 ActionsFor(s) ==
   CASE s = "intro" -> {"begin", "cancel"}
-    [] s = "redirect" -> {"cancel"}
+    [] s = "redirect" -> {"cancel", "request-human"}
     [] s = "complete" -> {}
     [] s \in {"error", "expired"} -> {"retry", "cancel"}
     [] s = "cancelled" -> {"retry"}
@@ -220,20 +222,37 @@ Callback(w) ==
   /\ lease' = w
   /\ UNCHANGED <<db, seen, writes, staleWrite>>
 
+\* case "request-human", controller.ts:571-586.  The lease is held until the
+\* answer.
+ActRequestHuman(w) ==
+  /\ Enter(w)
+  /\ LET c == Loaded(w) IN
+       /\ Accepts(w, c, "request-human")
+       /\ mem' = [mem EXCEPT ![w] = c]
+  /\ flight' = [flight EXCEPT ![w] = "human"]
+  /\ lease' = w
+  /\ UNCHANGED <<db, seen, writes, staleWrite>>
+
 ---------------------------------------------------------------------------
 (* The adapter's answers: run(), controller.ts:681-732, then the release   *)
 (* in the request's finally (controller.ts:451, :492, :665).               *)
 
 \* What the adapter can answer to each call: begin returns redirect; a
 \* callback returns complete or throws; a poll returns nothing, returns
-\* complete, or throws.  "nothing" is poll() returning undefined.
+\* complete, or throws.  "nothing" is poll() returning undefined, or
+\* requestHuman throwing: controller.ts:576-585 has no catch, so the request
+\* fails and nothing is stored.  requestHuman otherwise returns the step it
+\* was accepted in with a new deadline (`fresh`): a change update() stores
+\* even though step and outcome are the same (github.ts:468).
 Answers(f) ==
-  CASE f = "begin" -> {[step |-> "redirect", own |-> "none"]}
-    [] f = "callback" -> {[step |-> "complete", own |-> "authenticated"],
-                          [step |-> "error", own |-> "none"]}
-    [] f = "poll" -> {[step |-> "nothing", own |-> "none"],
-                      [step |-> "complete", own |-> "authenticated"],
-                      [step |-> "error", own |-> "none"]}
+  CASE f = "begin" -> {[step |-> "redirect", own |-> "none", fresh |-> FALSE]}
+    [] f = "callback" -> {[step |-> "complete", own |-> "authenticated", fresh |-> FALSE],
+                          [step |-> "error", own |-> "none", fresh |-> FALSE]}
+    [] f = "poll" -> {[step |-> "nothing", own |-> "none", fresh |-> FALSE],
+                      [step |-> "complete", own |-> "authenticated", fresh |-> FALSE],
+                      [step |-> "error", own |-> "none", fresh |-> FALSE]}
+    [] f = "human" -> {[step |-> "nothing", own |-> "none", fresh |-> FALSE],
+                       [step |-> "redirect", own |-> "none", fresh |-> TRUE]}
 
 \* persist() with the request's lease, controller.ts:400-405: the answer is
 \* stored only while the lease row still carries this request's token and
@@ -241,22 +260,26 @@ Answers(f) ==
 Fenced(w) == ~Has("lease-fence") \/ lease = w
 
 \* run() applies an answer, or the error, unless the worker's own copy is
-\* expired (controller.ts:692, :715); update() returns early when nothing
-\* changes (controller.ts:343-350).  It reads only the worker's copy.  When
-\* the lease is lost, persist() throws, update() puts the copy back
-\* (controller.ts:385-390) and run() rethrows (controller.ts:695): nothing
-\* is stored and the request fails.
+\* expired (controller.ts:692, :715); case "request-human" does the same
+\* with the same lease (controller.ts:580-581).  update() returns early when
+\* nothing changes (controller.ts:343-350).  It reads only the worker's
+\* copy.  When the lease is lost, persist() throws, update() puts the copy
+\* back (controller.ts:385-390) and run() rethrows (controller.ts:695), as
+\* the request-human case does by having no catch: nothing is stored and the
+\* request fails.
 Answer(w) ==
   /\ flight[w] # "none"
   /\ \E r \in Answers(flight[w]) :
        LET base == mem[w]
            own == IF r.own = "none" THEN base.own ELSE r.own
+           new == [Next1(base, r.step, own) EXCEPT
+                     !.late = IF r.fresh THEN FALSE ELSE base.late]
        IN IF r.step = "nothing" \/ base.step = "expired"
-             \/ (r.step = base.step /\ own = base.own)
+             \/ (r.step = base.step /\ own = base.own /\ ~r.fresh)
              \/ ~Fenced(w)
           THEN UNCHANGED <<db, mem, writes, staleWrite>>
-          ELSE /\ Write(base, Next1(base, r.step, own))
-               /\ mem' = [mem EXCEPT ![w] = Next1(base, r.step, own)]
+          ELSE /\ Write(base, new)
+               /\ mem' = [mem EXCEPT ![w] = new]
   /\ flight' = [flight EXCEPT ![w] = "none"]
   /\ Release(w)
   /\ UNCHANGED <<seen, reloadMoved>>
@@ -304,6 +327,7 @@ Next ==
   \/ \E w \in Workers :
        \/ Expire(w) \/ Read(w) \/ ReadPolls(w)
        \/ ActBegin(w) \/ ActCancel(w) \/ ActRetry(w) \/ Callback(w)
+       \/ ActRequestHuman(w)
        \/ Answer(w)
   \/ LeaseExpires
   \/ DeadlinePasses
