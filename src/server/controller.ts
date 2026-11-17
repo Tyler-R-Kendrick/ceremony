@@ -312,9 +312,14 @@ export class CeremonyController {
     }
     return instance;
   }
-  private update(instance: Instance, update: AdapterUpdate): void {
+  private update(
+    instance: Instance,
+    update: AdapterUpdate,
+    dropOutcome = false,
+  ): void {
     const previous = instance.snapshot;
     if (
+      !(dropOutcome && previous.outcome) &&
       Object.entries(update).every(
         ([key, value]) =>
           JSON.stringify(Reflect.get(previous, key)) === JSON.stringify(value),
@@ -323,7 +328,9 @@ export class CeremonyController {
       return;
     const outcome = update.outcome
       ? outcomeSchema.parse(update.outcome)
-      : previous.outcome;
+      : dropOutcome
+        ? undefined
+        : previous.outcome;
     instance.snapshot = {
       id: previous.id,
       revision: previous.revision + 1,
@@ -576,11 +583,17 @@ export class CeremonyController {
         const step = ["basic", "api-key", "form"].includes(snapshot.method.kind)
           ? "input"
           : "intro";
-        this.update(instance, {
-          step,
-          expiresAt: this.now() + 600_000,
-          ...instance.adapter.initial?.(),
-        });
+        // The new adapter starts a new attempt, so an outcome the earlier
+        // attempt obtained is dropped unless it is already claimed.
+        this.update(
+          instance,
+          {
+            step,
+            expiresAt: this.now() + 600_000,
+            ...instance.adapter.initial?.(),
+          },
+          snapshot.outcome?.ownership !== "claimed",
+        );
         break;
       }
       case "cancel":
