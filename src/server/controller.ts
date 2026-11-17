@@ -69,6 +69,10 @@ interface Instance {
   busy: boolean;
   lastRead: number;
 }
+/** How long a request's lease on `instance:<id>` lasts (storage.ts acquire). */
+const LEASE_MS = 60_000;
+/** How often a request renews that lease while an adapter call is in flight. */
+const LEASE_RENEWAL_MS = 20_000;
 /**
  * The request's lease ran out while it waited on the adapter, so another
  * request may have changed the ceremony since; its answer is not stored.
@@ -568,12 +572,15 @@ export class CeremonyController {
         if (!instance.adapter.requestHuman)
           throw new CeremonyError("Human delivery is not configured", 503);
         instance.busy = true;
+        const stopRenewing = this.renewWhileWaiting(instance, lease);
         try {
           const update = await instance.adapter.requestHuman();
+          stopRenewing();
           // A concurrent read may have expired the instance while delivery was pending.
           if (instance.snapshot.step !== "expired")
             this.update(instance, update, false, lease);
         } finally {
+          stopRenewing();
           instance.busy = false;
         }
         break;
@@ -677,8 +684,10 @@ export class CeremonyController {
     lease?: string,
   ): Promise<void> {
     instance.busy = true;
+    const stopRenewing = this.renewWhileWaiting(instance, lease);
     try {
       const update = await operation();
+      stopRenewing();
       // A concurrent read may have expired the instance while the provider was responding.
       if (update && instance.snapshot.step !== "expired")
         this.update(instance, update, false, lease);
@@ -717,8 +726,35 @@ export class CeremonyController {
           lease,
         );
     } finally {
+      stopRenewing();
       instance.busy = false;
     }
+  }
+  /**
+   * Renews the request's lease on `instance:<id>` every 20 seconds while its
+   * adapter call is in flight, so a call longer than the 60-second lease keeps
+   * it. The returned function stops the renewal. A renewal that finds the
+   * lease gone stops too: the lease is not revived, and the fence in
+   * persist() refuses the answer.
+   */
+  private renewWhileWaiting(
+    instance: Instance,
+    lease: string | undefined,
+  ): () => void {
+    const database = this.options.database;
+    if (!database || lease === undefined) return () => {};
+    const id = `instance:${instance.snapshot.id}`;
+    const timer = setInterval(() => {
+      let held = false;
+      try {
+        held = database.renew(id, lease, LEASE_MS);
+      } catch {
+        // A database that cannot renew leaves the lease to run out.
+      }
+      if (!held) clearInterval(timer);
+    }, LEASE_RENEWAL_MS);
+    timer.unref?.();
+    return () => clearInterval(timer);
   }
   sweep(): void {
     for (const instance of this.store.values()) {
