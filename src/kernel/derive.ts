@@ -9,6 +9,8 @@
 import {
   names,
   type Ceremony,
+  type Facts,
+  type Operators,
   type InterfaceSpec,
   type OperatorDecl,
 } from "./ceremony.js";
@@ -43,8 +45,8 @@ export interface Derivation {
   readonly paths: readonly PathFromWorld[];
 }
 
-export function derive(
-  ceremony: Ceremony,
+export function derive<F extends Facts, O extends Operators>(
+  ceremony: Ceremony<F, O>,
   options: CheckOptions = {},
 ): Derivation {
   const compiled = ceremony.compiled;

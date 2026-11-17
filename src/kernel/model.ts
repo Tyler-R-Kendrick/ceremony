@@ -12,6 +12,8 @@ import {
   bits,
   names,
   type Ceremony,
+  type Facts,
+  type Operators,
   type Compiled,
   type CompiledOperator,
   type CompiledOutcome,
@@ -457,8 +459,8 @@ function resolveWorld(compiled: Compiled, world: readonly string[]): number {
 }
 
 /** The run a fresh controller takes when nothing goes wrong. */
-export function cooperate(
-  ceremony: Ceremony,
+export function cooperate<F extends Facts, O extends Operators>(
+  ceremony: Ceremony<F, O>,
   world: readonly string[],
   ctl: Controller = kernelController,
 ): CooperativeRun {
@@ -563,8 +565,8 @@ function capBudgets(compiled: Compiled, cap: number): Compiled {
   };
 }
 
-export function check(
-  ceremony: Ceremony,
+export function check<F extends Facts, O extends Operators>(
+  ceremony: Ceremony<F, O>,
   options: CheckOptions = {},
 ): CheckResult {
   const attempts = options.attempts ?? 2;
