@@ -527,7 +527,10 @@ export class CeremonyController {
           throw new CeremonyError("Human delivery is not configured", 503);
         instance.busy = true;
         try {
-          this.update(instance, await instance.adapter.requestHuman());
+          const update = await instance.adapter.requestHuman();
+          // A concurrent read may have expired the instance while delivery was pending.
+          if (instance.snapshot.step !== "expired")
+            this.update(instance, update);
         } finally {
           instance.busy = false;
         }
