@@ -70,6 +70,18 @@
       "types": "./dist/server/connectors/index.d.ts",
       "import": "./dist/server/connectors/index.js"
     },
+    "./kernel": {
+      "types": "./dist/kernel/index.d.ts",
+      "import": "./dist/kernel/index.js"
+    },
+    "./kernel/interface": {
+      "types": "./dist/kernel/interface/sheet.d.ts",
+      "import": "./dist/kernel/interface/sheet.js"
+    },
+    "./kernel/flows": {
+      "types": "./dist/kernel/flows/index.d.ts",
+      "import": "./dist/kernel/flows/index.js"
+    },
     "./connectors.css": "./src/react/connectors.css",
     "./openapi/connectors.json": "./docs/openapi/connectors.openapi.json",
     "./package.json": "./package.json"
@@ -207,12 +219,16 @@
   },
   "peerDependencies": {
     "@openuidev/react-lang": "0.2.15",
+    "@ui-sdk/core": "0.1.0-beta.6",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "workflow": "5.2.2"
   },
   "peerDependenciesMeta": {
     "@openuidev/react-lang": {
+      "optional": true
+    },
+    "@ui-sdk/core": {
       "optional": true
     },
     "react": {
