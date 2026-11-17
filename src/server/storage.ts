@@ -110,6 +110,14 @@ export class CeremonyDatabase {
       return token;
     });
   }
+  /** True while the lease `token` for `id` is the one held and has not run out. */
+  holds(id: string, token: string): boolean {
+    return (
+      this.db
+        .prepare("SELECT 1 FROM leases WHERE id=? AND token=? AND expires>?")
+        .get(id, token, Date.now()) !== undefined
+    );
+  }
   release(id: string, token: string): void {
     this.db.prepare("DELETE FROM leases WHERE id=? AND token=?").run(id, token);
   }
