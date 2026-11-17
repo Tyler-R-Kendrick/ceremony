@@ -290,8 +290,14 @@ test("every type-check project in npm run check finishes under 1.2 GB of memory"
 test("every TypeScript source in src, examples, tests, scripts and extensions belongs to a type-check project", async () => {
   const projects = projectFiles(await typeChecks());
   const covered = new Set([...projects.values()].flat());
-  const { stdout } = await exec("git", ["ls-files", "-z"], {
+  // The mutation runner copies the project into an untracked sandbox inside
+  // the checkout, so list what the repository tracks from its top level; the
+  // sandbox holds the same paths.
+  const { stdout: top } = await exec("git", ["rev-parse", "--show-toplevel"], {
     cwd: root,
+  });
+  const { stdout } = await exec("git", ["ls-files", "-z"], {
+    cwd: top.trim(),
     maxBuffer: 64 * 1024 * 1024,
   });
   const required = stdout
