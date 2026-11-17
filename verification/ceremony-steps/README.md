@@ -21,8 +21,13 @@ The script runs TLC on every config, then `conformance.test.ts` on the real cont
 | `CeremonySteps.cfg` | holds | the code as written |
 | `FindingRequestHuman.cfg` | holds | finding F1, fixed |
 | `Broken*.cfg` listed in `check.sh` | one rule breaks each | a check removed on purpose, to show the rule can fail |
+| `Durable.cfg`, `DurableReload.cfg` | holds | the durable controller as written; both break today (finding F3, open) |
+| `DurableLeaseHeld.cfg` | holds | the durable controller while every lease lasts |
+| `BrokenDurable*.cfg` | `OneWorkerAppliesAnswers` breaks | a check of the database path removed on purpose |
 
 Exit 0 means every result is the expected one. To run one config alone: `verification/tlc.sh ceremony-steps CeremonySteps FindingRequestHuman`.
+
+The last three configs are of `DurableSteps.tla`, the database path; see "The database path" below. `check.sh` also runs `durable-conformance.test.ts` on the durable controller over SQLite.
 
 ## Why TLA+ and TLC
 
@@ -40,7 +45,7 @@ The question is whether events can happen in a bad order: a button press, an ada
 
 ## Findings
 
-F1 and F2 are fixed. `conformance.test.ts` shows both fixes on the real controller.
+F1 and F2 are fixed. `conformance.test.ts` shows both fixes on the real controller. F3, on the database path, is open; it is under "The database path" below.
 
 ### F1, fixed. An answer to `request-human` that landed after expiry revived the ceremony
 
@@ -85,6 +90,79 @@ Every `Broken*.cfg` puts one name in `Removed`, which takes one check out of the
 | `BrokenRetryKeepsOutcome` | retry drops an outcome that is not claimed, `controller.ts:595` | `TryAgainStartsClean` | kind `authmd-anonymous`: the F2 path above. `act(begin)`: `anonymous`. `act(cancel)`: `cancelled`. `act(retry)`: `intro`, still holding the first adapter's outcome. Not yet listed in `check.sh`; run it with `verification/tlc.sh ceremony-steps CeremonySteps BrokenRetryKeepsOutcome`. |
 
 `conformance.test.ts` shows each of these twelve checks on the real controller (`human-expired-guard` in its F1 test, `retry-drops-outcome` in its F2 tests), so the claim "the code has them" is tested, not assumed. It also tests two more things the model takes as given: that `actionsFor` is the table in the model's `ActionsFor`, and that a callback or a second poll does not start while an adapter call is in flight (`controller.ts:425`, `:630`).
+
+## The database path
+
+`DurableSteps.tla` models `CeremonyController` built with the `database` option: several workers, each a process with its own controller, in-memory store and adapter, share one `CeremonyDatabase` (`src/server/storage.ts`). It is a module of its own beside `CeremonySteps.tla` because every variable of the in-memory model becomes one per worker plus one stored copy; the in-memory configs keep their state space.
+
+**The property.** Two workers never both apply an answer to one ceremony: a lease that runs out while its request waits on the adapter does not let the late answer be stored over what another worker stored since. And a worker that reloads the stored ceremony never finds a final step moved.
+
+**The harm if it breaks.** A person who cancelled, or whose attempt expired, is shown as connected, or a connected ceremony goes back to the provider page; a stale tab's action is accepted against an older stored revision.
+
+### The rules
+
+| Rule | In plain words |
+|---|---|
+| `OneWorkerAppliesAnswers` | Every write of the stored snapshot starts from the stored snapshot. A worker never writes over a change it has not read, so a lease that runs out during an adapter call cannot let two workers apply answers. |
+| `ReloadNeverMovesAnEndStep` | A worker whose copy is on `complete`, `cancelled` or `expired` reloads that step or a newer revision; never another step at the same or an older revision. |
+| `ConnectedMeansConfirmed` | The stored `complete` has an outcome behind it. |
+| `EveryScreenOffersAWayOn` | Every stored step except `complete` offers an action. TLC's deadlock check also runs. |
+
+### F3, open. An answer that lands after its lease ran out is stored over another worker's change
+
+Rules: `OneWorkerAppliesAnswers` (`Durable.cfg`) and `ReloadNeverMovesAnEndStep` (`DurableReload.cfg`). Both are expected to hold and break today. `durable-conformance.test.ts` replays the paths on the real controller over SQLite; its three tests named after the rules fail today.
+
+1. Worker 1: `act(begin, 0)` acquires the lease `instance:<id>` (`controller.ts:438`, `storage.ts:98-112`), reloads the stored snapshot (`controller.ts:274-299`), sets `busy` and awaits `adapter.begin()` (`controller.ts:639-641`).
+2. The lease's 60 seconds pass (`storage.ts:98`). Nothing renews it and nothing tells worker 1.
+3. Worker 2: `act(cancel, 0)`. `acquire` deletes the lease that ran out and takes a new one (`storage.ts:100-107`). Worker 2's store has no busy copy, so `instance()` reloads revision 0 and the cancel is accepted: `cancelled`, revision 1, stored by `persist()` (`controller.ts:365-385`).
+4. Worker 1's `adapter.begin()` returns `redirect`. `run()` checks only its own in-memory copy, which is still `intro` at revision 0 (`controller.ts:643`), and `update()` stores `redirect` at revision 1 over the cancelled snapshot (`controller.ts:336`, `:363`, `:369`). `OneWorkerAppliesAnswers` breaks here.
+5. Worker 2: `read`. The reload replaces its `cancelled` copy at revision 1 with `redirect` at revision 1 (`ReloadNeverMovesAnEndStep` breaks), and the person is back on the provider page of an attempt they cancelled.
+
+The same path ends a connected ceremony (worker 2 runs begin and the callback to `complete`, then worker 1's answer stores `redirect`) and revives an expired one (worker 1's callback answer `complete` lands after worker 2 stored `expired`). The second is the S-F1 harm across processes: the expired check in `run()` reads a copy no other worker updates.
+
+`DurableLeaseHeld.cfg` holds: while every lease lasts, the lease and the reload are enough.
+
+### Each rule of the database path can fail
+
+| Config | Check removed | Rule that breaks | Counterexample |
+|---|---|---|---|
+| `BrokenDurableNoLease` | `acquire` refuses while an unexpired lease row exists, `storage.ts:104-109` | `OneWorkerAppliesAnswers` | Worker 1: `act(begin, 0)`, in flight. Worker 2: `act(cancel, 0)` is accepted: `cancelled`, revision 1. Worker 1's answer stores `redirect` at revision 1. |
+| `BrokenDurableCachedCopy` | `instance()` reloads on every request that finds the worker idle, `controller.ts:274-299`; removed, it reloads only when the worker has no copy | `OneWorkerAppliesAnswers` | Worker 2 loads revision 0 and cancels: `cancelled`, revision 1. Worker 1 still holds its copy of revision 0, and a tab on revision 0 sends `act(cancel, 0)` to it: accepted, and stored over revision 1. |
+
+`ReloadNeverMovesAnEndStep` is seen to fail by `DurableReload.cfg` today. Once F3 is fixed, the check that fixes it gets a name in `Checks` and a `BrokenDurable*.cfg` that removes it.
+
+### The database path in the code
+
+| Variable | Code |
+|---|---|
+| `db` | the record `instance:<id>`, written by `persist()`, `controller.ts:365-385`, read in `instance()`, `:274-279` |
+| `mem` | each worker's `store.get(id).snapshot`, `controller.ts:65-71`, `:283-292` |
+| `flight` | each worker's adapter call in flight; `instance.busy` is `flight # "none"` |
+| `lease` | the `leases` row `instance:<id>`, `storage.ts:98-115`; acquired at `controller.ts:410`, `:438`, `:617`, released at `:414`, `:454`, `:621` |
+| `seen` | the revision in the person's tab |
+| `writes`, `staleWrite`, `reloadMoved` | not in the code: they record what happened, so the rules can be stated |
+
+| Action | Code |
+|---|---|
+| `Init` | `startLocked` on one worker, `controller.ts:208-272` |
+| `Enter`, `Free`, `Reloads`, `Loaded` | `acquire`, `storage.ts:98-112`; `instance()`, `controller.ts:273-302` |
+| `Expire` | `instance()`, `controller.ts:303-312`, then `persist()` |
+| `Read` | `readLocked` without a poll, `controller.ts:417-431` |
+| `ReadPolls` | `readLocked` polling on `redirect`, the database path only, `controller.ts:422-430` |
+| `ActBegin`, `ActCancel`, `ActRetry` | `actLocked`, `controller.ts:508-611`: its checks at `:516-524`, `case "begin"` `:545-547`, `case "cancel"` `:599-608`, `case "retry"` `:569-598` |
+| `Callback` | `callbackLocked`, `controller.ts:624-634` |
+| `Answer` | the rest of `run()`, `controller.ts:641-670`, `update()` and `persist()`, `:315-385`, then the release in the request's `finally` |
+| `Write` | `update()` and `persist()`, `controller.ts:315-385`: `INSERT OR REPLACE`, `storage.ts:69-71`, with no check of what is stored |
+| `LeaseExpires` | the lease row's `expires`, `storage.ts:101`, `:107`; never renewed |
+| `DeadlinePasses` | `now()` against `snapshot.expiresAt` |
+
+### Bounds and what is left out
+
+- Two workers, one ceremony, one person with a tab that can be out of date. The stored snapshot is written at most 8 times.
+- One flow: `intro`, `begin` to `redirect`, a callback or a poll to `complete` or `error`, cancel, retry, expiry. The adapter is a recoverable one (`controller.ts:99-103`): any worker's adapter may answer anything an `oauth-code` adapter can. `createProtocolAdapter` is not recoverable and a durable controller refuses it.
+- A request that makes no adapter call is one step, from `acquire` to `release`; JavaScript does not interleave it with another request in the same process.
+- `DeadlinePasses` marks the stored snapshot and every copy late at once: a copy older than a retry, which has the earlier deadline, is late no later than the stored one.
+- Left out: `start` and its lease `start:<owner>:<connector>:<method>`, `connect` and `resume`, events and `deliverEvents`, `collect` and the broker, `sweep`, the intro-to-redirect update on reload (`controller.ts:293-297`), and the poll throttle, which the model lets pass at any time.
 
 ## The model and the code
 
@@ -154,7 +232,7 @@ Paths are under `src/`. `controller.ts` and `adapters.ts` are in `server/`; `sch
 
 ## What is left out
 
-- The durable controller: the `database` option, leases, the reload in `instance()` (`controller.ts:274-299`), `persist`, events, and polling on `redirect` (`controller.ts:424`).
+- The durable controller, in `CeremonySteps.tla`: `DurableSteps.tla` models it ("The database path" above).
 - `connect`, resume, the 100-attempt limit, and `sweep` (`controller.ts:110-189`, `:225-235`, `:672-682`).
 - `collect`, the credential broker and field validation (`controller.ts:387-408`, `:477-507`). A rejected submission changes nothing.
 - The kinds `github-app` and `account-registration`, the adapters in `services.ts`, `github.ts`, `neon.ts` and `connectors/commands/registration.ts`, and the `adapter.retry()` and `adapter.initial()` hooks. F1 models only the shape of `requestHuman`.
@@ -179,8 +257,11 @@ The chart hides three kinds of step, all from the stopped screens: cancel on `ex
 | `CeremonySteps.cfg` | the code as written; must hold |
 | `Finding*.cfg` | the code as written with one setting or rule of a finding; an open finding breaks it, a fixed one holds |
 | `Broken*.cfg` | one check removed each; must fail |
-| `check.sh` | runs all of the above and `conformance.test.ts`, and compares with what is expected |
+| `DurableSteps.tla` | the database path and its rules |
+| `Durable*.cfg`, `BrokenDurable*.cfg` | its configs: the code as written, and one check removed each |
+| `check.sh` | runs all of the above, `conformance.test.ts` and `durable-conformance.test.ts`, and compares with what is expected |
 | `conformance.test.ts` | what the model takes as given, the fixes for F1 and F2, on the real controller |
+| `durable-conformance.test.ts` | the lease, the reload and the poll on redirect, and the F3 paths, on the durable controller over SQLite |
 | `Chart.cfg`, `view.mjs`, `chart.mmd` | the chart, and how it is drawn |
 
 ## Kept in step with the code

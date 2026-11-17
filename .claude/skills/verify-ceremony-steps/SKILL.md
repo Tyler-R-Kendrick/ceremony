@@ -11,6 +11,8 @@ Every embedded auth method shows a person the same step machine: `intro`, `input
 
 If it breaks, a person is shown as connected after they cancelled or the attempt expired, or loses a finished connection, or an old tab or a repeated request changes a ceremony they are no longer looking at.
 
+A second model, `DurableSteps.tla` in the same folder, covers the database path: two workers sharing one `CeremonyDatabase`, the lease, the reload in `instance()` and the poll on `redirect`. Its promise: **two workers never both apply an answer to one ceremony, and a reload never moves a final step.**
+
 `verification/ceremony-steps/README.md` has the rules, the bounds, what is left out, the fixed findings F1 and F2, and the table that maps every model action and variable to `file:line`. Read it before you change the model.
 
 ## Does your change touch the verified code?
@@ -21,7 +23,8 @@ It does if it changes any of the code in the coverage record below, or if it add
 - sets or reads `instance.busy`;
 - adds an entry point to `CeremonyController` beside `start`, `read`, `collect`, `act`, `callback`;
 - adds a method to `AuthAdapter`, or an `await` inside a path that had none;
-- adds a step to `steps`, an action to `actionNames`, or a case to `actionsFor`.
+- adds a step to `steps`, an action to `actionNames`, or a case to `actionsFor`;
+- changes the `database` path: `acquire` or `release` around a request, the reload in `instance()`, `persist()`, or the poll on `redirect` in `readLocked`; or changes `CeremonyDatabase.acquire`, `release`, `put` or `transaction` in `src/server/storage.ts`.
 
 To see what changed since the verification was last confirmed:
 
@@ -52,9 +55,17 @@ ok       BrokenNoExpiredGuardOnError  breaks:EndScreensStayPut         broken on
 ok       BrokenNoEndExemption         breaks:EndScreensStayPut         broken on purpose
 ok       BrokenNoCallbackGuard        breaks:EndScreensStayPut         broken on purpose
 ok       BrokenNoRetryAfterCancel     breaks:EveryScreenOffersAWayOn   broken on purpose
+ok       Durable                      holds                            the durable controller as written
+ok       DurableReload                holds                            the durable controller as written, a reload never moves a final step
+ok       DurableLeaseHeld             holds                            the durable controller while every lease lasts
+ok       BrokenDurableNoLease         breaks:OneWorkerAppliesAnswers   broken on purpose
+ok       BrokenDurableCachedCopy      breaks:OneWorkerAppliesAnswers   broken on purpose
 ok       conformance.test.ts          the real controller has the checks the model assumes; F1 and F2 are fixed
+ok       durable-conformance.test.ts  the durable controller has the lease and reload the model assumes; one worker applies answers
 As expected: the rules hold for the code as written. Open findings: 0 (see README.md).
 ```
+
+Until finding F3 (README.md, "The database path") is fixed, `Durable` prints `MISMATCH ... breaks:OneWorkerAppliesAnswers`, `DurableReload` prints `MISMATCH ... breaks:ReloadNeverMovesAnEndStep`, and `durable-conformance.test.ts` prints `MISMATCH` with its three tests named after those rules; the script exits 1. Those lines expect the fixed behaviour.
 
 Exit 0 means every line is the expected one. A `FINDING` line, when there is one, is a known bug in the code, reported and not fixed; it is not yours unless you changed that code. Two broken configs are not listed in `check.sh` yet: `BrokenNoHumanExpiredGuard.cfg` (the check that fixed F1, removed; expect `EndScreensStayPut` to break) and `BrokenRetryKeepsOutcome.cfg` (the check that fixed F2, removed; expect `TryAgainStartsClean` to break). Run each with `verification/tlc.sh ceremony-steps CeremonySteps <config name>`. A `MISMATCH` line prints the TLC or test output under it and the script exits 1.
 
@@ -70,6 +81,7 @@ Read every TLC result with the `/statechart` skill: give it `CeremonySteps.tla`,
 | `MISMATCH conformance.test.ts`, test `actionsFor is the table…` or `one call in flight…` | The offered actions changed, or two adapter calls can now run at once. The model no longer describes the code. | Change `ActionsFor`, or model the second call in flight, from the new code, then update the test and rerun. |
 | `MISMATCH conformance.test.ts`, test `request-human expired-guard` | The `request-human` case lost its expired check (`controller.ts:539`): F1 is back. | `BrokenNoHumanExpiredGuard.cfg` shows the path. Restore the check. |
 | `MISMATCH conformance.test.ts`, a test `retry-clears-outcome` | Retry no longer drops an outcome that is not claimed (`controller.ts:595`), or drops a claimed one: F2 is back, or decision D1 changed. | `BrokenRetryKeepsOutcome.cfg` shows the path. Restore the check, or, if D1 changed on purpose, change `RetryOwn` from the new code and rerun. |
+| `MISMATCH Durable` or `DurableReload` with a `breaks:` result, or `MISMATCH durable-conformance.test.ts` | Two workers can both apply an answer, or a reload moves a final step: finding F3, open until it is fixed. After the fix, it means the change brought it back. | Replay the path with `durable-conformance.test.ts`. Do not weaken the rule or set `LeaseRunsOut = FALSE` in these configs. |
 | `MISMATCH CeremonySteps` with a `breaks:` result | The model, as you now have it, breaks the rule named after `breaks:`. Other configs can show `MISMATCH` with the same rule, because TLC stops at the first rule that breaks. | Deal with `CeremonySteps` first. Decide whether it is a bug or a modelling error, as below. |
 | `MISMATCH` on a `Broken*` config that now `holds` | The rule no longer depends on that check in the model, so the rule has stopped guarding it. | Find the model edit that made the check redundant. Either the code really has a second defence, which you must point to and then retire the config with its reason, or the model edit was wrong. |
 | `MISMATCH` with `deadlock` | A state with no step out that is not `complete`. | Treat it as a broken `EveryScreenOffersAWayOn`. |
@@ -124,7 +136,7 @@ Move this forward only after you have read the diff of the covered files from th
 
 A pass says nothing about these:
 
-- the durable controller: the `database` option, leases, the reload in `instance()`, `persist`, events, polling on `redirect`;
+- in `DurableSteps.tla`: `start` and its lease, events and their delivery, the intro-to-redirect update on reload, the poll throttle, more than two workers, any flow but `oauth-code`;
 - `connect`, resume, the 100-attempt limit, `sweep`, `collect`, the credential broker, field validation;
 - the kinds `github-app` and `account-registration`, and every adapter except `createProtocolAdapter`; other adapters appear only as "may answer anything";
 - what the snapshot shows apart from its step: fields, messages, URLs, codes, scopes;
