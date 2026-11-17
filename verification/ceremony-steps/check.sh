@@ -2,7 +2,8 @@
 # Check the ceremony step machine: the model, then the real controller.
 #   verification/ceremony-steps/check.sh
 #
-# 1. TLC on CeremonySteps.cfg, the code as written. It must hold.
+# 1. TLC on CeremonySteps.cfg, the code as written, with every rule
+#    including TryAgainStartsClean. It must hold.
 # 2. TLC on each Finding*.cfg (an open finding fails today; a fixed one
 #    holds) and each Broken*.cfg (a check removed on purpose: it must fail).
 # 3. conformance.test.ts on the real CeremonyController.
@@ -19,7 +20,6 @@ trap 'rm -rf "$out"' EXIT
 expected="
 CeremonySteps               holds                            the code as written
 FindingRequestHuman         holds                            finding F1, fixed
-FindingTryAgain             breaks:TryAgainStartsClean       open finding F2
 BrokenNoRevisionCheck       breaks:YouActOnTheScreenYouSee   broken on purpose
 BrokenNoRevisionBump        breaks:YouActOnTheScreenYouSee   broken on purpose
 BrokenRetryRestartsRevision breaks:YouActOnTheScreenYouSee   broken on purpose
@@ -79,7 +79,7 @@ while read -r config want what; do
 done <"$out/expected"
 
 if (cd "$root" && node --import tsx --test verification/ceremony-steps/conformance.test.ts) >"$out/conformance.log" 2>&1; then
-  printf '%s %-28s %s\n' "ok      " "conformance.test.ts" "the real controller has the checks the model assumes; F1 is fixed; F2 reproduces"
+  printf '%s %-28s %s\n' "ok      " "conformance.test.ts" "the real controller has the checks the model assumes; F1 and F2 are fixed"
 else
   status=1
   printf '%s %-28s %s\n' "MISMATCH" "conformance.test.ts" "the real controller no longer matches the model"

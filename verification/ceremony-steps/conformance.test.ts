@@ -4,7 +4,7 @@
 // CeremonySteps.tla), the table in actionsFor, and one adapter call in flight
 // at a time. Each test below shows one of these on the real
 // CeremonyController. The request-human test shows the fix for finding F1;
-// the last test replays the open finding F2.
+// the two retry-clears-outcome tests show the fix for finding F2.
 //
 // Run from the repo root:
 //   node --import tsx --test verification/ceremony-steps/conformance.test.ts
@@ -296,9 +296,10 @@ test("request-human expired-guard: a requestHuman answer that lands after expiry
   assert.equal(answered.revision, redirected.revision + 1);
 });
 
-// Open finding F2. When this stops reproducing, the code was fixed: update
-// ActRetry in CeremonySteps.tla and the expectation in check.sh.
-test("finding F2: retry keeps the cancelled attempt's outcome, and cancel on the start screen shows it again (controller.ts:324-326, :576-580, :586-590)", async () => {
+// F2, fixed. Retry starts a new attempt with a new adapter, so it drops the
+// outcome an earlier attempt obtained, unless that outcome is already claimed
+// (decision D1).
+test("retry-clears-outcome: retry after a cancelled anonymous attempt starts with no outcome, and cancel then shows cancelled (finding F2)", async () => {
   const issuer = "https://provider.example";
   const realFetch = globalThis.fetch;
   let registrations = 0;
@@ -351,20 +352,56 @@ test("finding F2: retry keeps the cancelled attempt's outcome, and cancel on the
     const cancelledRef = snapshot.outcome?.connectionRef;
     snapshot = await act("cancel", snapshot.revision);
     assert.equal(snapshot.step, "cancelled");
+    assert.ok(cancelledRef);
+    const cancelledRevision = snapshot.revision;
     snapshot = await act("retry", snapshot.revision);
     assert.equal(snapshot.step, "intro");
-    assert.equal(snapshot.outcome?.connectionRef, cancelledRef);
+    assert.equal(snapshot.revision, cancelledRevision + 1);
+    assert.equal(snapshot.outcome, undefined);
+    assert.deepEqual(snapshot.actions, ["begin", "cancel"]);
     snapshot = await act("cancel", snapshot.revision);
-    assert.equal(snapshot.step, "anonymous");
-    snapshot = await act("claim", snapshot.revision);
-    snapshot = await act("submit", snapshot.revision);
-    assert.equal(snapshot.step, "error");
-    assert.match(snapshot.message ?? "", /claim window has expired/);
-    snapshot = await act("finish", snapshot.revision);
-    assert.equal(snapshot.step, "complete");
-    assert.equal(snapshot.outcome?.connectionRef, cancelledRef);
-    assert.equal(registrations, 1);
+    assert.equal(snapshot.step, "cancelled");
+    assert.equal(snapshot.outcome, undefined);
+    assert.deepEqual(snapshot.actions, ["retry"]);
+    snapshot = await act("retry", snapshot.revision);
+    assert.equal(snapshot.step, "intro");
+    assert.equal(snapshot.outcome, undefined);
+    snapshot = await act("begin", snapshot.revision);
+    assert.equal(snapshot.step, "anonymous", snapshot.message);
+    assert.equal(registrations, 2);
+    assert.ok(snapshot.outcome?.connectionRef);
+    assert.notEqual(snapshot.outcome.connectionRef, cancelledRef);
   } finally {
     globalThis.fetch = realFetch;
+  }
+});
+
+test("retry-clears-outcome: retry from error drops an authenticated outcome and keeps a claimed one (finding F2, decision D1)", async () => {
+  for (const ownership of ["authenticated", "claimed"] as const) {
+    const outcome = { connectionRef: `ref-${ownership}`, ownership, scopes: [] };
+    const h = harness({
+      begin: async () => ({
+        step: "error",
+        message: "The provider refused.",
+        outcome,
+      }),
+    });
+    const first = h.start();
+    const failed = await h.act(first.id, "begin", first.revision);
+    assert.equal(failed.step, "error", ownership);
+    assert.deepEqual(failed.outcome, outcome, ownership);
+    assert.deepEqual(failed.actions, ["retry", "cancel"], ownership);
+    const again = await h.act(first.id, "retry", failed.revision);
+    assert.equal(again.step, "intro", ownership);
+    assert.equal(again.revision, failed.revision + 1, ownership);
+    assert.deepEqual(again.actions, ["begin", "cancel"], ownership);
+    if (ownership === "claimed") {
+      assert.deepEqual(again.outcome, outcome, ownership);
+    } else {
+      assert.equal(again.outcome, undefined, ownership);
+      const cancelled = await h.act(first.id, "cancel", again.revision);
+      assert.equal(cancelled.step, "cancelled", ownership);
+      assert.equal(cancelled.outcome, undefined, ownership);
+    }
   }
 });
