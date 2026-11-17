@@ -167,6 +167,42 @@ test("P-F1: a backup carries the revisions of deleted records into the restored 
   }
 });
 
+test("P-F1: a backup holds at most 50,000 retired revisions and no more than a restore takes", async () => {
+  const fixture = await postgresFixture();
+  const store = new PostgresCeremonyStore(fixture.config, ring);
+  const admin = new Pool(fixture.config);
+  admin.on("error", () => {});
+  try {
+    await store.migrate();
+    await admin.query(
+      "INSERT INTO ceremony_retired(tenant,kind,id,revision) SELECT 'tenant','run','gone-'||g,3 FROM generate_series(1,50001) g",
+    );
+    await assert.rejects(store.encryptedBackup(), /maintenance refused/);
+    // Creating a deleted key again removes its retired row.
+    assert.equal(
+      await store.transaction((tx) => tx.put(key("gone-1"), {}, null)),
+      4,
+    );
+    const backup = await store.encryptedBackup();
+    assert.ok(backup.schemaVersion === 2);
+    assert.equal(backup.retired.length, 50000);
+    // Retired revisions with long ids and records near the byte limit fit
+    // the schema but not the length a restore takes, so the backup is
+    // refused.
+    await admin.query(
+      "UPDATE ceremony_retired SET id = id || '-' || repeat('x', 120)",
+    );
+    await admin.query(
+      "INSERT INTO ceremony_records(tenant,kind,id,revision,value) SELECT 'tenant','run','large-'||g,1,decode(repeat('00',1450000),'hex') FROM generate_series(1,10) g",
+    );
+    await assert.rejects(store.encryptedBackup(), /maintenance refused/);
+  } finally {
+    await store.close();
+    await admin.end();
+    await fixture.close();
+  }
+});
+
 test("P-F1: a restore refuses a backup that gives a key both a record and a retired revision, or one key two retired revisions, and takes a version 1 backup", async () => {
   const source = await postgresFixture(),
     target = await postgresFixture();
@@ -256,6 +292,10 @@ async function createWaitsForDelete(revision: number) {
   const a = new PostgresCeremonyStore(fixture.config, ring);
   const b = new PostgresCeremonyStore(fixture.config, ring);
   const admin = new Pool(fixture.config);
+  // The fixture's server stops after this pool ends, and pg emits `error` on
+  // the pool for the idle backend it ends; with no listener that is an
+  // uncaught exception. Losing this connection proves nothing either way.
+  admin.on("error", () => {});
   try {
     await a.migrate();
     const last = await writeUpTo(a, "raced", revision);
