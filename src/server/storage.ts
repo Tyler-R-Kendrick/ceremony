@@ -118,6 +118,21 @@ export class CeremonyDatabase {
         .get(id, token, Date.now()) !== undefined
     );
   }
+  /**
+   * Extends the lease `token` for `id` to `duration` from now while it is
+   * still held and has not run out. False when it is gone: a lease that ran
+   * out is never revived.
+   */
+  renew(id: string, token: string, duration = 60_000): boolean {
+    const now = Date.now();
+    return (
+      this.db
+        .prepare(
+          "UPDATE leases SET expires=? WHERE id=? AND token=? AND expires>?",
+        )
+        .run(now + duration, id, token, now).changes > 0
+    );
+  }
   release(id: string, token: string): void {
     this.db.prepare("DELETE FROM leases WHERE id=? AND token=?").run(id, token);
   }
