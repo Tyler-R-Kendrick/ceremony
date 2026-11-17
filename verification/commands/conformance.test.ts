@@ -471,7 +471,7 @@ test("finding 1, fixed: a second id is refused after a revalidation has taken an
 
 test("finding 2, fixed: the first id's takeover does not overwrite a step another command recorded complete", async (t) => {
   const stuck = hanging();
-  const f = await fixture(t, () => stuck.wait);
+  const f = await fixture(t, (call) => (call === 1 ? stuck.wait : Promise.resolve()));
 
   // Admit, CallHandler (first): the worker does not return from the provider.
   const first = f.advance("prepare", 1, "first");
