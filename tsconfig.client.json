@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.lib.json",
+  "include": ["src/react", "src/browser-login", "src/mcp-app"],
+  "references": [{ "path": "./tsconfig.core.json" }]
+}

@@ -1,0 +1,36 @@
+{
+  "extends": "./tsconfig.lib.json",
+  "include": ["src/server"],
+  "exclude": [
+    "src/server/connectors",
+    "src/server/persistence",
+    "src/server/recipes/outcome.ts",
+    "src/server/recipes/registry.ts",
+    "src/server/arazzo.ts",
+    "src/server/async-environment.ts",
+    "src/server/authored-oauth.ts",
+    "src/server/authorization.ts",
+    "src/server/browser-driver.ts",
+    "src/server/browser-interpreter.ts",
+    "src/server/browser-targets.ts",
+    "src/server/ceremony-errors.ts",
+    "src/server/cloudflare.ts",
+    "src/server/commands.ts",
+    "src/server/controller.ts",
+    "src/server/demonstrations.ts",
+    "src/server/environment-schema.ts",
+    "src/server/github.ts",
+    "src/server/identity.ts",
+    "src/server/live-view.ts",
+    "src/server/oauth-public-clients.ts",
+    "src/server/playwright.ts",
+    "src/server/public-auth-fetch.ts",
+    "src/server/storage.ts",
+    "src/server/system-tenants.ts",
+    "src/server/totp.ts"
+  ],
+  "references": [
+    { "path": "./tsconfig.core.json" },
+    { "path": "./tsconfig.connectors.json" }
+  ]
+}

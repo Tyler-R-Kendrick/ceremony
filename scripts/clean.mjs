@@ -9,6 +9,7 @@ const outputs = [
   ".nitro",
   ".swc",
   ".workflow-vitest",
+  ".tsbuild",
 ];
 
 export async function cleanBuildOutputs(root, apply = false) {

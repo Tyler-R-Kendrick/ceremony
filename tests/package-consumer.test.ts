@@ -148,47 +148,60 @@ test(
   },
 );
 
+/**
+ * A consumer project in `directory`: the packed tarball unpacked into its
+ * node_modules, beside a link to each declared dependency and peer and
+ * nothing else. Returns the consumer's folder and the unpacked package's.
+ */
+function isolatedConsumer(directory: string): {
+  consumer: string;
+  installed: string;
+} {
+  const { filename } = pack(directory);
+  const consumer = join(directory, "consumer");
+  const modules = join(consumer, "node_modules");
+  const installed = join(modules, manifest.name);
+  mkdirSync(installed, { recursive: true });
+  execFileSync("tar", [
+    "-xzf",
+    filename,
+    "-C",
+    installed,
+    "--strip-components=1",
+  ]);
+
+  // The declared closure, and only it. A dependency must be present; an
+  // optional peer is linked when this repository has it installed.
+  const declared = {
+    ...manifest.dependencies,
+    ...manifest.peerDependencies,
+  };
+  for (const name of Object.keys(declared)) {
+    const source = join(root, "node_modules", name);
+    if (!existsSync(source)) {
+      assert.ok(
+        name in manifest.peerDependencies,
+        `dependency ${name} is declared but not installed`,
+      );
+      continue;
+    }
+    mkdirSync(dirname(join(modules, name)), { recursive: true });
+    symlinkSync(source, join(modules, name), "dir");
+  }
+  writeFileSync(
+    join(consumer, "package.json"),
+    JSON.stringify({ name: "consumer", private: true, type: "module" }),
+  );
+  return { consumer, installed };
+}
+
 test(
   "PKG-02: every public entry point imports and type-checks from an isolated consumer",
   options,
   () => {
     const directory = mkdtempSync(join(tmpdir(), "ceremony-consumer-"));
     try {
-      const { filename } = pack(directory);
-      const consumer = join(directory, "consumer");
-      const modules = join(consumer, "node_modules");
-      const installed = join(modules, manifest.name);
-      mkdirSync(installed, { recursive: true });
-      execFileSync("tar", [
-        "-xzf",
-        filename,
-        "-C",
-        installed,
-        "--strip-components=1",
-      ]);
-
-      // The declared closure, and only it. A dependency must be present; an
-      // optional peer is linked when this repository has it installed.
-      const declared = {
-        ...manifest.dependencies,
-        ...manifest.peerDependencies,
-      };
-      for (const name of Object.keys(declared)) {
-        const source = join(root, "node_modules", name);
-        if (!existsSync(source)) {
-          assert.ok(
-            name in manifest.peerDependencies,
-            `dependency ${name} is declared but not installed`,
-          );
-          continue;
-        }
-        mkdirSync(dirname(join(modules, name)), { recursive: true });
-        symlinkSync(source, join(modules, name), "dir");
-      }
-      writeFileSync(
-        join(consumer, "package.json"),
-        JSON.stringify({ name: "consumer", private: true, type: "module" }),
-      );
+      const { consumer } = isolatedConsumer(directory);
 
       const entries = Object.entries(manifest.exports).map(
         ([subpath, target]) => ({
@@ -267,6 +280,328 @@ console.log(JSON.stringify(report));
         [join(root, "node_modules/typescript/bin/tsc"), "-p", consumer],
         { cwd: consumer, encoding: "utf8", env },
       );
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  },
+);
+
+/*
+ * The kernel, as a package consumer gets it.
+ *
+ * Three entries: `./kernel` (facts, operators, ceremonies, the planner, the
+ * policy and the model checker), `./kernel/interface` (the layout prover) and
+ * `./kernel/flows` (the modelled auth families). A consumer defines a ceremony
+ * from them and checks it, without reaching into `dist/` by path. Nothing a
+ * kernel entry loads may belong to the server: the kernel is meant to run
+ * where the server cannot, so every module reachable from the three entries
+ * stays under `dist/kernel/`, and the only package it may name is the UI SDK,
+ * which is an optional peer.
+ */
+
+const kernelEntries = ["./kernel", "./kernel/interface", "./kernel/flows"];
+
+/** Packages a kernel entry may import. Each must be an optional peer. */
+const kernelPeers = ["@ui-sdk/core"];
+
+function conditions(subpath: string): { types: string; import: string } {
+  const target = manifest.exports[subpath];
+  assert.ok(target !== undefined, `the export map has no ${subpath}`);
+  assert.equal(
+    typeof target,
+    "object",
+    `${subpath} names its types and its module separately`,
+  );
+  const { types, import: module } = target as {
+    types?: string;
+    import?: string;
+  };
+  assert.ok(types !== undefined, `${subpath} has a types condition`);
+  assert.ok(module !== undefined, `${subpath} has an import condition`);
+  return { types, import: module };
+}
+
+test("PKG-03: the export map publishes the kernel and declares its peer optional", () => {
+  for (const subpath of kernelEntries) {
+    const target = conditions(subpath);
+    assert.match(
+      target.import,
+      /^\.\/dist\/kernel\/(.+\/)?[a-z-]+\.js$/,
+      `${subpath} loads built kernel output`,
+    );
+    assert.match(
+      target.types,
+      /^\.\/dist\/kernel\/(.+\/)?[a-z-]+\.d\.ts$/,
+      `${subpath} is typed by built kernel declarations`,
+    );
+    assert.equal(
+      target.types.replace(/\.d\.ts$/, ""),
+      target.import.replace(/\.js$/, ""),
+      `${subpath} types and module describe the same file`,
+    );
+  }
+  const meta = (
+    manifest as unknown as {
+      peerDependenciesMeta?: Record<string, { optional?: boolean }>;
+    }
+  ).peerDependenciesMeta;
+  for (const name of kernelPeers) {
+    assert.ok(
+      name in manifest.peerDependencies,
+      `${name} is declared as a peer dependency`,
+    );
+    assert.equal(meta?.[name]?.optional, true, `${name} is an optional peer`);
+    assert.ok(
+      !(name in manifest.dependencies),
+      `${name} is not a hard dependency`,
+    );
+  }
+});
+
+/**
+ * Valid as both JavaScript and TypeScript, so the same text is run by Node
+ * and type-checked by `tsc` through the public specifiers.
+ */
+const consumerProgram = `import {
+  CeremonyDefinitionError,
+  check,
+  defineCeremony,
+  established,
+  fact,
+  invalidates,
+  operator,
+  retry,
+  terminal,
+} from "${manifest.name}/kernel";
+import { catalog, githubAppAccess, githubUserAccess } from "${manifest.name}/kernel/flows";
+import { proveSheet, sheetLayout, SHEET_DOMAIN } from "${manifest.name}/kernel/interface";
+
+const enter = operator({
+  description: "Ask the person for a token.",
+  establishes: ["entered"],
+  actor: "human",
+  idempotent: true,
+  outcomes: {
+    entered: established("The person submitted a token."),
+    declined: terminal("declined", "The person chose not to."),
+  },
+  interface: {
+    title: "Connect with a token",
+    body: "Paste a token for this service.",
+    fields: [{ name: "token", label: "Token", kind: "secret" }],
+    actions: [
+      { id: "submit", label: "Connect", outcome: "entered", emphasis: "primary" },
+      { id: "cancel", label: "Not now", outcome: "declined", emphasis: "secondary" },
+    ],
+  },
+});
+
+const facts = {
+  entered: fact({ description: "The person entered a token.", volatile: true, secret: true }),
+  token: fact({
+    description: "The service accepted the token.",
+    volatile: true,
+    observable: true,
+    secret: true,
+  }),
+};
+
+const token = defineCeremony({
+  id: "consumer-token",
+  title: "Connect with a token",
+  facts,
+  operators: {
+    enter,
+    verify: operator({
+      description: "Make one harmless call with the token.",
+      establishes: ["token"],
+      requires: ["entered"],
+      consumes: ["entered"],
+      actor: "machine",
+      idempotent: true,
+      outcomes: {
+        accepted: established("The service accepted the token."),
+        rejected: invalidates(["entered"], "The service refused the token."),
+        unavailable: retry("The service did not answer."),
+      },
+    }),
+  },
+  goal: ["token"],
+});
+
+// The same ceremony with no way to notice a spent input: the kernel refuses it.
+let refused = "";
+try {
+  defineCeremony({
+    id: "consumer-careless",
+    title: "Connect with a token",
+    facts,
+    operators: {
+      enter,
+      verify: operator({
+        description: "Make one harmless call with the token.",
+        establishes: ["token"],
+        requires: ["entered"],
+        consumes: ["entered"],
+        actor: "machine",
+        idempotent: true,
+        outcomes: { accepted: established("The service accepted the token.") },
+      }),
+    },
+    goal: ["token"],
+  });
+} catch (error) {
+  if (error instanceof CeremonyDefinitionError)
+    refused = error.issues.map((issue) => issue.rule).join(",");
+}
+
+const own = check(token);
+const family = check(catalog.apiKey);
+const spec = token.operators.enter.interface;
+const proof = spec === undefined ? "none" : proveSheet(sheetLayout(spec)).status;
+
+console.log(
+  JSON.stringify({
+    complete: own.complete,
+    violations: own.violations.map((violation) => violation.property),
+    operatorsUnused: own.operatorsUnused,
+    refused,
+    family: { complete: family.complete, violations: family.violations.length },
+    families: Object.keys(catalog).length,
+    composed: [githubAppAccess.id, githubUserAccess.id].every((id) => typeof id === "string"),
+    proof,
+    domain: SHEET_DOMAIN,
+  }),
+);
+`;
+
+test(
+  "PKG-04: a consumer defines and checks a ceremony from the published kernel",
+  options,
+  () => {
+    const directory = mkdtempSync(join(tmpdir(), "ceremony-kernel-"));
+    try {
+      const { consumer } = isolatedConsumer(directory);
+      writeFileSync(join(consumer, "ceremony.mjs"), consumerProgram);
+      writeFileSync(join(consumer, "ceremony.ts"), consumerProgram);
+      const env = { ...process.env, NODE_OPTIONS: "" };
+
+      const report = JSON.parse(
+        execFileSync(process.execPath, [join(consumer, "ceremony.mjs")], {
+          cwd: consumer,
+          encoding: "utf8",
+          env,
+        }).trim(),
+      ) as Record<string, unknown>;
+      assert.deepEqual(report, {
+        complete: true,
+        violations: [],
+        operatorsUnused: [],
+        refused: "consumed-detectable,stale-precondition",
+        family: { complete: true, violations: 0 },
+        families: 11,
+        composed: true,
+        proof: "proved",
+        domain: { width: [320, 1280], scale: [1, 2] },
+      });
+
+      writeFileSync(
+        join(consumer, "tsconfig.json"),
+        JSON.stringify({
+          compilerOptions: {
+            target: "ES2024",
+            module: "NodeNext",
+            moduleResolution: "NodeNext",
+            lib: ["ES2024", "DOM"],
+            strict: true,
+            noUncheckedIndexedAccess: true,
+            exactOptionalPropertyTypes: true,
+            noEmit: true,
+            skipLibCheck: false,
+            types: [],
+          },
+          files: ["ceremony.ts"],
+        }),
+      );
+      execFileSync(
+        process.execPath,
+        [join(root, "node_modules/typescript/bin/tsc"), "-p", consumer],
+        { cwd: consumer, encoding: "utf8", env },
+      );
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  },
+);
+
+/** Every specifier a module or declaration file names in an import or export. */
+function specifiers(source: string): string[] {
+  const found: string[] = [];
+  const patterns = [
+    /\b(?:import|export)\s+(?:type\s+)?(?:[^'"`;]*?\s+from\s+)?["']([^"']+)["']/g,
+    /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g,
+    /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g,
+  ];
+  for (const pattern of patterns)
+    for (const match of source.matchAll(pattern)) found.push(match[1]!);
+  return found;
+}
+
+test(
+  "PKG-05: no module outside the kernel is reachable from a kernel entry",
+  options,
+  () => {
+    const directory = mkdtempSync(join(tmpdir(), "ceremony-kernel-graph-"));
+    try {
+      const { installed } = isolatedConsumer(directory);
+      const reached = new Set<string>();
+      const packages = new Set<string>();
+      const pending: string[] = [];
+      for (const subpath of kernelEntries) {
+        const target = conditions(subpath);
+        pending.push(target.import.slice(2), target.types.slice(2));
+      }
+      while (pending.length > 0) {
+        const path = pending.pop()!;
+        if (reached.has(path)) continue;
+        reached.add(path);
+        const file = join(installed, path);
+        assert.ok(existsSync(file), `${path} is in the tarball`);
+        for (const specifier of specifiers(readFileSync(file, "utf8"))) {
+          if (!specifier.startsWith(".")) {
+            packages.add(specifier);
+            continue;
+          }
+          let next = join(dirname(path), specifier);
+          if (path.endsWith(".d.ts")) next = next.replace(/\.js$/, ".d.ts");
+          pending.push(next);
+        }
+      }
+
+      const outside = [...reached].filter(
+        (path) => !path.startsWith("dist/kernel/"),
+      );
+      assert.deepEqual(outside, [], "every reachable module is kernel code");
+      const undeclared = [...packages].filter(
+        (name) =>
+          !kernelPeers.some(
+            (peer) => name === peer || name.startsWith(`${peer}/`),
+          ),
+      );
+      assert.deepEqual(
+        undeclared,
+        [],
+        "a kernel entry imports no package but its optional peers, and no Node built-in",
+      );
+      for (const module of [
+        "dist/kernel/ceremony.js",
+        "dist/kernel/model.js",
+        "dist/kernel/flows/catalog.js",
+        "dist/kernel/flows/github-app.js",
+        "dist/kernel/interface/sheet.js",
+        "dist/kernel/interface/prove.js",
+      ])
+        assert.ok(reached.has(module), `${module} is reachable from an entry`);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

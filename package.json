@@ -70,6 +70,18 @@
       "types": "./dist/server/connectors/index.d.ts",
       "import": "./dist/server/connectors/index.js"
     },
+    "./kernel": {
+      "types": "./dist/kernel/index.d.ts",
+      "import": "./dist/kernel/index.js"
+    },
+    "./kernel/interface": {
+      "types": "./dist/kernel/interface/sheet.d.ts",
+      "import": "./dist/kernel/interface/sheet.js"
+    },
+    "./kernel/flows": {
+      "types": "./dist/kernel/flows/index.d.ts",
+      "import": "./dist/kernel/flows/index.js"
+    },
     "./connectors.css": "./src/react/connectors.css",
     "./openapi/connectors.json": "./docs/openapi/connectors.openapi.json",
     "./package.json": "./package.json"
@@ -92,7 +104,8 @@
     "setup:browsers": "playwright install --with-deps chromium firefox webkit",
     "clean": "node scripts/clean.mjs",
     "clean:apply": "node scripts/clean.mjs --apply",
-    "check": "tsc --noEmit && tsc --noEmit -p examples/kernel && npm run docs:connectors:check && npm run openapi:check",
+    "check": "npm run check:types && tsc --noEmit -p examples/kernel && npm run docs:connectors:check && npm run openapi:check",
+    "check:types": "tsc -p tsconfig.core.json && tsc -p tsconfig.kernel.json && tsc -p tsconfig.connectors.json && tsc -p tsconfig.server.json && tsc -p tsconfig.client.json && tsc -p tsconfig.tests.json && tsc -p tsconfig.tests-connectors.json && tsc -p tsconfig.tools.json",
     "build": "npm run build:extension && tsc -p tsconfig.build.json && vite build && node scripts/build-mcp-app.mjs && node scripts/check-bundle.mjs",
     "build:extension": "node scripts/build-extension.mjs",
     "build:mcp-app": "node scripts/build-mcp-app.mjs",
@@ -132,6 +145,7 @@
     "test:snapshots:update": "node --import tsx --test --test-update-snapshots tests/characterization.test.ts",
     "test:fuzz": "node --import tsx --test tests/fuzz.test.ts",
     "test:kernel": "node --no-experimental-webstorage --import tsx --test \"tests/kernel/*.test.ts\"",
+    "test:kernel:mutation": "stryker run stryker.kernel.config.mjs",
     "kernel:harness": "node --import tsx examples/kernel/server.ts",
     "test:bombadil": "node --import tsx scripts/kernel-bombadil.mjs",
     "test:chaos": "node --import tsx --test tests/chaos.test.ts",
@@ -144,6 +158,7 @@
     "format": "prettier --write src examples tests scripts package.json tsconfig*.json *.config.ts stryker*.json stryker*.mjs README.md CONTRIBUTING.md PRODUCT.md DESIGN.md docs .devcontainer .github",
     "format:check": "prettier --check src examples tests scripts package.json tsconfig*.json *.config.ts stryker*.json stryker*.mjs README.md CONTRIBUTING.md PRODUCT.md DESIGN.md docs .devcontainer .github && node scripts/check-control-characters.mjs",
     "verify": "node --import tsx scripts/verify-deterministic.mjs",
+    "verify:models": "sh scripts/verify-models.sh",
     "test:connectors:mutation": "stryker run stryker.connectors.config.mjs",
     "test:accounts:mutation": "stryker run stryker.accounts.config.mjs"
   },
@@ -204,12 +219,16 @@
   },
   "peerDependencies": {
     "@openuidev/react-lang": "0.2.15",
+    "@ui-sdk/core": "0.1.0-beta.6",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "workflow": "5.2.2"
   },
   "peerDependenciesMeta": {
     "@openuidev/react-lang": {
+      "optional": true
+    },
+    "@ui-sdk/core": {
       "optional": true
     },
     "react": {
