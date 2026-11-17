@@ -91,7 +91,7 @@ function harness(overrides: Partial<AuthAdapter> = {}) {
   };
 }
 
-test("revision-check: an action with an old revision changes nothing (controller.ts:511)", async () => {
+test("revision-check: an action with an old revision changes nothing (controller.ts:557)", async () => {
   const h = harness();
   const first = h.start();
   const second = await h.act(first.id, "begin", first.revision);
@@ -99,7 +99,7 @@ test("revision-check: an action with an old revision changes nothing (controller
   assert.deepEqual(await h.read(first.id), second);
 });
 
-test("busy-check: no action is accepted while an adapter call is in flight (controller.ts:511)", async () => {
+test("busy-check: no action is accepted while an adapter call is in flight (controller.ts:557)", async () => {
   const pending = Promise.withResolvers<AdapterUpdate>();
   const h = harness({ begin: () => pending.promise });
   const first = h.start();
@@ -109,7 +109,7 @@ test("busy-check: no action is accepted while an adapter call is in flight (cont
   assert.equal((await beginning).step, "redirect");
 });
 
-test("offered-check: an action the step does not offer changes nothing (controller.ts:516)", async () => {
+test("offered-check: an action the step does not offer changes nothing (controller.ts:562)", async () => {
   const h = harness();
   const first = h.start();
   assert.deepEqual(first.actions, ["begin", "cancel"]);
@@ -120,7 +120,7 @@ test("offered-check: an action the step does not offer changes nothing (controll
   assert.deepEqual(await h.read(first.id), first);
 });
 
-test("one call in flight: a callback or a second poll does not start while one is in flight (controller.ts:418, :614)", async () => {
+test("one call in flight: a callback or a second poll does not start while one is in flight (controller.ts:463, :675)", async () => {
   // The controller reaches the adapter in the same synchronous stretch as the
   // request, so the counts are known as soon as each call returns its promise.
   let callbacks = 0;
@@ -189,7 +189,7 @@ test("actionsFor is the table the model's ActionsFor has (schema.ts:317-344)", (
   }
 });
 
-test("end-exemption: complete and cancelled never expire (controller.ts:304)", async () => {
+test("end-exemption: complete and cancelled never expire (controller.ts:325)", async () => {
   const h = harness();
   const first = h.start();
   const cancelled = await h.act(first.id, "cancel", first.revision);
@@ -205,7 +205,7 @@ test("end-exemption: complete and cancelled never expire (controller.ts:304)", a
   assert.deepEqual(await second.read(started.id), connected);
 });
 
-test("expired-guard-on-error: an adapter error that lands after expiry is dropped (controller.ts:660)", async () => {
+test("expired-guard-on-error: an adapter error that lands after expiry is dropped (controller.ts:715)", async () => {
   const pending = Promise.withResolvers<AdapterUpdate>();
   const h = harness({ begin: () => pending.promise });
   const first = h.start();
@@ -217,7 +217,7 @@ test("expired-guard-on-error: an adapter error that lands after expiry is droppe
   assert.deepEqual(await beginning, expired);
 });
 
-test("expired-guard: an adapter answer that lands after expiry is dropped (controller.ts:643)", async () => {
+test("expired-guard: an adapter answer that lands after expiry is dropped (controller.ts:692)", async () => {
   const pending = Promise.withResolvers<AdapterUpdate>();
   const h = harness({ begin: () => pending.promise });
   const first = h.start();
@@ -229,7 +229,7 @@ test("expired-guard: an adapter answer that lands after expiry is dropped (contr
   assert.deepEqual(await beginning, expired);
 });
 
-test("callback-guard: a callback outside the redirect step changes nothing (controller.ts:614)", async () => {
+test("callback-guard: a callback outside the redirect step changes nothing (controller.ts:675)", async () => {
   const h = harness();
   const first = h.start();
   const atProvider = await h.act(first.id, "begin", first.revision);
@@ -242,7 +242,7 @@ test("callback-guard: a callback outside the redirect step changes nothing (cont
   assert.deepEqual(await h.read(first.id), cancelled);
 });
 
-test("revision-bump and retry-keeps-revision: every change adds one, retry included (controller.ts:329, :576)", async () => {
+test("revision-bump and retry-keeps-revision: every change adds one, retry included (controller.ts:358, :632)", async () => {
   const h = harness();
   const first = h.start();
   assert.equal(first.revision, 0);
@@ -263,7 +263,7 @@ test("retry-after-cancel: the cancelled step offers retry (schema.ts:322-323)", 
 });
 
 // F1, fixed. A requestHuman answer is applied only while the snapshot is not
-// expired, as run() does for every other adapter answer (controller.ts:643).
+// expired, as run() does for every other adapter answer (controller.ts:692).
 test("request-human expired-guard: a requestHuman answer that lands after expiry is dropped, one that lands in time is applied (finding F1)", async () => {
   const late = Promise.withResolvers<AdapterUpdate>();
   const h = harness({ requestHuman: () => late.promise });

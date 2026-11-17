@@ -16,7 +16,7 @@
 (* accepted and the call starts; the answer is applied, persisted and the  *)
 (* lease released).                                                         *)
 (*                                                                         *)
-(* The adapter is a recoverable one (controller.ts:111-115 refuses any    *)
+(* The adapter is a recoverable one (controller.ts:115-119 refuses any    *)
 (* other with a database): every worker's adapter can carry the attempt    *)
 (* on, so the model lets it answer anything an oauth-code adapter can.     *)
 (*                                                                         *)
@@ -35,20 +35,20 @@ CONSTANTS
 (* The code has every one of them.                                         *)
 (*   "lease"                storage.ts:98-112  acquire refuses while an    *)
 (*                          unexpired lease row for the ceremony exists    *)
-(*   "reload-each-request"  controller.ts:291-316  instance() reads the    *)
+(*   "reload-each-request"  controller.ts:295-320  instance() reads the    *)
 (*                          stored snapshot on every request that finds    *)
 (*                          the worker idle; removed, it reads it only     *)
 (*                          when the worker has no copy                    *)
-(*   "busy-refuses"         controller.ts:289-290  instance() refuses a    *)
+(*   "busy-refuses"         controller.ts:293-294  instance() refuses a    *)
 (*                          request that finds the worker's copy busy      *)
-(*   "lease-fence"          controller.ts:396-401  persist() stores an     *)
+(*   "lease-fence"          controller.ts:400-405  persist() stores an     *)
 (*                          answer only while the request's lease is held  *)
 (*                          and has not run out (storage.ts:113-120)       *)
 (***************************************************************************)
 Checks == {"lease", "reload-each-request", "busy-refuses", "lease-fence"}
 
 Steps == {"intro", "redirect", "complete", "error", "cancelled", "expired"}
-EndSteps == {"complete", "cancelled", "expired"}             \* controller.ts:321
+EndSteps == {"complete", "cancelled", "expired"}             \* controller.ts:325
 Flights == {"none", "begin", "callback", "poll"}
 Owns == {"none", "authenticated"}
 
@@ -87,11 +87,11 @@ ActionsFor(s) ==
 ---------------------------------------------------------------------------
 (* What every request does first                                           *)
 
-\* database.acquire(`instance:${id}`), controller.ts:443, :472, :654.  A
+\* database.acquire(`instance:${id}`), controller.ts:447, :476, :661.  A
 \* lease row that has run out is deleted first (storage.ts:100-102).
 Free == ~Has("lease") \/ lease = "none"
 
-\* instance(), controller.ts:291-316: the stored snapshot replaces the
+\* instance(), controller.ts:295-320: the stored snapshot replaces the
 \* worker's copy unless the worker is busy.
 Reloads(w) ==
   /\ flight[w] = "none"
@@ -109,7 +109,7 @@ MovesAnEndStep(w) ==
   /\ db.step # mem[w].step
   /\ db.rev <= mem[w].rev
 
-\* instance(), controller.ts:289-290: with a database, a request that finds
+\* instance(), controller.ts:293-294: with a database, a request that finds
 \* the worker's copy busy is refused.  It gets there only after the lease
 \* of the request that set `busy` ran out.
 NotBusy(w) == ~Has("busy-refuses") \/ flight[w] = "none"
@@ -120,10 +120,10 @@ Enter(w) ==
   /\ NotBusy(w)
   /\ reloadMoved' = (reloadMoved \/ MovesAnEndStep(w))
 
-\* instance(), controller.ts:320-329: an expired attempt is expired first.
+\* instance(), controller.ts:324-333: an expired attempt is expired first.
 Due(c) == c.step \notin EndSteps /\ c.late
 
-\* update() then persist(), controller.ts:332-418.  `base` is the copy the
+\* update() then persist(), controller.ts:336-422.  `base` is the copy the
 \* update starts from; persist() writes the new snapshot whatever is stored.
 Write(base, new) ==
   /\ db' = new
@@ -138,7 +138,7 @@ Release(w) == lease' = IF lease = w THEN "none" ELSE lease   \* release(id, toke
 (* Requests                                                                *)
 
 \* Any request that finds the attempt past its deadline: instance() expires
-\* it and persists that (controller.ts:320-329).  The request then fails
+\* it and persists that (controller.ts:324-333).  The request then fails
 \* its own checks or returns the expired snapshot.
 Expire(w) ==
   /\ Enter(w)
@@ -148,7 +148,7 @@ Expire(w) ==
        /\ mem' = [mem EXCEPT ![w] = Next1(c, "expired", c.own)]
   /\ UNCHANGED <<flight, lease, seen>>
 
-\* read(), controller.ts:442-466, when it does not poll (the step is not
+\* read(), controller.ts:446-470, when it does not poll (the step is not
 \* redirect, the worker is busy, or the one-second throttle holds it back).
 Read(w) ==
   /\ Enter(w)
@@ -159,7 +159,7 @@ Read(w) ==
   /\ UNCHANGED <<db, flight, lease, writes, staleWrite>>
 
 \* read() polls the adapter on redirect, which only the database path
-\* does: controller.ts:456-464.  The lease is held until the answer.
+\* does: controller.ts:460-468.  The lease is held until the answer.
 ReadPolls(w) ==
   /\ Enter(w)
   /\ LET c == Loaded(w) IN
@@ -171,14 +171,14 @@ ReadPolls(w) ==
   /\ lease' = w
   /\ UNCHANGED <<db, seen, writes, staleWrite>>
 
-\* actLocked's checks, controller.ts:551-559
+\* actLocked's checks, controller.ts:555-563
 Accepts(w, c, a) ==
   /\ ~Due(c)
   /\ seen = c.rev
   /\ flight[w] = "none"
   /\ a \in ActionsFor(c.step)
 
-\* case "begin", controller.ts:580-582.  The lease is held until the answer.
+\* case "begin", controller.ts:587-589.  The lease is held until the answer.
 ActBegin(w) ==
   /\ Enter(w)
   /\ LET c == Loaded(w) IN
@@ -188,7 +188,7 @@ ActBegin(w) ==
   /\ lease' = w
   /\ UNCHANGED <<db, seen, writes, staleWrite>>
 
-\* case "cancel", controller.ts:636-645
+\* case "cancel", controller.ts:643-652
 ActCancel(w) ==
   /\ Enter(w)
   /\ LET c == Loaded(w) IN
@@ -197,7 +197,7 @@ ActCancel(w) ==
        /\ mem' = [mem EXCEPT ![w] = Next1(c, "cancelled", c.own)]
   /\ UNCHANGED <<flight, lease, seen>>
 
-\* case "retry", controller.ts:606-635, for an adapter without retry(): a
+\* case "retry", controller.ts:613-642, for an adapter without retry(): a
 \* new adapter, the first step, a new deadline, and the outcome dropped.
 ActRetry(w) ==
   /\ Enter(w)
@@ -208,7 +208,7 @@ ActRetry(w) ==
         /\ mem' = [mem EXCEPT ![w] = n]
   /\ UNCHANGED <<flight, lease, seen>>
 
-\* callback(), controller.ts:649-672.  The lease is held until the answer.
+\* callback(), controller.ts:656-679.  The lease is held until the answer.
 Callback(w) ==
   /\ Enter(w)
   /\ LET c == Loaded(w) IN
@@ -221,8 +221,8 @@ Callback(w) ==
   /\ UNCHANGED <<db, seen, writes, staleWrite>>
 
 ---------------------------------------------------------------------------
-(* The adapter's answers: run(), controller.ts:674-722, then the release   *)
-(* in the request's finally (controller.ts:447, :488, :658).               *)
+(* The adapter's answers: run(), controller.ts:681-732, then the release   *)
+(* in the request's finally (controller.ts:451, :492, :665).               *)
 
 \* What the adapter can answer to each call: begin returns redirect; a
 \* callback returns complete or throws; a poll returns nothing, returns
@@ -235,16 +235,16 @@ Answers(f) ==
                       [step |-> "complete", own |-> "authenticated"],
                       [step |-> "error", own |-> "none"]}
 
-\* persist() with the request's lease, controller.ts:396-401: the answer is
+\* persist() with the request's lease, controller.ts:400-405: the answer is
 \* stored only while the lease row still carries this request's token and
 \* has not run out (storage.ts:113-120), checked in the write's transaction.
 Fenced(w) == ~Has("lease-fence") \/ lease = w
 
 \* run() applies an answer, or the error, unless the worker's own copy is
-\* expired (controller.ts:683, :706); update() returns early when nothing
-\* changes (controller.ts:339-346).  It reads only the worker's copy.  When
+\* expired (controller.ts:692, :715); update() returns early when nothing
+\* changes (controller.ts:343-350).  It reads only the worker's copy.  When
 \* the lease is lost, persist() throws, update() puts the copy back
-\* (controller.ts:381-386) and run() rethrows (controller.ts:686): nothing
+\* (controller.ts:385-390) and run() rethrows (controller.ts:695): nothing
 \* is stored and the request fails.
 Answer(w) ==
   /\ flight[w] # "none"
@@ -264,9 +264,11 @@ Answer(w) ==
 ---------------------------------------------------------------------------
 (* Time                                                                    *)
 
-\* The lease row's `expires` passes while its request waits on the adapter
-\* (storage.ts:98: 60 seconds from acquire, never renewed).  The request
-\* does not know.
+\* The lease row's `expires` passes while its request waits on the adapter.
+\* It lasts 60 seconds from acquire (storage.ts:98) and is renewed every 20
+\* seconds while the call is in flight (controller.ts:740-758,
+\* storage.ts:121-135), so it runs out only when a renewal does not land in
+\* time.  The request does not know until the fence refuses its write.
 LeaseExpires ==
   /\ LeaseRunsOut
   /\ lease # "none"
@@ -286,7 +288,7 @@ DeadlinePasses ==
 ---------------------------------------------------------------------------
 First == CHOOSE w \in Workers : TRUE
 
-\* start(), controller.ts:220-284, on the first worker: revision 0 on
+\* start(), controller.ts:224-288, on the first worker: revision 0 on
 \* intro, stored by persist().
 Init ==
   /\ db = [step |-> "intro", rev |-> 0, own |-> "none", late |-> FALSE]

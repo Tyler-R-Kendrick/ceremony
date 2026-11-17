@@ -9,7 +9,8 @@
 # 3. TLC on DurableSteps.tla, the database path: Durable*.cfg must hold and
 #    each BrokenDurable*.cfg must fail.
 # 4. conformance.test.ts on the real CeremonyController, and
-#    durable-conformance.test.ts on the durable controller over SQLite.
+#    durable-conformance.test.ts and lease-renewal.test.ts on the durable
+#    controller over SQLite.
 #
 # Exit 0 when every result is the one listed below. Any other result prints
 # the TLC output for it and exits 1.
@@ -34,6 +35,7 @@ BrokenNoHumanExpiredGuard   breaks:EndScreensStayPut         broken on purpose
 BrokenNoEndExemption        breaks:EndScreensStayPut         broken on purpose
 BrokenNoCallbackGuard       breaks:EndScreensStayPut         broken on purpose
 BrokenNoRetryAfterCancel    breaks:EveryScreenOffersAWayOn   broken on purpose
+BrokenRetryKeepsOutcome     breaks:TryAgainStartsClean       broken on purpose
 Durable                     holds                            the durable controller as written
 DurableReload               holds                            the durable controller as written, a reload never moves a final step
 DurableLeaseHeld            holds                            the durable controller while every lease lasts
@@ -105,8 +107,8 @@ else
   grep -E "^not ok|error:|expected|actual" "$out/conformance.log" | sed 's/^/    /'
 fi
 
-if (cd "$root" && node --import tsx --test verification/ceremony-steps/durable-conformance.test.ts) >"$out/durable.log" 2>&1; then
-  printf '%s %-28s %s\n' "ok      " "durable-conformance.test.ts" "the durable controller has the lease and reload the model assumes; one worker applies answers"
+if (cd "$root" && node --import tsx --test verification/ceremony-steps/durable-conformance.test.ts verification/ceremony-steps/lease-renewal.test.ts) >"$out/durable.log" 2>&1; then
+  printf '%s %-28s %s\n' "ok      " "durable-conformance.test.ts" "the durable controller has the lease, reload, fence and renewal the model assumes; one worker applies answers"
 else
   status=1
   printf '%s %-28s %s\n' "MISMATCH" "durable-conformance.test.ts" "the durable controller does not keep the rules of the database path"
