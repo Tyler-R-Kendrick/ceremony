@@ -205,7 +205,7 @@ test("end-exemption: complete and cancelled never expire (controller.ts:304)", a
   assert.deepEqual(await second.read(started.id), connected);
 });
 
-test("expired-guard-on-error: an adapter error that lands after expiry is dropped (controller.ts:644)", async () => {
+test("expired-guard-on-error: an adapter error that lands after expiry is dropped (controller.ts:660)", async () => {
   const pending = Promise.withResolvers<AdapterUpdate>();
   const h = harness({ begin: () => pending.promise });
   const first = h.start();
@@ -217,7 +217,7 @@ test("expired-guard-on-error: an adapter error that lands after expiry is droppe
   assert.deepEqual(await beginning, expired);
 });
 
-test("expired-guard: an adapter answer that lands after expiry is dropped (controller.ts:627)", async () => {
+test("expired-guard: an adapter answer that lands after expiry is dropped (controller.ts:643)", async () => {
   const pending = Promise.withResolvers<AdapterUpdate>();
   const h = harness({ begin: () => pending.promise });
   const first = h.start();
@@ -263,7 +263,7 @@ test("retry-after-cancel: the cancelled step offers retry (schema.ts:322-323)", 
 });
 
 // F1, fixed. A requestHuman answer is applied only while the snapshot is not
-// expired, as run() does for every other adapter answer (controller.ts:627).
+// expired, as run() does for every other adapter answer (controller.ts:643).
 test("request-human expired-guard: a requestHuman answer that lands after expiry is dropped, one that lands in time is applied (finding F1)", async () => {
   const late = Promise.withResolvers<AdapterUpdate>();
   const h = harness({ requestHuman: () => late.promise });
