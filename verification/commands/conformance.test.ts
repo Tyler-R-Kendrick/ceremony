@@ -179,7 +179,7 @@ const states = (records: Stored[]) => records.map((r) => [r.id, r.state]);
 // Part 1: what the model takes from the code.
 // ---------------------------------------------------------------------------
 
-test("Admit: the command and effect records are stored before the handler is called, and the step is not recorded complete", async (t) => {
+test("Admit: the command and effect records are stored before the handler is called, and the run and step records are not written", async (t) => {
   let seen: { commands: Stored[]; effects: Stored[] } | undefined;
   const f = await fixture(t, async () => {
     seen = {
@@ -187,8 +187,8 @@ test("Admit: the command and effect records are stored before the handler is cal
       effects: await f.records("effect"),
     };
     const during = await f.snapshot();
-    assert.notEqual(during.nodes[0]!.state, "complete");
-    assert.equal(during.nodes[0]!.verified, false);
+    assert.equal(during.revision, 1);
+    assert.equal(during.nodes[0]!.state, "pending");
   });
   await f.advance("prepare", 1, "first");
   assert.deepEqual(states(seen!.commands), [["first", "running"]]);
@@ -303,16 +303,14 @@ test("Commit: refused once another party has taken the lease, even though the re
   await until(() => f.calls() === 1);
   // The lease runs out and a revalidation takes it, finds nothing to reject
   // and releases it. Nothing bumps the run revision.
-  const before = (await f.snapshot()).revision;
   f.leaseRunsOut();
-  assert.equal((await f.commands.revalidate(actor, f.run.id)).revision, before);
+  assert.equal((await f.commands.revalidate(actor, f.run.id)).revision, 1);
   stuck.release();
   await assert.rejects(first);
   assert.deepEqual(states(await f.records("command")), [["first", "running"]]);
   const after = await f.snapshot();
-  assert.equal(after.revision, before);
-  assert.notEqual(after.nodes[0]!.state, "complete");
-  assert.equal(after.nodes[0]!.verified, false);
+  assert.equal(after.revision, 1);
+  assert.equal(after.nodes[0]!.state, "pending");
 });
 
 test("Commit: refused after the run is cancelled", async (t) => {
@@ -321,12 +319,10 @@ test("Commit: refused after the run is cancelled", async (t) => {
   const first = f.advance("prepare", 1, "first");
   first.catch(() => undefined);
   await until(() => f.calls() === 1);
-  await f.commands.cancel(actor, f.run.id, (await f.snapshot()).revision);
+  await f.commands.cancel(actor, f.run.id, 1);
   stuck.release();
   await assert.rejects(first);
-  const prepare = await f.step("prepare");
-  assert.notEqual(prepare.state, "complete");
-  assert.equal(prepare.verified, false);
+  assert.equal((await f.step("prepare")).state, "pending");
 });
 
 test("Takeover: the same id after the lease runs out is marked uncertain with a reconciliation task, and the handler is not called again", async (t) => {
