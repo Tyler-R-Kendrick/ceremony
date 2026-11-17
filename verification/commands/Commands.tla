@@ -16,25 +16,29 @@ CONSTANTS
   MaxRevalidations,  \* how many times revalidate() may start (a bound)
 
   \* Broken variants. FALSE is the code as written.
-  TakeoverRerunsHandler, \* the takeover branch (706-770) admits a new worker
+  TakeoverRerunsHandler, \* the takeover branch (723-797) admits a new worker
                          \* for the command instead of recording `uncertain`
-  HandlerBeforeIntent,   \* the command and effect records (835-840) are not
-                         \* written before the handler call (877)
-  SkipAssertFence,       \* the commit drops `await tx.assertFence(fence)` (922)
+  HandlerBeforeIntent,   \* the command and effect records (872-886) are not
+                         \* written before the handler call (923)
+  SkipAssertFence,       \* the commit drops `await tx.assertFence(fence)` (968)
+  AdmitIgnoresHolder,    \* admission does not read the command named on the
+                         \* step (833-842)
+  TakeoverIgnoresStep,   \* the takeover writes the step `uncertain` without
+                         \* reading it first (728-731, 742-752)
 
   \* Sketches of guards the findings point at. FALSE is the code as written.
   \* They are not product code and nobody has reviewed them as a design.
-  RefuseOverUnresolved,     \* admission refuses a new command while another
-                            \* command for the step is still `running`
   ReconcileInAnyRun,        \* the takeover branch drops `run.status ===
-                            \* "active"` from its condition (694)
-  RevalidateKeepsUncertain  \* revalidate leaves an `uncertain` step alone (532-537)
+                            \* "active"` from its condition (711)
+  RevalidateKeepsUncertain  \* revalidate leaves an `uncertain` step alone (545-554)
 
 VARIABLES
   \* What the store holds.
   runStatus,  \* RunRecord.status
   runRev,     \* the revision of the run record
   node,       \* the step's NodeRecord, see NodeStates
+  holder,     \* NodeRecord.command: the command admitted last for the step,
+              \* "none" = no record or no such field
   cmd,        \* cmd[c]: CommandRecord.state of command c, "none" = no record
   outbox,     \* commands with an outbox entry `reconciliation:<commandId>`
   lease,      \* who holds a live claim on the run: a command's worker,
@@ -59,13 +63,14 @@ VARIABLES
   superseded, \* workers whose lease another party has taken since
   lateCommit  \* a superseded worker recorded its result
 
-vars == << runStatus, runRev, node, cmd, outbox, lease, worker, result, expRev,
-           reval, revalRev, revalLeft, calls, blind, rejected, superseded,
-           lateCommit >>
+vars == << runStatus, runRev, node, holder, cmd, outbox, lease, worker, result,
+           expRev, reval, revalRev, revalLeft, calls, blind, rejected,
+           superseded, lateCommit >>
 
 (***************************************************************************)
 (* The step's NodeRecord, as one word:                                     *)
-(*   "pending"   no record                                                 *)
+(*   "pending"   no record, or a record with no `state`: admission       *)
+(*               names the command on a step with no record (875-881)  *)
 (*   "complete"  {state: "complete", verified: true}                       *)
 (*   "waiting"   {state: "awaiting-human" or "verifying", verified: false} *)
 (*   "failed"    {state: "failed", verified: false}, may be attempted      *)
@@ -73,21 +78,25 @@ vars == << runStatus, runRev, node, cmd, outbox, lease, worker, result, expRev,
 (*   "uncertain" {state: "uncertain", verified: false}                     *)
 (* The service writes `verified: true` only with state "complete", and     *)
 (* turns a complete result that fails verification into "failed"           *)
-(* (879-890, 907-914), so no other combination is ever stored.             *)
+(* (925-936, 953-960), so no other combination is ever stored.             *)
 (***************************************************************************)
 NodeStates == {"pending", "complete", "waiting", "failed", "exhausted", "uncertain"}
 
-\* OperationResult.state after verification and success criteria (877-916).
+\* OperationResult.state after verification and success criteria (923-962).
 Results == {"complete", "waiting", "failed", "uncertain"}
 
 CmdStates == {"none", "running"} \cup Results
 
 InFlight == {c \in Commands : worker[c] \in {"admitted", "ran"}}
 
+\* The command named on the step is still `running` (833-842).
+HolderRunning == holder # "none" /\ cmd[holder] = "running"
+
 TypeOK ==
   /\ runStatus \in {"active", "cancelled", "complete"}
   /\ runRev \in Nat
   /\ node \in NodeStates
+  /\ holder \in Commands \cup {"none"}
   /\ cmd \in [Commands -> CmdStates]
   /\ outbox \subseteq Commands
   /\ lease \in Commands \cup {"revalidation", "free"}
@@ -103,11 +112,12 @@ TypeOK ==
   /\ superseded \subseteq Commands
   /\ lateCommit \in BOOLEAN
 
-\* createRun (353-355) stores the run at revision 1; nothing else exists.
+\* createRun (364-366) stores the run at revision 1; nothing else exists.
 Init ==
   /\ runStatus = "active"
   /\ runRev = 1
   /\ node = "pending"
+  /\ holder = "none"
   /\ cmd = [c \in Commands |-> "none"]
   /\ outbox = {}
   /\ lease = "free"
@@ -124,22 +134,24 @@ Init ==
   /\ lateCommit = FALSE
 
 (***************************************************************************)
-(* execute(), admission transaction (666-851), no record for this          *)
-(* commandId yet (783-850). It writes the command and effect records and   *)
-(* claims the run's lease. It does NOT write the node record or the run    *)
-(* record, so the run revision and the step's state stay as they were.     *)
+(* execute(), admission transaction (683-897), no record for this          *)
+(* commandId yet (810-896). It refuses while the command named on the step *)
+(* is `running` (833-842), claims the run's lease, writes the command and  *)
+(* effect records, and names the command on the step's node record         *)
+(* (872-886). It does NOT write the run record, and the step's `state` is  *)
+(* kept, so the run revision and the step's state stay as they were.       *)
 (***************************************************************************)
 Admit(c) ==
-  /\ cmd[c] = "none"                           \* 688-691: no prior record
+  /\ cmd[c] = "none"                           \* 705-708: no prior record
   /\ worker[c] \notin {"admitted", "ran"}      \* only bites with HandlerBeforeIntent
-  /\ runStatus = "active"                      \* 783-787, and the caller sends
+  /\ runStatus = "active"                      \* 810-814, and the caller sends
                                                \* the revision it last read
-  /\ node \in {"pending", "waiting", "failed"} \* 796-805
-  /\ lease = "free"                            \* 822-826: tx.claim
-  /\ RefuseOverUnresolved =>
-       \A d \in Commands \ {c} : cmd[d] # "running"
+  /\ node \in {"pending", "waiting", "failed"} \* 823-832
+  /\ AdmitIgnoresHolder \/ ~HolderRunning      \* 833-842
+  /\ lease = "free"                            \* 859-863: tx.claim
   /\ lease' = c
-  /\ cmd' = IF HandlerBeforeIntent THEN cmd    \* 835-840: command "running",
+  /\ holder' = c                               \* 875-881
+  /\ cmd' = IF HandlerBeforeIntent THEN cmd    \* 872-886: command "running",
             ELSE [cmd EXCEPT ![c] = "running"] \* effect "intent-persisted"
   /\ worker' = [worker EXCEPT ![c] = "admitted"]
   /\ expRev' = [expRev EXCEPT ![c] = runRev]
@@ -148,7 +160,7 @@ Admit(c) ==
                   revalLeft, calls, blind, rejected, lateCommit >>
 
 (***************************************************************************)
-(* Between the transactions (873-916): the handler, its verification and   *)
+(* Between the transactions (919-962): the handler, its verification and   *)
 (* the success criteria. The store is not touched. A handler call is a     *)
 (* blind repeat when the step is recorded complete, or when another        *)
 (* command's call for the step has an unknown outcome: its command is      *)
@@ -156,162 +168,168 @@ Admit(c) ==
 (***************************************************************************)
 CallHandler(c, r) ==
   /\ worker[c] = "admitted"
-  /\ calls' = [calls EXCEPT ![c] = IF @ < 2 THEN @ + 1 ELSE @]  \* 877
+  /\ calls' = [calls EXCEPT ![c] = IF @ < 2 THEN @ + 1 ELSE @]  \* 923
   /\ blind' = \/ blind
               \/ node = "complete"
               \/ \E d \in Commands \ {c} :
                    calls[d] > 0 /\ cmd[d] \in {"running", "uncertain"}
   /\ worker' = [worker EXCEPT ![c] = "ran"]
   /\ result' = [result EXCEPT ![c] = r]
-  /\ UNCHANGED << runStatus, runRev, node, cmd, outbox, lease, expRev, reval,
-                  revalRev, revalLeft, rejected, superseded, lateCommit >>
+  /\ UNCHANGED << runStatus, runRev, node, holder, cmd, outbox, lease, expRev,
+                  reval, revalRev, revalLeft, rejected, superseded,
+                  lateCommit >>
 
 \* Authorization is withdrawn or the call is aborted just before the handler
-\* (874-876): the catch (891-894) makes the result `uncertain`, no call made.
+\* (920-922): the catch (937-940) makes the result `uncertain`, no call made.
 HandlerNotCalled(c) ==
   /\ worker[c] = "admitted"
   /\ worker' = [worker EXCEPT ![c] = "ran"]
   /\ result' = [result EXCEPT ![c] = "uncertain"]
-  /\ UNCHANGED << runStatus, runRev, node, cmd, outbox, lease, expRev, reval,
-                  revalRev, revalLeft, calls, blind, rejected, superseded,
-                  lateCommit >>
-
-\* The process dies, or authorization is withdrawn after the handler
-\* (917-918, 924-931). Nothing is written and the lease is not released.
-WorkerLost(c) ==
-  /\ worker[c] \in {"admitted", "ran"}
-  /\ worker' = [worker EXCEPT ![c] = "gone"]
-  /\ UNCHANGED << runStatus, runRev, node, cmd, outbox, lease, result, expRev,
+  /\ UNCHANGED << runStatus, runRev, node, holder, cmd, outbox, lease, expRev,
                   reval, revalRev, revalLeft, calls, blind, rejected,
                   superseded, lateCommit >>
 
+\* The process dies, or authorization is withdrawn after the handler
+\* (963-964, 970-977). Nothing is written and the lease is not released.
+WorkerLost(c) ==
+  /\ worker[c] \in {"admitted", "ran"}
+  /\ worker' = [worker EXCEPT ![c] = "gone"]
+  /\ UNCHANGED << runStatus, runRev, node, holder, cmd, outbox, lease, result,
+                  expRev, reval, revalRev, revalLeft, calls, blind, rejected,
+                  superseded, lateCommit >>
+
 CanCommit(c) ==
-  /\ SkipAssertFence \/ lease = c                 \* 922: tx.assertFence
-  /\ runStatus = "active" /\ runRev = expRev[c]   \* 932-936
+  /\ SkipAssertFence \/ lease = c                 \* 968: tx.assertFence
+  /\ runStatus = "active" /\ runRev = expRev[c]   \* 978-982
 
 (***************************************************************************)
-(* execute(), commit transaction (919-1077): node, command, effect and run *)
-(* records are written together, then the lease is released (1068).        *)
+(* execute(), commit transaction (965-1124): node, command, effect and run *)
+(* records are written together, then the lease is released (1115).        *)
 (***************************************************************************)
 Commit(c) ==
   /\ worker[c] = "ran"
   /\ CanCommit(c)
-  /\ \E n \in (IF result[c] = "failed" THEN {"failed", "exhausted"}  \* 941-954
+  /\ \E n \in (IF result[c] = "failed" THEN {"failed", "exhausted"}  \* 987-1000
                ELSE {result[c]}) :
-       node' = n                                          \* 955-967
-  /\ cmd' = [cmd EXCEPT ![c] = result[c]]                 \* 968-981
+       node' = n                                          \* 1001-1014
+  /\ holder' = c                                          \* 1011
+  /\ cmd' = [cmd EXCEPT ![c] = result[c]]                 \* 1015-1028
   /\ \E last \in (IF result[c] = "complete" THEN BOOLEAN ELSE {FALSE}) :
-       \* 982-993: `last` says every other step of the run is verified
+       \* 1029-1040: `last` says every other step of the run is verified
        runStatus' = IF last THEN "complete" ELSE "active"
   /\ runRev' = runRev + 1
-  /\ lease' = "free"                                      \* 1068
+  /\ lease' = "free"                                      \* 1115
   /\ worker' = [worker EXCEPT ![c] = "gone"]
   /\ lateCommit' = (lateCommit \/ c \in superseded)
   /\ superseded' = superseded \cup (InFlight \ {c})
   /\ UNCHANGED << outbox, result, expRev, reval, revalRev, revalLeft, calls,
                   blind, rejected >>
 
-\* The commit transaction throws PersistenceConflict (922, 932-936).
+\* The commit transaction throws PersistenceConflict (968, 978-982).
 CommitRefused(c) ==
   /\ worker[c] = "ran"
   /\ ~CanCommit(c)
   /\ worker' = [worker EXCEPT ![c] = "gone"]
-  /\ UNCHANGED << runStatus, runRev, node, cmd, outbox, lease, result, expRev,
-                  reval, revalRev, revalLeft, calls, blind, rejected,
+  /\ UNCHANGED << runStatus, runRev, node, holder, cmd, outbox, lease, result,
+                  expRev, reval, revalRev, revalLeft, calls, blind, rejected,
                   superseded, lateCommit >>
 
 (***************************************************************************)
-(* execute() called again with a commandId that has a record (691-782).    *)
-(* The only thing such a call can change is the takeover (694-770): the    *)
+(* execute() called again with a commandId that has a record (708-809).    *)
+(* The only thing such a call can change is the takeover (711-797): the    *)
 (* record is `running`, the run is active and the lease can be claimed.    *)
 (* Every other replay returns the stored state and changes nothing, so it  *)
 (* is not an action here.                                                  *)
 (***************************************************************************)
 Takeover(c) ==
-  /\ cmd[c] = "running"                           \* 694
-  /\ runStatus = "active" \/ ReconcileInAnyRun    \* 694
-  /\ lease = "free"                               \* 696-705: tx.claim
+  /\ cmd[c] = "running"                           \* 711
+  /\ runStatus = "active" \/ ReconcileInAnyRun    \* 711
+  /\ lease = "free"                               \* 713-722: tx.claim
   /\ IF TakeoverRerunsHandler
      THEN /\ worker[c] = "gone"
           /\ worker' = [worker EXCEPT ![c] = "admitted"]
           /\ lease' = c
-          /\ UNCHANGED << runRev, node, cmd, outbox, superseded >>
-     ELSE /\ cmd' = [cmd EXCEPT ![c] = "uncertain"]   \* 712-721
-          /\ node' = "uncertain"                      \* 722-726
-          /\ runRev' = runRev + 1                     \* 727-731
-          /\ outbox' = outbox \cup {c}                \* 749-758
-          /\ lease' = "free"                          \* 759
+          /\ UNCHANGED << runRev, node, holder, cmd, outbox, superseded >>
+     ELSE /\ cmd' = [cmd EXCEPT ![c] = "uncertain"]   \* 732-741
+          \* 728-731: a step recorded complete and verified is not written
+          /\ IF node = "complete" /\ ~TakeoverIgnoresStep
+             THEN UNCHANGED << node, holder >>
+             ELSE /\ node' = "uncertain"              \* 742-752
+                  /\ holder' = c
+          /\ runRev' = runRev + 1                     \* 753-757
+          /\ outbox' = outbox \cup {c}                \* 776-785
+          /\ lease' = "free"                          \* 786
           /\ superseded' = superseded \cup InFlight
           /\ UNCHANGED worker
   /\ UNCHANGED << runStatus, result, expRev, reval, revalRev, revalLeft,
                   calls, blind, rejected, lateCommit >>
 
-\* The database clock passes the claim's `expires` (60 s, 825 and 465).
+\* The database clock passes the claim's `expires` (60 s, 862 and 476).
 LeaseExpires ==
   /\ lease # "free"
   /\ lease' = "free"
-  /\ UNCHANGED << runStatus, runRev, node, cmd, outbox, worker, result,
-                  expRev, reval, revalRev, revalLeft, calls, blind, rejected,
-                  superseded, lateCommit >>
+  /\ UNCHANGED << runStatus, runRev, node, holder, cmd, outbox, worker,
+                  result, expRev, reval, revalRev, revalLeft, calls, blind,
+                  rejected, superseded, lateCommit >>
 
-\* cancel() (428-442). It does not look at the run's status.
+\* cancel() (439-453). It does not look at the run's status.
 CancelRun ==
   /\ runStatus # "cancelled"
-  /\ runStatus' = "cancelled"       \* 437-441
+  /\ runStatus' = "cancelled"       \* 448-452
   /\ runRev' = runRev + 1
-  /\ lease' = "free"                \* 436: tx.cancel
+  /\ lease' = "free"                \* 447: tx.cancel
   /\ superseded' = superseded \cup InFlight
-  /\ UNCHANGED << node, cmd, outbox, worker, result, expRev, reval, revalRev,
-                  revalLeft, calls, blind, rejected, lateCommit >>
+  /\ UNCHANGED << node, holder, cmd, outbox, worker, result, expRev, reval,
+                  revalRev, revalLeft, calls, blind, rejected, lateCommit >>
 
-\* revalidate(), first transaction (448-468): read the run and claim it.
+\* revalidate(), first transaction (459-479): read the run and claim it.
 RevalidateStart ==
   /\ reval = "idle"
   /\ revalLeft > 0
-  /\ runStatus # "cancelled"        \* 450-451
-  /\ lease = "free"                 \* 462-466: tx.claim
+  /\ runStatus # "cancelled"        \* 461-462
+  /\ lease = "free"                 \* 473-477: tx.claim
   /\ lease' = "revalidation"
   /\ reval' = "checking"
   /\ revalRev' = runRev
   /\ revalLeft' = revalLeft - 1
   /\ superseded' = superseded \cup InFlight
-  /\ UNCHANGED << runStatus, runRev, node, cmd, outbox, worker, result,
-                  expRev, calls, blind, rejected, lateCommit >>
+  /\ UNCHANGED << runStatus, runRev, node, holder, cmd, outbox, worker,
+                  result, expRev, calls, blind, rejected, lateCommit >>
 
 (***************************************************************************)
-(* revalidate(), the provider checks (469-510) and the last transaction    *)
-(* (511-546). `reject` is what the provider no longer vouches for:         *)
+(* revalidate(), the provider checks (480-521) and the last transaction    *)
+(* (522-563). `reject` is what the provider no longer vouches for:         *)
 (* "nothing"; "step", this step's own evidence (only a verified step is    *)
-(* asked, 476); or "dependency", a step this one depends on (472-475).     *)
-(* A rejected step with a record is rewritten as plain "failed" whatever   *)
-(* it was (529-537).                                                       *)
+(* asked, 487); or "dependency", a step this one depends on (483-486).     *)
+(* A rejected step with a recorded state is rewritten as plain "failed"    *)
+(* whatever it was, and keeps the command named on it (542-554).           *)
 (***************************************************************************)
 RevalidateFinish(reject) ==
   /\ reval = "checking"
-  /\ lease = "revalidation"                           \* 513
-  /\ runRev = revalRev /\ runStatus # "cancelled"     \* 514-518
-  /\ reject = "step" => node = "complete"             \* 476
+  /\ lease = "revalidation"                           \* 524
+  /\ runRev = revalRev /\ runStatus # "cancelled"     \* 525-529
+  /\ reject = "step" => node = "complete"             \* 487
   /\ reval' = "idle"
-  /\ lease' = "free"                                  \* 545
+  /\ lease' = "free"                                  \* 562
   /\ IF reject = "nothing"
      THEN UNCHANGED << runStatus, runRev, node, rejected >>
-     ELSE /\ node' = IF node = "pending" THEN "pending"            \* 531-532
+     ELSE /\ node' = IF node = "pending" THEN "pending"            \* 542-544
                      ELSE IF node = "uncertain" /\ RevalidateKeepsUncertain
                           THEN "uncertain"
-                          ELSE "failed"                            \* 533-537
-          /\ runStatus' = "active"                                 \* 539-544
+                          ELSE "failed"                            \* 545-554
+          /\ runStatus' = "active"                                 \* 556-561
           /\ runRev' = runRev + 1
           /\ rejected' = rejected \cup {c \in Commands : cmd[c] = "complete"}
-  /\ UNCHANGED << cmd, outbox, worker, result, expRev, revalRev, revalLeft,
-                  calls, blind, superseded, lateCommit >>
+  /\ UNCHANGED << holder, cmd, outbox, worker, result, expRev, revalRev,
+                  revalLeft, calls, blind, superseded, lateCommit >>
 
-\* The revalidate() call dies, is denied (482-483, 521-528) or is refused
-\* (513-518). Nothing is written and its lease is not released.
+\* The revalidate() call dies, is denied (493-494, 532-539) or is refused
+\* (524-529). Nothing is written and its lease is not released.
 RevalidationAbandoned ==
   /\ reval = "checking"
   /\ reval' = "idle"
-  /\ UNCHANGED << runStatus, runRev, node, cmd, outbox, lease, worker, result,
-                  expRev, revalRev, revalLeft, calls, blind, rejected,
+  /\ UNCHANGED << runStatus, runRev, node, holder, cmd, outbox, lease, worker,
+                  result, expRev, revalRev, revalLeft, calls, blind, rejected,
                   superseded, lateCommit >>
 
 (***************************************************************************)
@@ -365,7 +383,7 @@ CompleteStaysVerified ==
   \A c \in Commands : (cmd[c] = "complete" /\ c \notin rejected) => node = "complete"
 
 \* While a command is recorded `uncertain`, its step is recorded
-\* `uncertain`, which is what keeps every new command out (800).
+\* `uncertain`, which is what keeps every new command out (827).
 UncertainStaysBlocked ==
   \A c \in Commands : cmd[c] = "uncertain" => node = "uncertain"
 
