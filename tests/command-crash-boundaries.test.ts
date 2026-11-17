@@ -358,6 +358,18 @@ for (const [mode, exitCode, expectedEffects] of [
         crashRegistry(provider.url),
         async () => true,
       );
+      // A new command id for the step, sent before the crashed one is
+      // replayed, is refused and makes no provider call.
+      await assert.rejects(
+        resumed.advance(
+          crashActor,
+          run.id,
+          "node",
+          (await resumed.snapshot(crashActor, run.id)).revision,
+          "new-command-before-replay",
+        ),
+      );
+      assert.equal(provider.effects.size, expectedEffects);
       const replay = await resumed.advance(
         crashActor,
         run.id,
