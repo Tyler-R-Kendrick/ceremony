@@ -128,6 +128,8 @@ export const step = (action, from, to) => {
       return "a writer with no lease rewrites the record";
     case "OtherWriterDeletes":
       return "a writer with no lease deletes the record";
+    case "OtherKeyInSlotDeleted":
+      return "a record under another key in the slot is deleted";
     case "ClockBoundReached":
       return "the clock stops";
     default:

@@ -35,7 +35,7 @@ TLC checks `Fence.tla`. It never opens a TypeScript file. If you change the stor
 
 Yes, if it changes any of these:
 
-- In `src/server/persistence/index.ts`: `now`, `fenceRow`, `assertFence`, `get`, `put`, `retired`, `create`, `delete`, `list`, `claim`, `heartbeat`, `cancel`; the `lock` suffix (`FOR UPDATE`); the `migration` SQL of `ceremony_records`, `ceremony_claims` or `ceremony_retired`; `SQLiteCeremonyStore.transaction`; `PostgresCeremonyStore.transaction`; `PersistenceConflict`; `Fence`; `rotateRecords`.
+- In `src/server/persistence/index.ts`: `now`, `fenceRow`, `assertFence`, `get`, `put`, `retired`, `create`, `delete`, `list`, `claim`, `heartbeat`, `cancel`, `retiredSlot`, `retiredSlots`; the `lock` suffix (`FOR UPDATE`); the `migration` SQL of `ceremony_records`, `ceremony_claims` or `ceremony_retired_slots`; `SQLiteCeremonyStore.transaction`; `PostgresCeremonyStore.transaction`; `PersistenceConflict`; `Fence`; `rotateRecords`.
 - Any SQL text in those functions, any `WHERE` or `ON CONFLICT` clause, the order of statements inside them, or where a transaction begins, commits or rolls back.
 - The isolation level or locking of either store, or a new store backend.
 - A new method on `AsyncTransaction` that reads or writes `ceremony_claims`, or writes `ceremony_records` in a new way (for example a write with no revision).
@@ -44,7 +44,7 @@ Yes, if it changes any of these:
 To see what changed since the model was last confirmed, compare the covered files with the sync commit at the end of this skill:
 
 ```sh
-git diff 67a7f79f73c1fb479bbf4326fad6c0663cad2c5b -- src/server/persistence
+git diff e6b8a177eeb284a537fdecdf48ff001a66116113 -- src/server/persistence
 ```
 
 Changes only to sealing, key validation, list paging, record kinds or error text do not touch the model. Backup and restore are outside the model too, so the check says nothing about a change there (see Not covered). Decide this from the map in the README, not from a commit message.
@@ -84,7 +84,7 @@ Decide with the code, not with the model.
 Other changes in the output:
 
 - **A `Broken*` config now holds.** The check it takes out no longer carries the rule. Either the code got a second defence, or the model lost the path. Find out which before you touch the config. Do not delete a broken variant to get a clean run.
-- **`FindingRevisionReused` breaks.** A record created again can take a revision its key had before: finding F1 is back. Check `create` and the end of `delete` in `index.ts` against `KeepRetired` in `Fence.tla`. `BrokenNoRetiredRevision.cfg` shows the path TLC finds without the retired revision.
+- **`FindingRevisionReused` breaks.** A record created again can take a revision its key had before: finding F1 is back. Check `create` and the end of `delete` in `index.ts` against `KeepRetired` in `Fence.tla`. `BrokenNoRetiredRevision.cfg` shows the path TLC finds without the retired slot.
 - **`error`** in a `FAIL` line means TLC could not run the config: a syntax error in `Fence.tla`, a constant missing from a `.cfg`, or Java missing. The lines under it are TLC's message.
 
 ## Update the verification for an intended change
@@ -107,18 +107,18 @@ Then run `verification/persistence/check.sh` and `node --no-warnings --import ts
 | Check | Rules | Covers |
 | --- | --- | --- |
 | `Fence.cfg` | `StaleFenceNeverCommits`, `LiveLeaseNeverTakenOver`, `ExpiredFenceNeverPasses` | `src/server/persistence/index.ts`: `now`, `fenceRow`, `assertFence`, `claim`, `heartbeat`, `cancel`, the `lock` suffix, `SQLiteCeremonyStore.transaction`, `PostgresCeremonyStore.transaction`, `PersistenceConflict`, `Fence`, the `ceremony_claims` table |
-| `RevisionNoDelete.cfg`, `FindingRevisionReused.cfg` | `StaleRevisionNeverWrites` | `src/server/persistence/index.ts`: `get`, `list`, `put`, `retired`, `create`, `delete`, `rotateRecords`, the `ceremony_records` and `ceremony_retired` tables. As writers with no lease: `rotateTenant` and `retainWithoutDemonstration` in `src/server/persistence/maintenance.ts`; `collect`, `complete` and `purgeExpired` in `src/server/persistence/collections.ts` |
-| `Broken*.cfg` | One rule each, expected to break | The line each switch names: `index.ts:195`, `:217`, `:219`, `:314`, `:364`; `BrokenNoRetiredRevision.cfg`, `:223-274` and `:330-335`, is not yet a row of `check.sh` |
+| `RevisionNoDelete.cfg`, `FindingRevisionReused.cfg` | `StaleRevisionNeverWrites` | `src/server/persistence/index.ts`: `get`, `list`, `put`, `retired`, `create`, `delete`, `rotateRecords`, `retiredSlot`, the `ceremony_records` and `ceremony_retired_slots` tables. As writers with no lease: `rotateTenant` and `retainWithoutDemonstration` in `src/server/persistence/maintenance.ts`; `collect`, `complete` and `purgeExpired` in `src/server/persistence/collections.ts` |
+| `Broken*.cfg` | One rule each, expected to break | The line each switch names: `index.ts:219`, `:241`, `:243`, `:333`, `:383`; `BrokenNoRetiredRevision.cfg`, `:247-293` and `:349-354`, is not a row of `check.sh` |
 | `Chart.cfg` | All four | The same code, as a small model for `chart.mmd` |
 | `replay.mts` | Not a model check. Replays the recorded paths against the real stores. | `SQLiteCeremonyStore`, `PostgresCeremonyStore`, and the text of the five lines above |
 
 The caller shapes in the model were read from `src/server/agent/workflow-api.ts` (`dispatchAgentWakes`: claim, work, fenced put with release), `src/server/hosted/a2h.ts` (`postgresA2HRecords`, its `lock` and `put`: fenced put without release, release alone, one `worker` string for every process) and `src/server/connectors/state/effects.ts` (`createEffectJournalPort`, its `begin`, `complete` and `heartbeat`). The model does not check that these or any other callers keep to the shape.
 
-Not covered: what a worker does between transactions; `encryptedBackup` and `restoreEncryptedBackup`, and the retired revisions they carry; deadlocks and timeouts; sealing; transactions over several keys; a clock that steps backwards; anything beyond the bounds in the README; any "eventually".
+Not covered: what a worker does between transactions; `encryptedBackup` and `restoreEncryptedBackup`, and the retired slots they carry; deadlocks and timeouts; sealing; transactions over several keys; a clock that steps backwards; anything beyond the bounds in the README; any "eventually".
 
 ## Sync commit
 
-`67a7f79f73c1fb479bbf4326fad6c0663cad2c5b`
+`e6b8a177eeb284a537fdecdf48ff001a66116113`
 
 At this commit the model was confirmed, line by line, to describe the covered code, `check.sh` gave the recorded results, and `replay.mts` printed `same` on every line. The covered files last changed in that commit.
 
