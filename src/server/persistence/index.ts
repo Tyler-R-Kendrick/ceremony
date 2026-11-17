@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { chmodSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { setTimeout as delay } from "node:timers/promises";
@@ -95,20 +96,27 @@ const backupClaims = z
     }),
   )
   .max(10000);
+/**
+ * The number of retired slots (see `migration`). Changing it changes the
+ * slot of every key, so it is fixed for the life of a store and its backups.
+ */
+export const retiredSlots = 4096;
 const backupRetired = z
   .array(
     z.strictObject({
-      tenant: backupKey,
-      kind: z.enum(recordKinds),
-      id: backupKey,
+      slot: z
+        .number()
+        .int()
+        .nonnegative()
+        .max(retiredSlots - 1),
       revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
     }),
   )
-  .max(50000);
+  .max(retiredSlots);
 /**
- * Version 2 adds `retired`: the last revision of each key whose record was
- * deleted, so that a record created again after a restore starts above it.
- * A version 1 backup restores with no retired revisions.
+ * Version 2 adds `retired`: the store's retired slots, so that a record
+ * created after a restore starts above every revision its key had. A
+ * version 1 backup restores with every slot at 0.
  */
 export const encryptedBackupSchema = z.discriminatedUnion("schemaVersion", [
   z.strictObject({
@@ -168,10 +176,26 @@ const migration = `CREATE TABLE IF NOT EXISTS ceremony_records (
  tenant TEXT NOT NULL, kind TEXT NOT NULL, id TEXT NOT NULL,
  generation BIGINT NOT NULL, worker TEXT NOT NULL, expires BIGINT NOT NULL,
  PRIMARY KEY(tenant,kind,id));
- CREATE TABLE IF NOT EXISTS ceremony_retired (
- tenant TEXT NOT NULL, kind TEXT NOT NULL, id TEXT NOT NULL,
- revision BIGINT NOT NULL, PRIMARY KEY(tenant,kind,id));
+ CREATE TABLE IF NOT EXISTS ceremony_retired_slots (
+ slot INTEGER NOT NULL PRIMARY KEY, revision BIGINT NOT NULL);
 `;
+/*
+ * Every key hashes to one of `retiredSlots` slots. A slot's row in
+ * ceremony_retired_slots holds the highest revision of any record deleted
+ * under a key in that slot; a slot with no row is at 0. Delete raises the
+ * slot, nothing lowers it, and a record that is created starts one above its
+ * key's slot. So a key never takes a revision it had in an earlier life, a
+ * key whose slot never saw a delete starts at 1, and the table never holds
+ * more than `retiredSlots` rows.
+ */
+export function retiredSlot(key: RecordKey): number {
+  return (
+    createHash("sha256")
+      .update(JSON.stringify(parameters(key)))
+      .digest()
+      .readUInt32BE(0) % retiredSlots
+  );
+}
 function parameters(key: RecordKey): string[] {
   if (
     !recordKinds.includes(key.kind) ||
@@ -220,22 +244,21 @@ function transaction(
     )
       throw new PersistenceConflict();
   };
-  /** The revision the key's record had when it was deleted, or 0. */
+  /** The revision in the key's retired slot. */
   const retired = async (key: RecordKey) =>
     Number(
       (
-        await q(
-          "SELECT revision FROM ceremony_retired WHERE tenant=$1 AND kind=$2 AND id=$3",
-          parameters(key),
-        )
+        await q("SELECT revision FROM ceremony_retired_slots WHERE slot=$1", [
+          retiredSlot(key),
+        ])
       )[0]?.revision ?? 0,
     );
   /**
-   * put(key, value, null). A key never takes a revision it had before: the
-   * new record starts above `retired`. The INSERT waits for a transaction
-   * that is deleting the key, and once it holds the new row nobody else can
-   * delete the key, so `retired` read again after it is final; if a delete
-   * committed in between, the record moves above it.
+   * put(key, value, null). The new record starts above the key's retired
+   * slot. The INSERT waits for a transaction that is deleting the key, and
+   * once it holds the new row nobody else can delete the key, so the slot
+   * read again after it covers every delete of the key; if one committed in
+   * between, the record moves above it.
    */
   const create = async (key: RecordKey, value: unknown) => {
     let revision = (await retired(key)) + 1;
@@ -266,10 +289,6 @@ function transaction(
         ],
       );
     }
-    await q(
-      "DELETE FROM ceremony_retired WHERE tenant=$1 AND kind=$2 AND id=$3",
-      parameters(key),
-    );
     return revision;
   };
   const duration = (ms: number) => {
@@ -327,11 +346,11 @@ function transaction(
         ).length
       )
         throw new PersistenceConflict();
-      // The key keeps its last revision while it has no record, so that the
-      // record created next starts above it.
+      // The key's slot rises to the deleted record's revision, so that the
+      // record created next under the key starts above it.
       await q(
-        "INSERT INTO ceremony_retired(tenant,kind,id,revision) VALUES($1,$2,$3,$4) ON CONFLICT(tenant,kind,id) DO UPDATE SET revision=CASE WHEN excluded.revision > ceremony_retired.revision THEN excluded.revision ELSE ceremony_retired.revision END",
-        [...parameters(key), expectedRevision],
+        "INSERT INTO ceremony_retired_slots(slot,revision) VALUES($1,$2) ON CONFLICT(slot) DO UPDATE SET revision=excluded.revision WHERE ceremony_retired_slots.revision<excluded.revision",
+        [retiredSlot(key), expectedRevision],
       );
     },
     async list<T>(tenant: string, kind: RecordKind, limit = 100, afterId = "") {
@@ -523,12 +542,10 @@ export class PostgresCeremonyStore implements AsyncCeremonyStore {
       }));
       const retired = (
         await client.query(
-          "SELECT tenant,kind,id,revision FROM ceremony_retired ORDER BY tenant,kind,id LIMIT 50001",
+          "SELECT slot,revision FROM ceremony_retired_slots ORDER BY slot",
         )
       ).rows.map((r) => ({
-        tenant: r.tenant,
-        kind: r.kind,
-        id: r.id,
+        slot: Number(r.slot),
         revision: Number(r.revision),
       }));
       return encryptedBackupSchema.parse({
@@ -559,7 +576,7 @@ export class PostgresCeremonyStore implements AsyncCeremonyStore {
     }
     await this.maintenance(async (client) => {
       const existing = await client.query(
-        "SELECT 1 FROM ceremony_records UNION ALL SELECT 1 FROM ceremony_claims UNION ALL SELECT 1 FROM ceremony_retired LIMIT 1",
+        "SELECT 1 FROM ceremony_records UNION ALL SELECT 1 FROM ceremony_claims UNION ALL SELECT 1 FROM ceremony_retired_slots LIMIT 1",
       );
       if (existing.rowCount) throw new Error();
       for (const r of backup.records)
@@ -574,16 +591,10 @@ export class PostgresCeremonyStore implements AsyncCeremonyStore {
         );
       if (backup.schemaVersion === 2)
         for (const r of backup.retired)
-          // A key has a record or a retired revision, never both.
-          if (
-            !(
-              await client.query(
-                "INSERT INTO ceremony_retired(tenant,kind,id,revision) SELECT $1::text,$2::text,$3::text,$4::bigint WHERE NOT EXISTS (SELECT 1 FROM ceremony_records WHERE tenant=$1 AND kind=$2 AND id=$3) RETURNING id",
-                [r.tenant, r.kind, r.id, r.revision],
-              )
-            ).rowCount
-          )
-            throw new Error();
+          await client.query(
+            "INSERT INTO ceremony_retired_slots(slot,revision) VALUES($1,$2)",
+            [r.slot, r.revision],
+          );
     });
   }
   private async maintenance<T>(
@@ -596,7 +607,7 @@ export class PostgresCeremonyStore implements AsyncCeremonyStore {
       await client.query("BEGIN");
       await client.query("SET LOCAL lock_timeout = '5s'");
       await client.query(
-        "LOCK TABLE ceremony_records, ceremony_claims, ceremony_retired IN ACCESS EXCLUSIVE MODE",
+        "LOCK TABLE ceremony_records, ceremony_claims, ceremony_retired_slots IN ACCESS EXCLUSIVE MODE",
       );
       const result = await work(client);
       await client.query("COMMIT");
