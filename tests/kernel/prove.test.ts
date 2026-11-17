@@ -651,3 +651,16 @@ test("a case the range rules out is dropped, and one it allows is searched to a 
   assert.ok(witness.status === "refuted", witness.status);
   assert.ok(Math.abs((witness.at.x as number) - 3) < 0.1);
 });
+
+/*
+ * Mutants of algebras.ts and prove.ts no test can kill, because the mutated
+ * program behaves the same:
+ *
+ * - algebras.ts `a > 0` as `a >= 0` in the exact and interval ReLU: at zero
+ *   both branches give zero.
+ * - algebras.ts `x > 0` as `x >= 0` in `nextUp`: zero is handled before.
+ * - prove.ts `argument` returning `node.a` always, or without the `?.`: it
+ *   is only called with step nodes.
+ * - prove.ts `span(name) === 0` replaced by false: the share is then NaN,
+ *   which is never wider than the resolution, as 0 is not.
+ */

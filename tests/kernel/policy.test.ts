@@ -151,19 +151,64 @@ test("absorbing an observation never changes the knowledge it started from", () 
     { kind: "act", op: op(c, "dear"), outcome: outcome(c, "dear", "busy") },
   ]);
   const copy = structuredClone(start);
-  fold(
-    c,
-    [
-      { kind: "act", op: op(c, "dear"), outcome: outcome(c, "dear", "busy") },
-      {
-        kind: "act",
-        op: op(c, "cheap"),
-        outcome: outcome(c, "cheap", "closed"),
-      },
-    ],
-    start,
+  for (const seen of [
+    { kind: "act", op: op(c, "dear"), outcome: outcome(c, "dear", "busy") },
+    { kind: "act", op: op(c, "cheap"), outcome: outcome(c, "cheap", "closed") },
+    { kind: "probe", fact: 0, result: "absent" },
+    { kind: "custody", facts: 1 },
+  ] satisfies Observation[]) {
+    absorb(c, start, seen);
+    assert.deepEqual(start, copy);
+  }
+});
+
+test("an operator that is not blocked is not listed as blocked, even when it cannot help", () => {
+  // `send` is usable but needs a key, and the only maker of keys is closed.
+  const c = decl(
+    {
+      key: fact({ description: "", observable: true }),
+      sent: fact({ description: "", observable: true }),
+    },
+    {
+      makeKey: operator({
+        description: "",
+        establishes: ["key"],
+        actor: "machine",
+        idempotent: true,
+        outcomes: { ok: established(""), closed: blocked("") },
+      }),
+      send: operator({
+        description: "",
+        establishes: ["sent"],
+        requires: ["key"],
+        actor: "machine",
+        idempotent: true,
+        outcomes: { ok: established("") },
+      }),
+    },
+    ["sent"],
   );
-  assert.deepEqual(start, copy);
+  const mind = fold(c, [
+    { kind: "probe", fact: c.factIndex.get("key") as number, result: "absent" },
+    {
+      kind: "probe",
+      fact: c.factIndex.get("sent") as number,
+      result: "absent",
+    },
+    {
+      kind: "act",
+      op: op(c, "makeKey"),
+      outcome: outcome(c, "makeKey", "closed"),
+    },
+  ]);
+  assert.deepEqual(decide(c, mind), {
+    kind: "fail",
+    failure: {
+      kind: "unreachable",
+      missing: ["sent"],
+      blocked: [{ operator: "makeKey", because: "closed" }],
+    },
+  });
 });
 
 test("an operator tried again is asked for its next attempt", () => {
@@ -576,3 +621,31 @@ test("of equally cheap plans, the one using the operator declared first is chose
     steps: [op(c, "finish3")],
   });
 });
+
+/*
+ * Mutants of policy.ts and plan.ts no test can kill, because the mutated
+ * program behaves the same:
+ *
+ * - policy.ts `NOT_BLOCKED` with its sign flipped, and `why` starting as
+ *   undefined: the starting value is never read. Only a blocked operator is
+ *   explained, and blocking always writes its reason first.
+ * - policy.ts, the "unknown" fallback in `explainBlock`: reached only by an
+ *   operator blocked without a reason, which blocking never leaves.
+ * - policy.ts `pick` and `pickScore` starting at +1, and dropping the
+ *   `useful === 0` skip: when a probe is chosen some unknown fact supports
+ *   what the plan leans on, and its score (64 or more) beats any score of a
+ *   fact that supports nothing (at most MAX_FACTS, 24).
+ * - policy.ts `observation.outcome === DEFECT` replaced by false:
+ *   `outcomes[-1]` is undefined, so the defect still reads as unsure.
+ * - policy.ts `outcome?.facts`, `outcome?.reason`, `outcome?.tag` without the
+ *   `?.`, and the "" fallbacks: the outcome is undefined only for a defect,
+ *   and a defect is never `invalidates` or `terminal`.
+ * - policy.ts `mindKey` with another constant for a missing terminal, or
+ *   with its unstable check replaced by true: the keys stay distinct, and a
+ *   terminal that reaches that check is always unstable.
+ * - plan.ts `a.order <= b.order`: no two nodes share an order.
+ * - plan.ts without the starting cost, without the stale-node skip, without
+ *   the no-op skip, with `at !== null` or `known !== undefined` replaced by
+ *   true, and with `known < cost`: each only saves work, and the search
+ *   returns the same plan.
+ */

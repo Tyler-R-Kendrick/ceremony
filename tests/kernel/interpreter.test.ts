@@ -739,6 +739,15 @@ test("a journal refuses a write out of turn and hands out copies of what it hold
     }),
     JournalConflict,
   );
+  // A new journal starts empty.
+  const fresh = memoryJournal();
+  assert.deepEqual(await fresh.read(), []);
+  await fresh.append({
+    seq: 0,
+    kind: "begin",
+    work: { kind: "probe", fact: "x" },
+  });
+  assert.equal((await fresh.read()).length, 1);
 });
 
 test("a journal naming a fact or operator the ceremony does not declare is refused by name", () => {
@@ -826,3 +835,23 @@ test("replaying the journal rebuilds custody, work in flight and its results", (
   );
   assert.equal(undeclared.pending, null);
 });
+
+/*
+ * Mutants of run.ts no test can kill, because the mutated program behaves
+ * the same:
+ *
+ * - `kind: "act"` in `toObservation` emptied: `absorb` reads every
+ *   observation that is not custody, lost or a probe as an act.
+ * - `full.kind === "end"` in `write` replaced by false or compared with "":
+ *   replaying the journal gives the same knowledge as absorbing its last
+ *   entry.
+ * - The promotion check after a crash with `last?.` or `before?.` without
+ *   the `?.`, with one of its later conditions replaced by true, or with its
+ *   first two conditions joined to the third by "or": the custody entry
+ *   means the journal is never empty there, and an `act` end always
+ *   directly follows its own `act` begin.
+ * - `pass -= 1`, `pass >= 10_000` and the check replaced by false: the
+ *   guard is never reached by a well-formed ceremony.
+ * - `declared.interface?.shows` without the `?.`: a ceremony whose human
+ *   step has no interface is refused before it runs.
+ */
