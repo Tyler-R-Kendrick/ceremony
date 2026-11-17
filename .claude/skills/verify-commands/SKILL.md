@@ -11,7 +11,7 @@ description: "Check a change to protected command execution and recovery (src/se
 
 **The harm if it breaks.** A provider-side action that cannot be taken back happens twice, or happens once while the run's records say something else, and nobody is told to reconcile it.
 
-**Where it stands.** Four of the seven rules hold. Three are broken by the code as written at the sync commit, through two open findings (3 and 4) described in `verification/commands/README.md`. Findings 1 and 2 are fixed: admission refuses a new command id while the command named on the step is `running`, and the takeover leaves a step recorded complete and verified as it is. A passing check therefore means "nothing moved": the four rules hold, findings 1 and 2 stay fixed, findings 3 and 4 are still there, and every broken variant is still caught. Do not fix a finding, and do not change product code to make the check pass, unless the user asked for that.
+**Where it stands.** Five of the eight rules hold. Three are broken by the code as written at the sync commit, through two open findings (3 and 4) described in `verification/commands/README.md`. Findings 1 and 2 are fixed: admission refuses a new command id while the command named on the step is `running`, and the takeover leaves a step recorded complete and verified as it is. A passing check therefore means "nothing moved": the five rules hold, findings 1 and 2 stay fixed, findings 3 and 4 are still there, and every broken variant is still caught. Do not fix a finding, and do not change product code to make the check pass, unless the user asked for that.
 
 ## Does your change touch it
 
@@ -29,7 +29,7 @@ No, if it only touches `admits`, `createRun`'s plan validation, `resolveInputs`,
 To see whether the covered code moved since the model was last confirmed against it:
 
 ```sh
-git diff --stat 675af53a9ff82b6623fd84fb8f07cf209e35cff9 -- src/server/commands.ts src/server/recipes/registry.ts src/server/persistence/index.ts
+git diff --stat 38077e4d134cffb9a58723550673c76e7c5180dc -- src/server/commands.ts src/server/recipes/registry.ts src/server/persistence/index.ts
 ```
 
 If that prints a change that nobody carried into the model, the model may no longer describe the code. Read the diff against the table in the README before you trust a pass.
@@ -94,18 +94,18 @@ Only when the user asked for the fix. The two sketch switches in the model (`Rec
 
 ## Coverage record
 
-| Check                                                                                                           | What it covers                                                                                                                                                                                            |
-| --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Holds.cfg`: `OneCallPerCommand`, `EveryCallHasIntent`, `SupersededWorkerNeverCommits`, `CompleteStaysVerified` | `src/server/commands.ts`: `execute` (admission, handler call, commit, replay and takeover), `cancel`, `revalidate`                                                                                        |
-| `FindingBlindRepeat.cfg`: `NeverBlindRepeat`, with the sketched guard for finding 4                             | `execute`: admission and its guards, including the command named on the step, the handler call. Finding 1, fixed                                                                                          |
-| `FindingOverwritten.cfg`: `CompleteStaysVerified`                                                               | `execute`: commit and takeover, including the takeover's read of the step. Finding 2, fixed                                                                                                               |
-| `FindingDeadEnd.cfg`: no dead end                                                                               | `execute`: replay and takeover; `cancel`                                                                                                                                                                  |
-| `FindingUnblocked.cfg`, `FindingReopenedRepeat.cfg`: `UncertainStaysBlocked`, `NeverBlindRepeat`                | `revalidate`; `execute`: admission                                                                                                                                                                        |
-| `BrokenTakeoverReruns.cfg`, `BrokenHandlerBeforeIntent.cfg`, `BrokenNoAssertFence.cfg`                          | That the three rules that held before finding 1 was fixed can fail: the takeover branch, the order of intent and handler, the fence check in the commit                                                   |
-| `BrokenAdmitIgnoresHolder.cfg`, `BrokenTakeoverIgnoresStep.cfg` (run alone; no row in `check.sh`)               | That the guards for findings 1 and 2 bite: admission's read of the command named on the step, and the takeover's read of the step                                                                         |
-| `Sketch.cfg`: all seven rules                                                                                   | The same code with the two remaining sketched guards. It is what catches a new break of a rule that is already broken today.                                                                              |
-| `Commands.cfg`, `Lifecycle.cfg`                                                                                 | The configs `/statechart` reads: every rule at once with two command ids, and one command id for `chart.mmd`. `check.sh` runs them so that they keep parsing; TLC stops at the first break, the dead end. |
-| `conformance.test.ts`                                                                                           | `ProtectedCommandService.execute`, `advance`, `cancel`, `revalidate` and `snapshot` on `SQLiteCeremonyStore`; types `NodeRecord`, `CommandRecord` as stored                                               |
+| Check                                                                                                                             | What it covers                                                                                                                                                                                            |
+| --------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Holds.cfg`: `OneCallPerCommand`, `EveryCallHasIntent`, `SupersededWorkerNeverCommits`, `OneCallPerStep`, `CompleteStaysVerified` | `src/server/commands.ts`: `execute` (admission, handler call, commit, replay and takeover), `cancel`, `revalidate`                                                                                        |
+| `FindingBlindRepeat.cfg`: `OneCallPerStep`                                                                                        | `execute`: admission and its guards, including the command named on the step, the handler call. Finding 1, fixed                                                                                          |
+| `FindingOverwritten.cfg`: `CompleteStaysVerified`                                                                                 | `execute`: commit and takeover, including the takeover's read of the step. Finding 2, fixed                                                                                                               |
+| `FindingDeadEnd.cfg`: no dead end                                                                                                 | `execute`: replay and takeover; `cancel`                                                                                                                                                                  |
+| `FindingUnblocked.cfg`, `FindingReopenedRepeat.cfg`: `UncertainStaysBlocked`, `NeverBlindRepeat`                                  | `revalidate`; `execute`: admission                                                                                                                                                                        |
+| `BrokenTakeoverReruns.cfg`, `BrokenHandlerBeforeIntent.cfg`, `BrokenNoAssertFence.cfg`                                            | That the three rules that held before finding 1 was fixed can fail: the takeover branch, the order of intent and handler, the fence check in the commit                                                   |
+| `BrokenAdmitIgnoresHolder.cfg`, `BrokenTakeoverIgnoresStep.cfg`                                                                   | That the guards for findings 1 and 2 bite: admission's read of the command named on the step, and the takeover's read of the step                                                                         |
+| `Sketch.cfg`: all eight rules                                                                                                     | The same code with the two remaining sketched guards. It is what catches a new break of a rule that is already broken today.                                                                              |
+| `Commands.cfg`, `Lifecycle.cfg`                                                                                                   | The configs `/statechart` reads: every rule at once with two command ids, and one command id for `chart.mmd`. `check.sh` runs them so that they keep parsing; TLC stops at the first break, the dead end. |
+| `conformance.test.ts`                                                                                                             | `ProtectedCommandService.execute`, `advance`, `cancel`, `revalidate` and `snapshot` on `SQLiteCeremonyStore`; types `NodeRecord`, `CommandRecord` as stored                                               |
 
 Relied on, not checked here: `tx.claim`, `tx.assertFence`, `tx.cancel` and transaction isolation in `src/server/persistence/index.ts` (see `verification/persistence`); `OperationResult` in `src/server/recipes/registry.ts`.
 
@@ -113,6 +113,6 @@ Bounds: one run, one step, two command ids, one cancel, one revalidation. A pass
 
 ## Sync commit
 
-`675af53a9ff82b6623fd84fb8f07cf209e35cff9`
+`38077e4d134cffb9a58723550673c76e7c5180dc`
 
 At that commit the model, the README's line numbers and `conformance.test.ts` were confirmed against `src/server/commands.ts`. Move this forward, here and in the `git diff` command above, only after you have confirmed that the model describes the code at the new commit: the diff since the old one is either outside what the model covers or carried into the model, and `check.sh` matches on every row. If covered code changed in commits that did not go through this skill, use `/maintain-formal-verification-skill` to bring the verification back in line.

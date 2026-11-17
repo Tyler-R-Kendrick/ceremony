@@ -13,7 +13,7 @@ tlc="$here/../tlc.sh"
 # A result is "pass", the name of the rule TLC found broken, or "Deadlock".
 rows='
 Holds:pass:code as written, rules that hold
-Sketch:pass:code plus the three sketched guards, every rule
+Sketch:pass:code plus the two sketched guards, every rule
 FindingBlindRepeat:pass:finding 1, fixed
 FindingOverwritten:pass:finding 2, fixed
 FindingDeadEnd:Deadlock:finding 3, code as written
@@ -22,6 +22,8 @@ FindingReopenedRepeat:NeverBlindRepeat:finding 4 with finding 1 guarded
 BrokenTakeoverReruns:OneCallPerCommand:broken variant, must be caught
 BrokenHandlerBeforeIntent:EveryCallHasIntent:broken variant, must be caught
 BrokenNoAssertFence:SupersededWorkerNeverCommits:broken variant, must be caught
+BrokenAdmitIgnoresHolder:OneCallPerStep:broken variant, must be caught
+BrokenTakeoverIgnoresStep:CompleteStaysVerified:broken variant, must be caught
 Commands:Deadlock:code as written, every rule at once, first break found
 Lifecycle:Deadlock:the chart config, first break found
 '

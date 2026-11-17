@@ -60,12 +60,13 @@ VARIABLES
   calls,      \* calls[c]: times the handler was called for c (2 = twice or more)
   blind,      \* a handler call was a blind repeat, see CallHandler
   rejected,   \* complete commands whose step a revalidation rejected later
+  reopened,   \* a revalidation rewrote an `uncertain` step as "failed"
   superseded, \* workers whose lease another party has taken since
   lateCommit  \* a superseded worker recorded its result
 
 vars == << runStatus, runRev, node, holder, cmd, outbox, lease, worker, result,
            expRev, reval, revalRev, revalLeft, calls, blind, rejected,
-           superseded, lateCommit >>
+           reopened, superseded, lateCommit >>
 
 (***************************************************************************)
 (* The step's NodeRecord, as one word:                                     *)
@@ -109,6 +110,7 @@ TypeOK ==
   /\ calls \in [Commands -> 0..2]
   /\ blind \in BOOLEAN
   /\ rejected \subseteq Commands
+  /\ reopened \in BOOLEAN
   /\ superseded \subseteq Commands
   /\ lateCommit \in BOOLEAN
 
@@ -130,6 +132,7 @@ Init ==
   /\ calls = [c \in Commands |-> 0]
   /\ blind = FALSE
   /\ rejected = {}
+  /\ reopened = FALSE
   /\ superseded = {}
   /\ lateCommit = FALSE
 
@@ -157,7 +160,7 @@ Admit(c) ==
   /\ expRev' = [expRev EXCEPT ![c] = runRev]
   /\ superseded' = superseded \cup (InFlight \ {c})
   /\ UNCHANGED << runStatus, runRev, node, outbox, result, reval, revalRev,
-                  revalLeft, calls, blind, rejected, lateCommit >>
+                  revalLeft, calls, blind, rejected, reopened, lateCommit >>
 
 (***************************************************************************)
 (* Between the transactions (919-962): the handler, its verification and   *)
@@ -176,7 +179,7 @@ CallHandler(c, r) ==
   /\ worker' = [worker EXCEPT ![c] = "ran"]
   /\ result' = [result EXCEPT ![c] = r]
   /\ UNCHANGED << runStatus, runRev, node, holder, cmd, outbox, lease, expRev,
-                  reval, revalRev, revalLeft, rejected, superseded,
+                  reval, revalRev, revalLeft, rejected, reopened, superseded,
                   lateCommit >>
 
 \* Authorization is withdrawn or the call is aborted just before the handler
@@ -186,7 +189,7 @@ HandlerNotCalled(c) ==
   /\ worker' = [worker EXCEPT ![c] = "ran"]
   /\ result' = [result EXCEPT ![c] = "uncertain"]
   /\ UNCHANGED << runStatus, runRev, node, holder, cmd, outbox, lease, expRev,
-                  reval, revalRev, revalLeft, calls, blind, rejected,
+                  reval, revalRev, revalLeft, calls, blind, rejected, reopened,
                   superseded, lateCommit >>
 
 \* The process dies, or authorization is withdrawn after the handler
@@ -195,7 +198,7 @@ WorkerLost(c) ==
   /\ worker[c] \in {"admitted", "ran"}
   /\ worker' = [worker EXCEPT ![c] = "gone"]
   /\ UNCHANGED << runStatus, runRev, node, holder, cmd, outbox, lease, result,
-                  expRev, reval, revalRev, revalLeft, calls, blind, rejected,
+                  expRev, reval, revalRev, revalLeft, calls, blind, rejected, reopened,
                   superseded, lateCommit >>
 
 CanCommit(c) ==
@@ -223,7 +226,7 @@ Commit(c) ==
   /\ lateCommit' = (lateCommit \/ c \in superseded)
   /\ superseded' = superseded \cup (InFlight \ {c})
   /\ UNCHANGED << outbox, result, expRev, reval, revalRev, revalLeft, calls,
-                  blind, rejected >>
+                  blind, rejected, reopened >>
 
 \* The commit transaction throws PersistenceConflict (968, 978-982).
 CommitRefused(c) ==
@@ -231,7 +234,7 @@ CommitRefused(c) ==
   /\ ~CanCommit(c)
   /\ worker' = [worker EXCEPT ![c] = "gone"]
   /\ UNCHANGED << runStatus, runRev, node, holder, cmd, outbox, lease, result,
-                  expRev, reval, revalRev, revalLeft, calls, blind, rejected,
+                  expRev, reval, revalRev, revalLeft, calls, blind, rejected, reopened,
                   superseded, lateCommit >>
 
 (***************************************************************************)
@@ -262,7 +265,7 @@ Takeover(c) ==
           /\ superseded' = superseded \cup InFlight
           /\ UNCHANGED worker
   /\ UNCHANGED << runStatus, result, expRev, reval, revalRev, revalLeft,
-                  calls, blind, rejected, lateCommit >>
+                  calls, blind, rejected, reopened, lateCommit >>
 
 \* The database clock passes the claim's `expires` (60 s, 862 and 476).
 LeaseExpires ==
@@ -270,7 +273,7 @@ LeaseExpires ==
   /\ lease' = "free"
   /\ UNCHANGED << runStatus, runRev, node, holder, cmd, outbox, worker,
                   result, expRev, reval, revalRev, revalLeft, calls, blind,
-                  rejected, superseded, lateCommit >>
+                  rejected, reopened, superseded, lateCommit >>
 
 \* cancel() (439-453). It does not look at the run's status.
 CancelRun ==
@@ -280,7 +283,7 @@ CancelRun ==
   /\ lease' = "free"                \* 447: tx.cancel
   /\ superseded' = superseded \cup InFlight
   /\ UNCHANGED << node, holder, cmd, outbox, worker, result, expRev, reval,
-                  revalRev, revalLeft, calls, blind, rejected, lateCommit >>
+                  revalRev, revalLeft, calls, blind, rejected, reopened, lateCommit >>
 
 \* revalidate(), first transaction (459-479): read the run and claim it.
 RevalidateStart ==
@@ -294,7 +297,7 @@ RevalidateStart ==
   /\ revalLeft' = revalLeft - 1
   /\ superseded' = superseded \cup InFlight
   /\ UNCHANGED << runStatus, runRev, node, holder, cmd, outbox, worker,
-                  result, expRev, calls, blind, rejected, lateCommit >>
+                  result, expRev, calls, blind, rejected, reopened, lateCommit >>
 
 (***************************************************************************)
 (* revalidate(), the provider checks (480-521) and the last transaction    *)
@@ -312,7 +315,7 @@ RevalidateFinish(reject) ==
   /\ reval' = "idle"
   /\ lease' = "free"                                  \* 562
   /\ IF reject = "nothing"
-     THEN UNCHANGED << runStatus, runRev, node, rejected >>
+     THEN UNCHANGED << runStatus, runRev, node, rejected, reopened >>
      ELSE /\ node' = IF node = "pending" THEN "pending"            \* 542-544
                      ELSE IF node = "uncertain" /\ RevalidateKeepsUncertain
                           THEN "uncertain"
@@ -320,6 +323,7 @@ RevalidateFinish(reject) ==
           /\ runStatus' = "active"                                 \* 556-561
           /\ runRev' = runRev + 1
           /\ rejected' = rejected \cup {c \in Commands : cmd[c] = "complete"}
+          /\ reopened' = (reopened \/ (node = "uncertain" /\ node' = "failed"))
   /\ UNCHANGED << holder, cmd, outbox, worker, result, expRev, revalRev,
                   revalLeft, calls, blind, superseded, lateCommit >>
 
@@ -329,7 +333,7 @@ RevalidationAbandoned ==
   /\ reval = "checking"
   /\ reval' = "idle"
   /\ UNCHANGED << runStatus, runRev, node, holder, cmd, outbox, lease, worker,
-                  result, expRev, revalRev, revalLeft, calls, blind, rejected,
+                  result, expRev, revalRev, revalLeft, calls, blind, rejected, reopened,
                   superseded, lateCommit >>
 
 (***************************************************************************)
@@ -376,6 +380,12 @@ SupersededWorkerNeverCommits == ~lateCommit
 \* The handler is never called for the step while the step is recorded
 \* complete, or while another command's call has an unknown outcome.
 NeverBlindRepeat == ~blind
+
+\* One call per step: NeverBlindRepeat holds on every path on which no
+\* revalidation has rewritten an `uncertain` step as "failed". That rewrite
+\* is finding 4; this rule leaves it to NeverBlindRepeat and
+\* UncertainStaysBlocked.
+OneCallPerStep == reopened \/ ~blind
 
 \* A command recorded `complete` has its step recorded complete and
 \* verified, unless a revalidation rejected the step afterwards.
