@@ -74,3 +74,6 @@ src/plugins/impeccable-live.client.ts
 # are regenerated on every run, so a committed copy could only ever be stale.
 /tests/consumers/openapi-typescript/generated/
 /tests/consumers/openapi-python/generated/
+
+# Declarations and .tsbuildinfo files written by the composite type-check projects.
+/.tsbuild/
