@@ -247,14 +247,18 @@ test("P-F1: a SQLite store made before revisions were kept gains the table and k
   }
 });
 
-test("P-F1: on PostgreSQL a create that waited for a delete of the key starts above it", async () => {
+/**
+ * On PostgreSQL, deletes the key at `revision` while a create of the same key
+ * waits for the delete to commit, and checks the create starts above it.
+ */
+async function createWaitsForDelete(revision: number) {
   const fixture = await postgresFixture();
   const a = new PostgresCeremonyStore(fixture.config, ring);
   const b = new PostgresCeremonyStore(fixture.config, ring);
   const admin = new Pool(fixture.config);
   try {
     await a.migrate();
-    const last = await writeUpTo(a, "raced", 3);
+    const last = await writeUpTo(a, "raced", revision);
     let commit!: () => void;
     const untilCommit = new Promise<void>((done) => (commit = done));
     let deleted!: () => void;
@@ -295,4 +299,12 @@ test("P-F1: on PostgreSQL a create that waited for a delete of the key starts ab
     await admin.end();
     await fixture.close();
   }
+}
+
+test("P-F1: on PostgreSQL a create that waited for a delete of the key starts above it", async () => {
+  await createWaitsForDelete(3);
+});
+
+test("P-F1: on PostgreSQL a create that waited for a delete of the key at revision 1 starts above it", async () => {
+  await createWaitsForDelete(1);
 });
