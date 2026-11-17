@@ -41,6 +41,7 @@ function neighbours(id: string) {
   const slot = retiredSlot(key(id));
   let same: string | undefined, other: string | undefined;
   for (let n = 0; !same || !other; n++) {
+    if (n > 1_000_000) throw new Error(`no neighbours for ${id}`);
     const candidate = `${id}-${n}`;
     if (retiredSlot(key(candidate)) === slot) same ??= candidate;
     else other ??= candidate;
@@ -68,6 +69,30 @@ test("P-F1: a key in the slot of a deleted record starts above it, a key in anot
       await store.transaction((tx) => tx.put(key("gone"), {}, null)),
       gone + 2,
     );
+  } finally {
+    await store.close();
+  }
+});
+
+test("P-F1: a later delete in a slot at a lower revision does not lower it", async () => {
+  const store = new SQLiteCeremonyStore(":memory:", ring);
+  try {
+    // `low` is in the slot of `high` and was created before `high` was
+    // deleted, so it is still at a revision below the slot.
+    const { same: low } = neighbours("high");
+    const lowAt = await writeUpTo(store, low, 1);
+    const highAt = await writeUpTo(store, "high", 5);
+    await store.transaction((tx) => tx.delete(key("high"), highAt));
+    await store.transaction((tx) => tx.delete(key(low), lowAt));
+    const again = await store.transaction((tx) =>
+      tx.put(key("high"), {}, null),
+    );
+    assert.equal(again, highAt + 1);
+    for (let stale = 1; stale <= highAt; stale++)
+      await assert.rejects(
+        store.transaction((tx) => tx.put(key("high"), {}, stale)),
+        PersistenceConflict,
+      );
   } finally {
     await store.close();
   }
