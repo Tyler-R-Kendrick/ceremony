@@ -39,6 +39,8 @@ DurableReload               holds                            the durable control
 DurableLeaseHeld            holds                            the durable controller while every lease lasts
 BrokenDurableNoLease        breaks:OneWorkerAppliesAnswers   broken on purpose
 BrokenDurableCachedCopy     breaks:OneWorkerAppliesAnswers   broken on purpose
+BrokenDurableNoFence        breaks:OneWorkerAppliesAnswers   broken on purpose
+BrokenDurableNoBusyRefusal  breaks:OneWorkerAppliesAnswers   broken on purpose
 "
 
 # Durable*.cfg and BrokenDurable*.cfg are configs of DurableSteps.tla.

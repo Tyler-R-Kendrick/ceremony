@@ -60,12 +60,14 @@ ok       DurableReload                holds                            the durab
 ok       DurableLeaseHeld             holds                            the durable controller while every lease lasts
 ok       BrokenDurableNoLease         breaks:OneWorkerAppliesAnswers   broken on purpose
 ok       BrokenDurableCachedCopy      breaks:OneWorkerAppliesAnswers   broken on purpose
+ok       BrokenDurableNoFence         breaks:OneWorkerAppliesAnswers   broken on purpose
+ok       BrokenDurableNoBusyRefusal   breaks:OneWorkerAppliesAnswers   broken on purpose
 ok       conformance.test.ts          the real controller has the checks the model assumes; F1 and F2 are fixed
 ok       durable-conformance.test.ts  the durable controller has the lease and reload the model assumes; one worker applies answers
 As expected: the rules hold for the code as written. Open findings: 0 (see README.md).
 ```
 
-Until finding F3 (README.md, "The database path") is fixed, `Durable` prints `MISMATCH ... breaks:OneWorkerAppliesAnswers`, `DurableReload` prints `MISMATCH ... breaks:ReloadNeverMovesAnEndStep`, and `durable-conformance.test.ts` prints `MISMATCH` with its three tests named after those rules; the script exits 1. Those lines expect the fixed behaviour.
+Until finding F3 (README.md, "The database path") is fixed, `Durable` prints `MISMATCH ... breaks:OneWorkerAppliesAnswers`, `DurableReload` prints `MISMATCH ... breaks:ReloadNeverMovesAnEndStep`, and `durable-conformance.test.ts` prints `MISMATCH` with its three tests named after those rules; the script exits 1. Those lines expect the fixed behaviour. The fix is the checks `busy-refuses` and `lease-fence` in `DurableSteps.tla`; `BrokenDurableNoBusyRefusal` and `BrokenDurableNoFence` remove one each and must break `OneWorkerAppliesAnswers`.
 
 Exit 0 means every line is the expected one. A `FINDING` line, when there is one, is a known bug in the code, reported and not fixed; it is not yours unless you changed that code. Two broken configs are not listed in `check.sh` yet: `BrokenNoHumanExpiredGuard.cfg` (the check that fixed F1, removed; expect `EndScreensStayPut` to break) and `BrokenRetryKeepsOutcome.cfg` (the check that fixed F2, removed; expect `TryAgainStartsClean` to break). Run each with `verification/tlc.sh ceremony-steps CeremonySteps <config name>`. A `MISMATCH` line prints the TLC or test output under it and the script exits 1.
 

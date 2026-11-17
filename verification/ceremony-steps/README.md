@@ -128,8 +128,10 @@ The same path ends a connected ceremony (worker 2 runs begin and the callback to
 |---|---|---|---|
 | `BrokenDurableNoLease` | `acquire` refuses while an unexpired lease row exists, `storage.ts:104-109` | `OneWorkerAppliesAnswers` | Worker 1: `act(begin, 0)`, in flight. Worker 2: `act(cancel, 0)` is accepted: `cancelled`, revision 1. Worker 1's answer stores `redirect` at revision 1. |
 | `BrokenDurableCachedCopy` | `instance()` reloads on every request that finds the worker idle, `controller.ts:274-299`; removed, it reloads only when the worker has no copy | `OneWorkerAppliesAnswers` | Worker 2 loads revision 0 and cancels: `cancelled`, revision 1. Worker 1 still holds its copy of revision 0, and a tab on revision 0 sends `act(cancel, 0)` to it: accepted, and stored over revision 1. |
+| `BrokenDurableNoFence` | `persist()` stores an answer only while the request's lease is held and has not run out, `controller.ts:396-401`, `storage.ts:113-120` | `OneWorkerAppliesAnswers` | Worker 1: `act(begin, 0)`, in flight. Its lease runs out. Worker 2: `act(cancel, 0)` takes a new lease and stores `cancelled`, revision 1. Worker 1's answer stores `redirect` at revision 1 over it. |
+| `BrokenDurableNoBusyRefusal` | `instance()` refuses a request that finds the worker's copy busy, `controller.ts:289-290` | `OneWorkerAppliesAnswers` | Worker 1: `act(begin, 0)`, in flight; its lease runs out. A second request to worker 1 is served from its busy copy, which is not reloaded, and writes over what worker 2 stored since. |
 
-`ReloadNeverMovesAnEndStep` is seen to fail by `DurableReload.cfg` today. Once F3 is fixed, the check that fixes it gets a name in `Checks` and a `BrokenDurable*.cfg` that removes it.
+`ReloadNeverMovesAnEndStep` is seen to fail by `DurableReload.cfg` today. The fix for F3 is two checks in `Checks`: `busy-refuses` (`instance()` refuses a request that finds the worker's copy busy) and `lease-fence` (`persist()` stores an answer only while the request's lease is held and has not run out). `BrokenDurableNoFence.cfg` and `BrokenDurableNoBusyRefusal.cfg` remove one each, with `LeaseRunsOut = TRUE`, and must break `OneWorkerAppliesAnswers`.
 
 ### The database path in the code
 
