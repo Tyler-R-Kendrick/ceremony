@@ -3,7 +3,8 @@
 // The model takes ten checks in the code as given (the names in `Checks` in
 // CeremonySteps.tla), the table in actionsFor, and one adapter call in flight
 // at a time. Each test below shows one of these on the real
-// CeremonyController. The last two replay the two open findings.
+// CeremonyController. The request-human test shows the fix for finding F1;
+// the last test replays the open finding F2.
 //
 // Run from the repo root:
 //   node --import tsx --test verification/ceremony-steps/conformance.test.ts
@@ -261,11 +262,11 @@ test("retry-after-cancel: the cancelled step offers retry (schema.ts:322-323)", 
   assert.deepEqual(cancelled.actions, ["retry"]);
 });
 
-// Open finding F1. When this stops reproducing, the code was fixed: update
-// RequestHumanReturns in CeremonySteps.tla and the expectation in check.sh.
-test("finding F1: a requestHuman answer that lands after expiry moves the snapshot out of expired (controller.ts:530)", async () => {
-  const pending = Promise.withResolvers<AdapterUpdate>();
-  const h = harness({ requestHuman: () => pending.promise });
+// F1, fixed. A requestHuman answer is applied only while the snapshot is not
+// expired, as run() does for every other adapter answer (controller.ts:627).
+test("request-human expired-guard: a requestHuman answer that lands after expiry is dropped, one that lands in time is applied (finding F1)", async () => {
+  const late = Promise.withResolvers<AdapterUpdate>();
+  const h = harness({ requestHuman: () => late.promise });
   const first = h.start();
   const atProvider = await h.act(first.id, "begin", first.revision);
   assert.ok(atProvider.actions.includes("request-human"));
@@ -273,10 +274,26 @@ test("finding F1: a requestHuman answer that lands after expiry moves the snapsh
   h.pastTheDeadline();
   const expired = await h.read(first.id);
   assert.equal(expired.step, "expired");
-  pending.resolve({ ...redirect, message: "Human assistance requested." });
-  const after = await asking;
-  assert.equal(after.step, "redirect");
-  assert.equal(after.revision, expired.revision + 1);
+  late.resolve({ ...redirect, message: "Human assistance requested." });
+  assert.deepEqual(await asking, expired);
+  assert.deepEqual(await h.read(first.id), expired);
+
+  const inTime = harness({
+    requestHuman: async () => ({
+      ...redirect,
+      message: "Human assistance requested.",
+    }),
+  });
+  const started = inTime.start();
+  const redirected = await inTime.act(started.id, "begin", started.revision);
+  const answered = await inTime.act(
+    started.id,
+    "request-human",
+    redirected.revision,
+  );
+  assert.equal(answered.step, "redirect");
+  assert.equal(answered.message, "Human assistance requested.");
+  assert.equal(answered.revision, redirected.revision + 1);
 });
 
 // Open finding F2. When this stops reproducing, the code was fixed: update
