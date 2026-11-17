@@ -17,12 +17,13 @@ Fence|holds|rules 1-3 on the code as written
 RevisionNoDelete|holds|rule 4 for a key that is never deleted
 Chart|holds|the small model behind chart.mmd
 FindingRevisionReused|holds|rule 4 on the code as written, records deleted and created again (F1)
-BrokenNoGenerationCheck|StaleFenceNeverCommits|broken variant, index.ts:188
-BrokenNoRowLock|StaleFenceNeverCommits|broken variant, index.ts:166
-BrokenNoGenerationBump|StaleFenceNeverCommits|broken variant, index.ts:282
-BrokenClaimLiveLease|LiveLeaseNeverTakenOver|broken variant, index.ts:282
-BrokenNoExpiryCheck|ExpiredFenceNeverPasses|broken variant, index.ts:190
-BrokenNoRevisionCheck|StaleRevisionNeverWrites|broken variant, index.ts:238
+BrokenNoGenerationCheck|StaleFenceNeverCommits|broken variant, index.ts:217
+BrokenNoRowLock|StaleFenceNeverCommits|broken variant, index.ts:195
+BrokenNoGenerationBump|StaleFenceNeverCommits|broken variant, index.ts:364
+BrokenClaimLiveLease|LiveLeaseNeverTakenOver|broken variant, index.ts:364
+BrokenNoExpiryCheck|ExpiredFenceNeverPasses|broken variant, index.ts:219
+BrokenNoRevisionCheck|StaleRevisionNeverWrites|broken variant, index.ts:314
+BrokenNoRetiredRevision|StaleRevisionNeverWrites|broken variant, index.ts:330-335 and :223-274 (F1)
 '
 
 configs=$(printf '%s\n' "$table" | cut -d'|' -f1)
