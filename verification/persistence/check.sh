@@ -16,7 +16,7 @@ table='
 Fence|holds|rules 1-3 on the code as written
 RevisionNoDelete|holds|rule 4 for a key that is never deleted
 Chart|holds|the small model behind chart.mmd
-FindingRevisionReused|StaleRevisionNeverWrites|OPEN FINDING F1: rule 4 on the code as written
+FindingRevisionReused|holds|rule 4 on the code as written, records deleted and created again (F1)
 BrokenNoGenerationCheck|StaleFenceNeverCommits|broken variant, index.ts:188
 BrokenNoRowLock|StaleFenceNeverCommits|broken variant, index.ts:166
 BrokenNoGenerationBump|StaleFenceNeverCommits|broken variant, index.ts:282
@@ -69,7 +69,7 @@ done
 IFS=$old_ifs
 
 if [ "$status" -eq 0 ]; then
-  echo 'All configs did what README.md records. Finding F1 is still open.'
+  echo 'All configs did what README.md records.'
 else
   echo 'Something changed. Read .claude/skills/verify-persistence/SKILL.md before you go on.'
 fi
