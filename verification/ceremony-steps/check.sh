@@ -27,6 +27,7 @@ BrokenNoOfferedCheck        breaks:ConnectedMeansConfirmed   broken on purpose
 BrokenNoBusyCheck           breaks:EndScreensStayPut         broken on purpose
 BrokenNoExpiredGuard        breaks:EndScreensStayPut         broken on purpose
 BrokenNoExpiredGuardOnError breaks:EndScreensStayPut         broken on purpose
+BrokenNoHumanExpiredGuard   breaks:EndScreensStayPut         broken on purpose
 BrokenNoEndExemption        breaks:EndScreensStayPut         broken on purpose
 BrokenNoCallbackGuard       breaks:EndScreensStayPut         broken on purpose
 BrokenNoRetryAfterCancel    breaks:EveryScreenOffersAWayOn   broken on purpose
