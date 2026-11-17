@@ -133,6 +133,7 @@
     "test:snapshots:update": "node --import tsx --test --test-update-snapshots tests/characterization.test.ts",
     "test:fuzz": "node --import tsx --test tests/fuzz.test.ts",
     "test:kernel": "node --no-experimental-webstorage --import tsx --test \"tests/kernel/*.test.ts\"",
+    "test:kernel:mutation": "stryker run stryker.kernel.config.mjs",
     "kernel:harness": "node --import tsx examples/kernel/server.ts",
     "test:bombadil": "node --import tsx scripts/kernel-bombadil.mjs",
     "test:chaos": "node --import tsx --test tests/chaos.test.ts",
