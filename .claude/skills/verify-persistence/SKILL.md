@@ -18,9 +18,9 @@ The promise is four rules in `Fence.tla`:
 | `StaleFenceNeverCommits` | A transaction that passed `assertFence` commits only while its fence is still the lease on the key. | Holds |
 | `LiveLeaseNeverTakenOver` | `claim` never takes a lease away before it ran out. | Holds |
 | `ExpiredFenceNeverPasses` | `assertFence` refuses a lease that ran out, also when nobody took it over. | Holds |
-| `StaleRevisionNeverWrites` | A put or delete with an expected revision replaces only the record version the caller read. | Holds if the record is never deleted. Breaks if it is deleted and created again: open finding F1. |
+| `StaleRevisionNeverWrites` | A put or delete with an expected revision replaces only the record version the caller read. | Holds, also when the record is deleted and created again (finding F1, closed). |
 
-`verification/persistence/README.md` has the map from every action and variable of the model to file:line, the bounds, the assumptions, what is left out, and finding F1 in full. Read it before you change the model.
+`verification/persistence/README.md` has the map from every action and variable of the model to file:line, the bounds, the assumptions, what is left out, and finding F1 and how it was closed. Read it before you change the model.
 
 ## The model does not read the code
 
@@ -35,7 +35,7 @@ TLC checks `Fence.tla`. It never opens a TypeScript file. If you change the stor
 
 Yes, if it changes any of these:
 
-- In `src/server/persistence/index.ts`: `now`, `fenceRow`, `assertFence`, `get`, `put`, `delete`, `list`, `claim`, `heartbeat`, `cancel`; the `lock` suffix (`FOR UPDATE`); the `migration` SQL of `ceremony_records` or `ceremony_claims`; `SQLiteCeremonyStore.transaction`; `PostgresCeremonyStore.transaction`; `PersistenceConflict`; `Fence`; `rotateRecords`.
+- In `src/server/persistence/index.ts`: `now`, `fenceRow`, `assertFence`, `get`, `put`, `retired`, `create`, `delete`, `list`, `claim`, `heartbeat`, `cancel`; the `lock` suffix (`FOR UPDATE`); the `migration` SQL of `ceremony_records`, `ceremony_claims` or `ceremony_retired`; `SQLiteCeremonyStore.transaction`; `PostgresCeremonyStore.transaction`; `PersistenceConflict`; `Fence`; `rotateRecords`.
 - Any SQL text in those functions, any `WHERE` or `ON CONFLICT` clause, the order of statements inside them, or where a transaction begins, commits or rolls back.
 - The isolation level or locking of either store, or a new store backend.
 - A new method on `AsyncTransaction` that reads or writes `ceremony_claims`, or writes `ceremony_records` in a new way (for example a write with no revision).
@@ -44,7 +44,7 @@ Yes, if it changes any of these:
 To see what changed since the model was last confirmed, compare the covered files with the sync commit at the end of this skill:
 
 ```sh
-git diff 2b14e0720188516fc3e3934f51cf2a4359fedab3 -- src/server/persistence
+git diff 67a7f79f73c1fb479bbf4326fad6c0663cad2c5b -- src/server/persistence
 ```
 
 Changes only to sealing, key validation, list paging, record kinds or error text do not touch the model. Backup and restore are outside the model too, so the check says nothing about a change there (see Not covered). Decide this from the map in the README, not from a commit message.
@@ -58,7 +58,7 @@ verification/persistence/check.sh
 It takes about 20 seconds, needs Java 11 or later, and uses the pinned TLC through `verification/tlc.sh`. It runs every config and compares each with the recorded result:
 
 - `Fence`, `RevisionNoDelete`, `Chart` must hold.
-- `FindingRevisionReused` must break `StaleRevisionNeverWrites`. That is finding F1, on the code as written.
+- `FindingRevisionReused` must hold. It is rule 4 with records deleted and created again, where finding F1 was.
 - Each `Broken*` config takes one check out of the model and must break the rule recorded for it. This is the evidence that the rules can fail.
 
 Exit 0 and `All configs did what README.md records` means nothing changed. A `FAIL` line names the config, what was expected and what happened.
@@ -84,7 +84,7 @@ Decide with the code, not with the model.
 Other changes in the output:
 
 - **A `Broken*` config now holds.** The check it takes out no longer carries the rule. Either the code got a second defence, or the model lost the path. Find out which before you touch the config. Do not delete a broken variant to get a clean run.
-- **`FindingRevisionReused` now holds.** F1 is closed only if the code changed so that a record created again cannot take an old revision number, and the model's put, delete and create say so. Then confirm with `replay.mts` that the real store refuses the stale put, set its expected result to `holds` in `check.sh`, and update the README.
+- **`FindingRevisionReused` breaks.** A record created again can take a revision its key had before: finding F1 is back. Check `create` and the end of `delete` in `index.ts` against `KeepRetired` in `Fence.tla`. `BrokenNoRetiredRevision.cfg` shows the path TLC finds without the retired revision.
 - **`error`** in a `FAIL` line means TLC could not run the config: a syntax error in `Fence.tla`, a constant missing from a `.cfg`, or Java missing. The lines under it are TLC's message.
 
 ## Update the verification for an intended change
@@ -92,7 +92,7 @@ Other changes in the output:
 Write the update from the code, before you run the check, and do not shape it by what passes.
 
 - **A check, a clause or the order of statements changed.** Change the action that stands for it in `Fence.tla` (the README map tells you which). Keep each model step equal to one statement, or to statements that no other transaction can come between. If a row lock no longer covers a stretch of a transaction, split the action there.
-- **A check was removed or replaced.** Keep its switch only if a broken variant still means something. Each switch (`CheckGeneration`, `CheckExpiry`, `LockFenceRow`, `ClaimOnlyExpired`, `ClaimBumpsGeneration`, `CheckRevision`) names its line in a comment at the top of `Fence.tla`. Update the line, or remove the switch together with its `Broken*.cfg`, its row in `check.sh`, its block in `replay.mts` and its row in the README.
+- **A check was removed or replaced.** Keep its switch only if a broken variant still means something. Each switch (`CheckGeneration`, `CheckExpiry`, `LockFenceRow`, `ClaimOnlyExpired`, `ClaimBumpsGeneration`, `CheckRevision`, `KeepRetired`) names its line in a comment at the top of `Fence.tla`. Update the line, or remove the switch together with its `Broken*.cfg`, its row in `check.sh`, its block in `replay.mts` and its row in the README.
 - **A new check carries a rule.** Add a switch for it, a `Broken*.cfg` that turns it off, the row in `check.sh` with the rule it must break, a block in `replay.mts` that takes the same text out of a copy of `index.ts`, and the row in the README. A rule that no broken variant can break proves nothing.
 - **A new store method or caller shape.** Add an action, name it in `Next` as its own disjunct so that traces show it, give it a label in `view.mjs`, and add it to the README map with file:line.
 - **The promise itself changed on purpose.** Change a rule only then, and write in the README the old wording, the new wording, and the evidence in the change (tests, doc comment, `docs/architecture.md`).
@@ -107,20 +107,20 @@ Then run `verification/persistence/check.sh` and `node --no-warnings --import ts
 | Check | Rules | Covers |
 | --- | --- | --- |
 | `Fence.cfg` | `StaleFenceNeverCommits`, `LiveLeaseNeverTakenOver`, `ExpiredFenceNeverPasses` | `src/server/persistence/index.ts`: `now`, `fenceRow`, `assertFence`, `claim`, `heartbeat`, `cancel`, the `lock` suffix, `SQLiteCeremonyStore.transaction`, `PostgresCeremonyStore.transaction`, `PersistenceConflict`, `Fence`, the `ceremony_claims` table |
-| `RevisionNoDelete.cfg`, `FindingRevisionReused.cfg` | `StaleRevisionNeverWrites` | `src/server/persistence/index.ts`: `get`, `list`, `put`, `delete`, `rotateRecords`, the `ceremony_records` table. As writers with no lease: `rotateTenant` and `retainWithoutDemonstration` in `src/server/persistence/maintenance.ts`; `collect`, `complete` and `purgeExpired` in `src/server/persistence/collections.ts` |
-| `Broken*.cfg` | One rule each, expected to break | The line each switch names: `index.ts:166`, `:188`, `:190`, `:238`, `:282` |
+| `RevisionNoDelete.cfg`, `FindingRevisionReused.cfg` | `StaleRevisionNeverWrites` | `src/server/persistence/index.ts`: `get`, `list`, `put`, `retired`, `create`, `delete`, `rotateRecords`, the `ceremony_records` and `ceremony_retired` tables. As writers with no lease: `rotateTenant` and `retainWithoutDemonstration` in `src/server/persistence/maintenance.ts`; `collect`, `complete` and `purgeExpired` in `src/server/persistence/collections.ts` |
+| `Broken*.cfg` | One rule each, expected to break | The line each switch names: `index.ts:195`, `:217`, `:219`, `:314`, `:364`; `BrokenNoRetiredRevision.cfg`, `:223-274` and `:330-335`, is not yet a row of `check.sh` |
 | `Chart.cfg` | All four | The same code, as a small model for `chart.mmd` |
 | `replay.mts` | Not a model check. Replays the recorded paths against the real stores. | `SQLiteCeremonyStore`, `PostgresCeremonyStore`, and the text of the five lines above |
 
 The caller shapes in the model were read from `src/server/agent/workflow-api.ts` (`dispatchAgentWakes`: claim, work, fenced put with release), `src/server/hosted/a2h.ts` (`postgresA2HRecords`, its `lock` and `put`: fenced put without release, release alone, one `worker` string for every process) and `src/server/connectors/state/effects.ts` (`createEffectJournalPort`, its `begin`, `complete` and `heartbeat`). The model does not check that these or any other callers keep to the shape.
 
-Not covered: what a worker does between transactions; `encryptedBackup` and `restoreEncryptedBackup`; deadlocks and timeouts; sealing; transactions over several keys; a clock that steps backwards; anything beyond the bounds in the README; any "eventually".
+Not covered: what a worker does between transactions; `encryptedBackup` and `restoreEncryptedBackup`, and the retired revisions they carry; deadlocks and timeouts; sealing; transactions over several keys; a clock that steps backwards; anything beyond the bounds in the README; any "eventually".
 
 ## Sync commit
 
-`2b14e0720188516fc3e3934f51cf2a4359fedab3`
+`67a7f79f73c1fb479bbf4326fad6c0663cad2c5b`
 
-At this commit the model was confirmed, line by line, to describe the covered code, `check.sh` gave the recorded results, and `replay.mts` printed `same` on every line. The covered files last changed in `9cc0b17c2422f83241880b0428859d41418ff78d`.
+At this commit the model was confirmed, line by line, to describe the covered code, `check.sh` gave the recorded results, and `replay.mts` printed `same` on every line. The covered files last changed in that commit.
 
 Move this commit forward only after you have confirmed that the model describes the covered code at the new commit: you read the diff of the covered files since this commit, updated the model and the README map where the code changed, and both commands above gave their expected results. A clean run alone is not that confirmation. When you move it, change the hash here and in the `git diff` command above.
 
