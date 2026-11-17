@@ -485,10 +485,17 @@ export function createConnectionStore(
         });
       const record = asConnectionRecord(parsed.data);
       checkTenant(record.tenantId);
-      await transact(store, async (tx) => {
+      const revision = await transact(store, async (tx) => {
         const at = await time(tx);
+        let revision: number;
         try {
-          await saveConnection(tx, record.tenantId, record, {}, null);
+          revision = await saveConnection(
+            tx,
+            record.tenantId,
+            record,
+            {},
+            null,
+          );
         } catch (error) {
           if (error instanceof PersistenceConflict)
             throw new ConnectorError("conflict", {
@@ -497,8 +504,9 @@ export function createConnectionStore(
           throw error;
         }
         await reindex(tx, record.tenantId, undefined, record, at);
+        return revision;
       });
-      return { revision: 1 };
+      return { revision };
     },
 
     async get(rawActor, connectionRef, options) {
