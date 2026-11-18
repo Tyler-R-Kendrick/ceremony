@@ -384,13 +384,14 @@ function transaction(
       if (!/^[a-zA-Z0-9_-]{1,200}$/.test(worker))
         throw new Error("Invalid worker identity");
       const time = await now();
-      // The update of an existing row can wait on another transaction's row
-      // lock for longer than durationMs, so the lease it writes runs from the
-      // clock when the row is written, not from `time`: claim never returns
-      // a lease that has already run out.
+      // The upsert can run long after `time` was read: the update of an
+      // existing row waits while another transaction holds it. So the lease
+      // runs from the clock when the row is written, not from `time`, and
+      // claim never returns a lease that has already run out. `time` only
+      // decides whether the lease on the row has run out.
       const rows = await q(
-        `INSERT INTO ceremony_claims(tenant,kind,id,generation,worker,expires) VALUES($1,$2,$3,${leaseBase}+1,$4,$5) ON CONFLICT(tenant,kind,id) DO UPDATE SET generation=ceremony_claims.generation+1,worker=excluded.worker,expires=${clock}+$7 WHERE ceremony_claims.expires<=$6 RETURNING generation`,
-        [...parameters(key), worker, time + durationMs, time, durationMs],
+        `INSERT INTO ceremony_claims(tenant,kind,id,generation,worker,expires) VALUES($1,$2,$3,${leaseBase}+1,$4,${clock}+$5) ON CONFLICT(tenant,kind,id) DO UPDATE SET generation=ceremony_claims.generation+1,worker=excluded.worker,expires=${clock}+$5 WHERE ceremony_claims.expires<=$6 RETURNING generation`,
+        [...parameters(key), worker, durationMs, time],
       );
       if (!rows.length) throw new PersistenceConflict();
       return { ...key, generation: Number(rows[0]!.generation), worker };
