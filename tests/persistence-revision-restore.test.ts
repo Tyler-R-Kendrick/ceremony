@@ -287,8 +287,20 @@ test("P-F1: a SQLite store made before revisions were kept gains the table and k
  * On PostgreSQL, deletes the key at `revision` while a create of the same key
  * waits for the delete to commit, and checks the create starts above it.
  */
-async function createWaitsForDelete(revision: number) {
+async function createWaitsForDelete(
+  revision: number,
+  databaseIsolation?: "repeatable read" | "serializable",
+) {
   const fixture = await postgresFixture();
+  if (databaseIsolation) {
+    // A database whose default isolation is stronger than read committed: the
+    // store must still see the delete it waited for.
+    const setup = new Pool(fixture.config);
+    await setup.query(
+      `ALTER DATABASE "${fixture.config.database}" SET default_transaction_isolation = '${databaseIsolation}'`,
+    );
+    await setup.end();
+  }
   const a = new PostgresCeremonyStore(fixture.config, ring);
   const b = new PostgresCeremonyStore(fixture.config, ring);
   const admin = new Pool(fixture.config);
@@ -347,4 +359,12 @@ test("P-F1: on PostgreSQL a create that waited for a delete of the key starts ab
 
 test("P-F1: on PostgreSQL a create that waited for a delete of the key at revision 1 starts above it", async () => {
   await createWaitsForDelete(1);
+});
+
+test("P-F1: on a PostgreSQL database that defaults to repeatable read, a create that waited for a delete still starts above it", async () => {
+  await createWaitsForDelete(3, "repeatable read");
+});
+
+test("P-F1: on a PostgreSQL database that defaults to serializable, a create that waited for a delete still starts above it", async () => {
+  await createWaitsForDelete(3, "serializable");
 });
