@@ -149,7 +149,9 @@ try {
     await store.close();
   }
 
-  // BrokenNoGenerationCheck.cfg, index.ts:188
+  // BrokenNoGenerationCheck.cfg, index.ts:258: the old holder's fenced write
+  // commits on the newer lease. Its heartbeat no longer does: the heartbeat
+  // UPDATE names the generation itself (index.ts:446-455).
   {
     const store = sqlite(
       await variant(
@@ -166,17 +168,20 @@ try {
       tx.claim(key("a"), "same-workload", longest),
     );
     const stale = await outcome(
-      store.transaction((tx) => tx.heartbeat(old, longest)),
+      store.transaction(async (tx) => {
+        await tx.assertFence(old);
+        await tx.put(key("a"), { by: "old fence" }, null);
+      }),
     );
     say(
       "BrokenNoGenerationCheck, SQLite",
       stale === "accepted",
-      `old fence's heartbeat ${stale}`,
+      `old fence's fenced write ${stale}`,
     );
     await store.close();
   }
 
-  // BrokenNoGenerationBump.cfg, index.ts:282
+  // BrokenNoGenerationBump.cfg, index.ts:414
   {
     const store = sqlite(
       await variant(
@@ -203,13 +208,13 @@ try {
     await store.close();
   }
 
-  // BrokenClaimLiveLease.cfg, index.ts:282
+  // BrokenClaimLiveLease.cfg, index.ts:414
   {
     const store = sqlite(
       await variant(
         "claim-live-lease",
-        " WHERE ceremony_claims.expires<=$6 RETURNING generation",
-        " RETURNING generation",
+        " WHERE ceremony_claims.expires<=$6 AND ",
+        " WHERE ",
       ),
     );
     await store.transaction((tx) => tx.claim(key("a"), "first", longest));
@@ -224,7 +229,7 @@ try {
     await store.close();
   }
 
-  // BrokenNoExpiryCheck.cfg, index.ts:190
+  // BrokenNoExpiryCheck.cfg, index.ts:260
   {
     const store = sqlite(
       await variant(
@@ -248,7 +253,7 @@ try {
     await store.close();
   }
 
-  // BrokenNoRevisionCheck.cfg, index.ts:238
+  // BrokenNoRevisionCheck.cfg, index.ts:355
   {
     const store = sqlite(
       await variant(
@@ -349,7 +354,7 @@ try {
       );
     }
 
-    // BrokenNoRowLock.cfg, index.ts:166: a cancel lands inside the open
+    // BrokenNoRowLock.cfg, index.ts:241: a cancel lands inside the open
     // fenced transaction, and the transaction still commits.
     {
       const unlocked = await variant(

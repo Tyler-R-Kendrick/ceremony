@@ -153,10 +153,11 @@ test("P-F1: a backup carries the revisions of deleted records into the restored 
       await restored.transaction((tx) => tx.put(key("new"), {}, null)),
       1,
     );
-    // A second backup of the restored store carries the revision on.
+    // A second backup of the restored store carries the revision on. It
+    // also carries the restored store's lease base, which version 3 holds.
     await restored.transaction((tx) => tx.delete(key("gone"), again));
     const second = await restored.encryptedBackup();
-    assert.deepEqual(second.schemaVersion === 2 && second.retired, [
+    assert.deepEqual(second.schemaVersion === 3 && second.retired, [
       { ...key("gone"), revision: again },
     ]);
   } finally {

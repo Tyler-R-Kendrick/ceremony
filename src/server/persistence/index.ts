@@ -106,9 +106,39 @@ const backupRetired = z
   )
   .max(50000);
 /**
+ * A claim generation is the store's lease base plus a count of the claims and
+ * cancels of its key, which stays below `leaseSpan`: a claim that would reach
+ * it is refused. The base is the store's lease epoch times `leaseSpan`. A
+ * store that was never restored has epoch 0. A restored store has as epoch
+ * the second of the database clock that its restore ran in, counted from
+ * `leaseOrigin`, and the restore waits until that second is above the epoch
+ * of the store its backup came from.
+ *
+ * So every generation a store hands out lies in its own epoch's span. A
+ * restored store hands out no generation of the store its backup came from,
+ * before or after the backup, and two restores that ran in different seconds
+ * of the clock, of one backup or of two, hand out no generation in common.
+ * Two restores in the same second can. The largest generation is
+ * 2^53 - 1, so every generation is a safe integer.
+ */
+const leaseSpan = 2 ** 22;
+const maxLeaseEpoch = 2 ** 31 - 1;
+/** 2025-01-01T00:00:00Z, in seconds since 1970. */
+const leaseOrigin = 1_735_689_600;
+/** How long a restore waits for the clock to pass the source's epoch. */
+const epochWaitMs = 3_000;
+const backupGenerationBase = z
+  .number()
+  .int()
+  .positive()
+  .max(maxLeaseEpoch * leaseSpan)
+  .refine((base) => base % leaseSpan === 0);
+/**
  * Version 2 adds `retired`: the last revision of each key whose record was
  * deleted, so that a record created again after a restore starts above it.
  * A version 1 backup restores with no retired revisions.
+ * Version 3 adds `generationBase`: the lease base of the store the backup
+ * came from, when it is not 0. A version 1 or 2 backup has base 0.
  */
 export const encryptedBackupSchema = z.discriminatedUnion("schemaVersion", [
   z.strictObject({
@@ -121,6 +151,13 @@ export const encryptedBackupSchema = z.discriminatedUnion("schemaVersion", [
     records: backupRecords,
     claims: backupClaims,
     retired: backupRetired,
+  }),
+  z.strictObject({
+    schemaVersion: z.literal(3),
+    records: backupRecords,
+    claims: backupClaims,
+    retired: backupRetired,
+    generationBase: backupGenerationBase,
   }),
 ]);
 export type EncryptedBackup = z.infer<typeof encryptedBackupSchema>;
@@ -171,7 +208,16 @@ const migration = `CREATE TABLE IF NOT EXISTS ceremony_records (
  CREATE TABLE IF NOT EXISTS ceremony_retired (
  tenant TEXT NOT NULL, kind TEXT NOT NULL, id TEXT NOT NULL,
  revision BIGINT NOT NULL, PRIMARY KEY(tenant,kind,id));
+ CREATE TABLE IF NOT EXISTS ceremony_lease_base (base BIGINT NOT NULL);
 `;
+/** The store's lease base: the one row restoreEncryptedBackup writes, or 0. */
+const leaseBase = "(SELECT COALESCE(MAX(base),0) FROM ceremony_lease_base)";
+/** The key's claim generation has used up the span of the store's epoch. */
+export class LeaseGenerationsExhausted extends Error {
+  constructor() {
+    super("The lease generations of this key are used up on this store");
+  }
+}
 function parameters(key: RecordKey): string[] {
   if (
     !recordKinds.includes(key.kind) ||
@@ -193,16 +239,11 @@ function transaction(
     return query(sql, args);
   };
   const lock = postgres ? " FOR UPDATE" : "";
-  const now = async () =>
-    Number(
-      (
-        await q(
-          postgres
-            ? "SELECT floor(extract(epoch from clock_timestamp()) * 1000) AS now"
-            : "SELECT CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER) AS now",
-        )
-      )[0]!.now,
-    );
+  /** The database clock in milliseconds, read when the statement runs. */
+  const clock = postgres
+    ? "floor(extract(epoch from clock_timestamp()) * 1000)::bigint"
+    : "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)";
+  const now = async () => Number((await q(`SELECT ${clock} AS now`))[0]!.now);
   const fenceRow = async (key: RecordKey) =>
     (
       await q(
@@ -360,26 +401,66 @@ function transaction(
       if (!/^[a-zA-Z0-9_-]{1,200}$/.test(worker))
         throw new Error("Invalid worker identity");
       const time = await now();
+      // The upsert can run long after `time` was read: the update of an
+      // existing row waits while another transaction holds it, and the
+      // insert of a new row waits while another transaction holds an
+      // uncommitted insert of it. `time` only decides whether the lease on
+      // the row has run out. On PostgreSQL an insert that waited and then
+      // goes ahead writes the expiry it computed before the wait, so once
+      // the upsert holds the row the lease is set again from the clock, and
+      // claim never returns a lease that has already run out.
+      // The generation stays below the end of the epoch's span ($7).
       const rows = await q(
-        "INSERT INTO ceremony_claims(tenant,kind,id,generation,worker,expires) VALUES($1,$2,$3,1,$4,$5) ON CONFLICT(tenant,kind,id) DO UPDATE SET generation=ceremony_claims.generation+1,worker=excluded.worker,expires=excluded.expires WHERE ceremony_claims.expires<=$6 RETURNING generation",
-        [...parameters(key), worker, time + durationMs, time],
+        `INSERT INTO ceremony_claims(tenant,kind,id,generation,worker,expires) VALUES($1,$2,$3,${leaseBase}+1,$4,${clock}+$5) ON CONFLICT(tenant,kind,id) DO UPDATE SET generation=ceremony_claims.generation+1,worker=excluded.worker,expires=${clock}+$5 WHERE ceremony_claims.expires<=$6 AND ceremony_claims.generation+1<${leaseBase}+$7 RETURNING generation`,
+        [...parameters(key), worker, durationMs, time, leaseSpan],
       );
-      if (!rows.length) throw new PersistenceConflict();
-      return { ...key, generation: Number(rows[0]!.generation), worker };
+      if (!rows.length) {
+        const row = (
+          await q(
+            `SELECT generation, ${leaseBase} AS base FROM ceremony_claims WHERE tenant=$1 AND kind=$2 AND id=$3`,
+            parameters(key),
+          )
+        )[0];
+        if (row && Number(row.generation) + 1 >= Number(row.base) + leaseSpan)
+          throw new LeaseGenerationsExhausted();
+        throw new PersistenceConflict();
+      }
+      const generation = Number(rows[0]!.generation);
+      // This transaction holds the row it wrote until it ends.
+      if (
+        !(
+          await q(
+            `UPDATE ceremony_claims SET expires=${clock}+$4 WHERE tenant=$1 AND kind=$2 AND id=$3 AND generation=$5 AND worker=$6 RETURNING generation`,
+            [...parameters(key), durationMs, generation, worker],
+          )
+        ).length
+      )
+        throw new PersistenceConflict();
+      return { ...key, generation, worker };
     },
     async heartbeat(fence, durationMs) {
       duration(durationMs);
       await assertFence(fence);
-      await q(
-        "UPDATE ceremony_claims SET expires=$4 WHERE tenant=$1 AND kind=$2 AND id=$3",
-        [...parameters(fence), (await now()) + durationMs],
+      // The UPDATE names the fence's lease, so it extends no other lease
+      // even where nothing holds the row between assertFence and here.
+      const rows = await q(
+        "UPDATE ceremony_claims SET expires=$4 WHERE tenant=$1 AND kind=$2 AND id=$3 AND generation=$5 AND worker=$6 RETURNING generation",
+        [
+          ...parameters(fence),
+          (await now()) + durationMs,
+          fence.generation,
+          fence.worker,
+        ],
       );
+      if (!rows.length) throw new PersistenceConflict();
     },
     assertFence,
     async cancel(key) {
+      // At the end of the epoch's span the generation stays: expires 0 is
+      // enough for assertFence to refuse every fence, and no claim follows.
       await q(
-        "INSERT INTO ceremony_claims(tenant,kind,id,generation,worker,expires) VALUES($1,$2,$3,1,'cancelled',0) ON CONFLICT(tenant,kind,id) DO UPDATE SET generation=ceremony_claims.generation+1,worker='cancelled',expires=0",
-        parameters(key),
+        `INSERT INTO ceremony_claims(tenant,kind,id,generation,worker,expires) VALUES($1,$2,$3,${leaseBase}+1,'cancelled',0) ON CONFLICT(tenant,kind,id) DO UPDATE SET generation=CASE WHEN ceremony_claims.generation+1<${leaseBase}+$4 THEN ceremony_claims.generation+1 ELSE ceremony_claims.generation END,worker='cancelled',expires=0`,
+        [...parameters(key), leaseSpan],
       );
     },
   };
@@ -532,7 +613,23 @@ export class PostgresCeremonyStore implements AsyncCeremonyStore {
         id: r.id,
         revision: Number(r.revision),
       }));
-      const backup = { schemaVersion: 2 as const, records, claims, retired };
+      const generationBase = Number(
+        (
+          await client.query(
+            "SELECT COALESCE(MAX(base),0) AS base FROM ceremony_lease_base",
+          )
+        ).rows[0].base,
+      );
+      // A store that was never restored has base 0, which version 2 holds.
+      const backup = generationBase
+        ? {
+            schemaVersion: 3 as const,
+            records,
+            claims,
+            retired,
+            generationBase,
+          }
+        : { schemaVersion: 2 as const, records, claims, retired };
       // restoreEncryptedBackup refuses a backup longer than this, so the
       // backup is refused here rather than written and found unusable.
       if (JSON.stringify(backup).length > 24_000_000) throw new Error();
@@ -557,11 +654,36 @@ export class PostgresCeremonyStore implements AsyncCeremonyStore {
         "Encrypted backup is invalid or unavailable with configured keys",
       );
     }
+    const sourceEpoch =
+      backup.schemaVersion === 3 ? backup.generationBase / leaseSpan : 0;
     await this.maintenance(async (client) => {
+      // The epoch is the second of the database clock the restore runs in,
+      // once that second is above the source's epoch (see leaseSpan).
+      const clockEpoch = async () =>
+        Number(
+          (
+            await client.query(
+              "SELECT floor(extract(epoch from clock_timestamp()))::bigint - $1::bigint AS epoch",
+              [leaseOrigin],
+            )
+          ).rows[0].epoch,
+        );
+      let epoch = await clockEpoch();
+      for (
+        const until = Date.now() + epochWaitMs;
+        epoch <= sourceEpoch && Date.now() < until;
+        epoch = await clockEpoch()
+      )
+        await delay(50);
+      if (epoch <= sourceEpoch || epoch > maxLeaseEpoch) throw new Error();
+      const generationBase = epoch * leaseSpan;
       const existing = await client.query(
-        "SELECT 1 FROM ceremony_records UNION ALL SELECT 1 FROM ceremony_claims UNION ALL SELECT 1 FROM ceremony_retired LIMIT 1",
+        "SELECT 1 FROM ceremony_records UNION ALL SELECT 1 FROM ceremony_claims UNION ALL SELECT 1 FROM ceremony_retired UNION ALL SELECT 1 FROM ceremony_lease_base LIMIT 1",
       );
       if (existing.rowCount) throw new Error();
+      await client.query("INSERT INTO ceremony_lease_base(base) VALUES($1)", [
+        generationBase,
+      ]);
       for (const r of backup.records)
         await client.query(
           "INSERT INTO ceremony_records(tenant,kind,id,revision,value) VALUES($1,$2,$3,$4,$5)",
@@ -570,9 +692,9 @@ export class PostgresCeremonyStore implements AsyncCeremonyStore {
       for (const c of backup.claims)
         await client.query(
           "INSERT INTO ceremony_claims(tenant,kind,id,generation,worker,expires) VALUES($1,$2,$3,$4,'restored',0)",
-          [c.tenant, c.kind, c.id, c.generation + 1],
+          [c.tenant, c.kind, c.id, generationBase + 1],
         );
-      if (backup.schemaVersion === 2)
+      if (backup.schemaVersion !== 1)
         for (const r of backup.retired)
           // A key has a record or a retired revision, never both.
           if (
@@ -596,7 +718,7 @@ export class PostgresCeremonyStore implements AsyncCeremonyStore {
       await client.query("BEGIN");
       await client.query("SET LOCAL lock_timeout = '5s'");
       await client.query(
-        "LOCK TABLE ceremony_records, ceremony_claims, ceremony_retired IN ACCESS EXCLUSIVE MODE",
+        "LOCK TABLE ceremony_records, ceremony_claims, ceremony_retired, ceremony_lease_base IN ACCESS EXCLUSIVE MODE",
       );
       const result = await work(client);
       await client.query("COMMIT");

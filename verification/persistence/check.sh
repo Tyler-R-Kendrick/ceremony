@@ -13,17 +13,25 @@ trap 'rm -rf "$out"' EXIT
 # config | expected | what it is
 #   expected is "holds", or the name of the rule that must break
 table='
-Fence|holds|rules 1-3 on the code as written
+Fence|holds|rules 1-3 and 5 on the code as written
 RevisionNoDelete|holds|rule 4 for a key that is never deleted
 Chart|holds|the small model behind chart.mmd
 FindingRevisionReused|holds|rule 4 on the code as written, records deleted and created again (F1)
-BrokenNoGenerationCheck|StaleFenceNeverCommits|broken variant, index.ts:217
-BrokenNoRowLock|StaleFenceNeverCommits|broken variant, index.ts:195
-BrokenNoGenerationBump|StaleFenceNeverCommits|broken variant, index.ts:364
-BrokenClaimLiveLease|LiveLeaseNeverTakenOver|broken variant, index.ts:364
-BrokenNoExpiryCheck|ExpiredFenceNeverPasses|broken variant, index.ts:219
-BrokenNoRevisionCheck|StaleRevisionNeverWrites|broken variant, index.ts:314
-BrokenNoRetiredRevision|StaleRevisionNeverWrites|broken variant, index.ts:330-335 and :223-274 (F1)
+FindingHeartbeatWithoutRowLock|holds|rule 5 without the row lock: the heartbeat UPDATE keeps to its own lease
+FindingClaimReturnsExpired|holds|rule 6 on the code as written: a slow claim returns no expired fence
+FindingRestoreReusesGeneration|holds|rule 7 on the code as written: a restore reuses no generation an old fence names
+BrokenHeartbeatAnyGeneration|HeartbeatExtendsOnlyOwnLease|broken variant, index.ts:446-455
+BrokenClaimReturnsExpired|ClaimNeverReturnsExpiredFence|broken variant, index.ts:413-416 and :428-438
+BrokenClaimLeaseNotAfterUpsert|ClaimNeverReturnsExpiredFence|broken variant, index.ts:428-438
+BrokenRestoreKeepsGeneration|RestoredStoreRefusesOldFences|broken variant, index.ts:657-695
+BrokenRestoreEpochNotFromClock|RestoredStoreRefusesOldFences|broken variant, index.ts:662-679
+BrokenNoGenerationCheck|StaleFenceNeverCommits|broken variant, index.ts:258
+BrokenNoRowLock|StaleFenceNeverCommits|broken variant, index.ts:241
+BrokenNoGenerationBump|StaleFenceNeverCommits|broken variant, index.ts:414
+BrokenClaimLiveLease|LiveLeaseNeverTakenOver|broken variant, index.ts:414
+BrokenNoExpiryCheck|ExpiredFenceNeverPasses|broken variant, index.ts:260
+BrokenNoRevisionCheck|StaleRevisionNeverWrites|broken variant, index.ts:355
+BrokenNoRetiredRevision|StaleRevisionNeverWrites|broken variant, index.ts:371-376 and :264-315 (F1)
 '
 
 configs=$(printf '%s\n' "$table" | cut -d'|' -f1)
@@ -55,12 +63,12 @@ ROW
   fi
   if [ "$got" = "$expected" ]; then
     case $expected in
-      holds) printf 'ok    %-24s holds: %s\n' "$config" "$what" ;;
-      *) printf 'ok    %-24s breaks %s, as recorded: %s\n' "$config" "$expected" "$what" ;;
+      holds) printf 'ok    %-30s holds: %s\n' "$config" "$what" ;;
+      *) printf 'ok    %-30s breaks %s, as recorded: %s\n' "$config" "$expected" "$what" ;;
     esac
   else
     status=1
-    printf 'FAIL  %-24s expected %s, got %s: %s\n' "$config" "$expected" "$got" "$what"
+    printf 'FAIL  %-30s expected %s, got %s: %s\n' "$config" "$expected" "$got" "$what"
     printf '      see it with: verification/tlc.sh persistence Fence %s\n' "$config"
     if [ "$got" = error ]; then
       grep -v '^Picked up' "$log" | tail -n 15 | sed 's/^/      | /'

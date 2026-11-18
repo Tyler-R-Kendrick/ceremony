@@ -28,7 +28,13 @@ const broken = (v) =>
         ? "A fence was accepted after its lease ran out"
         : v.staleRevisionWrote
           ? "A write replaced a record its writer never read"
-          : undefined;
+          : v.foreignLeaseExtended
+            ? "A heartbeat extended another worker's lease"
+            : v.expiredFenceReturned
+              ? "A claim returned a fence whose time had run out"
+              : v.oldFencePassedRestore
+                ? "A fence from before the restore was accepted"
+                : undefined;
 
 const lease = (v) => {
   if (free(v)) return "Key free";
@@ -112,6 +118,12 @@ export const step = (action, from, to) => {
       return `the old holder's fence is refused [${after[lease(to)]}]`;
     }
     case "HeartbeatExtends":
+      if (
+        processes(to).some(
+          (p) => from.pc[p] === "asserted" && to.pc[p] === "idle",
+        )
+      )
+        return "a heartbeat is refused, the lease is another's";
       return `${who}'s heartbeat commits`;
     case "FencedCommit":
       if (changedHands) return `${who} commits and releases the key`;
@@ -128,6 +140,10 @@ export const step = (action, from, to) => {
       return "a writer with no lease rewrites the record";
     case "OtherWriterDeletes":
       return "a writer with no lease deletes the record";
+    case "TakeBackup":
+      return "the store is backed up";
+    case "RestoreBackup":
+      return "the backup is restored into a fresh database";
     case "ClockBoundReached":
       return "the clock stops";
     default:
