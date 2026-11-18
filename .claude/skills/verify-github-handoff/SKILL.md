@@ -11,7 +11,7 @@ description: "Check a change to the GitHub App hand-off (\"Connect GitHub\": cre
 
 If it breaks, a person ends up with a GitHub App that Ceremony lost or created twice, a cancelled connection that still stores an app or a token, a token for an unchecked installation, or a connection that can neither finish nor be repaired.
 
-The last part does not hold today. `verification/github-handoff/README.md` lists four known dead ends as findings 1 to 4. They are failures of the product code, not of the model. Do not edit the model to hide them.
+The last part does not hold today. `verification/github-handoff/README.md` lists four dead ends as findings 1 to 4. The three steps are registered replay `read-only`, so the engine runs an `uncertain` step again; that removed findings 1 to 3. Finding 4 is left: running the app step again only fails again. It is a failure of the product code, not of the model. Do not edit the model to hide it.
 
 ## Does your change touch it
 
@@ -20,6 +20,7 @@ The model describes these files and functions. A change to any of them touches i
 | File | Functions |
 | --- | --- |
 | `src/server/recipes/github.ts` | Everything in `AsyncGitHubChildren`: `read`, `api`, `verifyApp`, `artifact`, `saveArtifact`, `register` (its `verify`), `prepare`, `install`, `human`, `callback`, `registrationRestartAvailable`, `restartRegistration`, `recover`, `cancel`, `checkInstallation`, `verifyAccess`; the `State` and `Artifact` types; `resolveGitHubInstallationRun` |
+| `src/server/recipes/registry.ts` | `effectiveReplay`, `replayRerunsUncertain`; the `replay` each GitHub step registers |
 | `src/server/github-runtime.ts` | `childOptions.authorize`, `humanReturn`, `cancel`, `human`, `githubHumanResponse` (recovery page and POST, callback, hand-off page), `advance` |
 | `src/server/commands.ts` | `cancel`, `advance`, `execute`: which step states may run, what a thrown handler becomes, when a step's state is written |
 | `src/server/persistence/index.ts` | `put`, `claim`, `assertFence`, `cancel` |
@@ -27,7 +28,7 @@ The model describes these files and functions. A change to any of them touches i
 To see what changed since the model was last confirmed:
 
 ```sh
-git diff 2b14e0720188516fc3e3934f51cf2a4359fedab3 -- src/server/recipes/github.ts src/server/github-runtime.ts src/server/commands.ts src/server/persistence/index.ts
+git diff 36710d246105a496a482e232ed99cb2934f67906 -- src/server/recipes/github.ts src/server/recipes/registry.ts src/server/github-runtime.ts src/server/commands.ts src/server/persistence/index.ts
 ```
 
 No output means the model still describes the code; run the check anyway if your working tree changes these files. The store and the engine have their own checks, `verify-persistence` and `verify-commands`. This model takes their behaviour as given, so a change there needs those skills too.
@@ -47,7 +48,8 @@ It takes about 20 seconds and needs Java 11 or later. The first run downloads TL
 - `ok` on `GitHubHandoff`: the rules that hold today hold.
 - `ok` on `NoDeadEndOneAtATime`: without the triggers of the four findings (overlapping requests, GitHub silent during a step, the wrong GitHub account, a dying process) there is no dead end.
 - `FINDING` on a `DeadEnd...` configuration: that known dead end is still in the code. This is the recorded result.
-- `ok` on a `Broken...` configuration: the model with one check removed fails, as it must. This shows that the rule can fail.
+- `ok` on a `DeadEnd...` configuration whose finding is fixed: that dead end is gone, as recorded.
+- `ok` on a `Broken...` configuration: the model with one check removed fails, as it must. This shows that the rule can fail. `BrokenReplay.cfg` (the three steps without replay `read-only`, so an `uncertain` step never runs again) is not in `check.sh`; run it alone and expect `LaterStepsNeverStranded` violated.
 - `CHANGED`: the result differs from the recorded one. TLC's output follows. Exit code 1.
 
 Run one configuration with `verification/tlc.sh github-handoff GitHubHandoff DeadEndExpiry`; the last word is the `.cfg` name.
@@ -99,7 +101,7 @@ Change the rule only when the promise itself changes, for example a second conve
 The model was last confirmed against the code at:
 
 ```
-2b14e0720188516fc3e3934f51cf2a4359fedab3
+36710d246105a496a482e232ed99cb2934f67906
 ```
 
 Move this commit forward, here and in the README's "Sync" section, only after you have compared every changed function in the table above with its actions and the check gives its recorded results at the new commit. If covered code changed and nobody did that, use `/maintain-formal-verification-skill` to bring the model back in line.

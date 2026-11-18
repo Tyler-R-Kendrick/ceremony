@@ -7,6 +7,7 @@ const CREATE = "Waiting for you to create the app on GitHub";
 const FETCH = "Ceremony is fetching your new app from GitHub";
 const UNSURE = "Ceremony is unsure whether your app exists";
 const APP = "App ready";
+const APP_UNCLEAR = "App ready, but the app step did not finish";
 const INSTALL = "Waiting for you to install the app on GitHub";
 const INSTALLED = "App installed";
 const CONNECTED = "Connected: token stored";
@@ -23,17 +24,14 @@ const inFlight = (v) =>
   Object.values(v.ret).some((r) => r.pc !== "idle");
 
 // The states the rule NoDeadEnd marks: a step is marked unclear and nothing
-// but Cancel can change anything any more.
+// but Cancel, or running the step again only to fail again, can change
+// anything any more.  Every step runs again from "uncertain", so the one
+// such state is an app of another account that Ceremony holds while it
+// will not let you register again.
 const stuck = (v) => {
   if (inFlight(v)) return false;
-  const canStillInstall = v.local === "installation" && !v.instExpired;
-  if (v.step.access === "uncertain") return true;
-  if (v.step.inst === "uncertain") return !canStillInstall;
   if (v.step.app !== "uncertain" || v.local !== "shared") return false;
-  if (v.setup === "app-ready") return true;
-  if (v.setup === "registration") return v.expired;
-  // "uncertain" or "converting": stuck when your only app belongs to another
-  // account and Ceremony will not let you register again.
+  if (!["uncertain", "converting"].includes(v.setup)) return false;
   const mayRestart = v.setup === "uncertain" && v.app === "none";
   return v.created === "wrong" && !v.haveRight && !mayRestart;
 };
@@ -47,6 +45,8 @@ const label = (v) => {
   if (v.local === "installation") return INSTALL;
   if (v.local === "none") return START;
   if (returning(v)) return FETCH;
+  if (v.step.app === "uncertain" && v.setup === "app-ready" && !inFlight(v))
+    return APP_UNCLEAR;
   if (v.step.app === "complete" || v.setup === "app-ready") return APP;
   if (v.setup === "uncertain" || v.setup === "converting") return UNSURE;
   // Still "registration": once the page was shown and the hour is over,
@@ -67,7 +67,9 @@ export const step = (action, from, to) => {
   switch (action) {
     // the run's steps
     case "StepStarts":
-      return `Ceremony starts the ${stepNames[to.eng.node]}`;
+      return from.step[to.eng.node] === "uncertain"
+        ? `Ceremony runs the ${stepNames[to.eng.node]} again`
+        : `Ceremony starts the ${stepNames[to.eng.node]}`;
     case "HandoffPrepared":
       return "Ceremony prepares the GitHub hand-off";
     case "StepStillWaiting":
