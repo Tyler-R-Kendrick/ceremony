@@ -304,6 +304,13 @@ const kernelEntries = ["./kernel", "./kernel/interface", "./kernel/flows"];
 /** Packages a kernel entry may import. Each must be an optional peer. */
 const kernelPeers = ["@ui-sdk/core"];
 
+/**
+ * The flow catalog declares its values with zod, a dependency of the package.
+ * Only `./kernel/flows` may reach it: the kernel itself and its interface
+ * prover import no package but the optional peers.
+ */
+const flowsDependencies = ["zod"];
+
 function conditions(subpath: string): { types: string; import: string } {
   const target = manifest.exports[subpath];
   assert.ok(target !== undefined, `the export map has no ${subpath}`);
@@ -369,6 +376,7 @@ const consumerProgram = `import {
   established,
   fact,
   invalidates,
+  of,
   operator,
   retry,
   terminal,
@@ -397,7 +405,23 @@ const enter = operator({
 });
 
 const facts = {
-  entered: fact({ description: "The person entered a token.", volatile: true, secret: true }),
+  entered: fact({
+    description: "The person entered a token.",
+    volatile: true,
+    secret: true,
+    // A fact a person supplies declares a validator: any Standard Schema.
+    // This one needs no library.
+    value: of({
+      "~standard": {
+        version: 1,
+        vendor: "consumer",
+        validate: (value) =>
+          typeof value === "string" && value.length > 0
+            ? { value }
+            : { issues: [{ message: "a token is non-empty text" }] },
+      },
+    }),
+  }),
   token: fact({
     description: "The service accepted the token.",
     volatile: true,
@@ -554,45 +578,63 @@ test(
     const directory = mkdtempSync(join(tmpdir(), "ceremony-kernel-graph-"));
     try {
       const { installed } = isolatedConsumer(directory);
-      const reached = new Set<string>();
-      const packages = new Set<string>();
-      const pending: string[] = [];
-      for (const subpath of kernelEntries) {
-        const target = conditions(subpath);
-        pending.push(target.import.slice(2), target.types.slice(2));
-      }
-      while (pending.length > 0) {
-        const path = pending.pop()!;
-        if (reached.has(path)) continue;
-        reached.add(path);
-        const file = join(installed, path);
-        assert.ok(existsSync(file), `${path} is in the tarball`);
-        for (const specifier of specifiers(readFileSync(file, "utf8"))) {
-          if (!specifier.startsWith(".")) {
-            packages.add(specifier);
-            continue;
-          }
-          let next = join(dirname(path), specifier);
-          if (path.endsWith(".d.ts")) next = next.replace(/\.js$/, ".d.ts");
-          pending.push(next);
+      const walk = (entries: readonly string[]) => {
+        const reached = new Set<string>();
+        const packages = new Set<string>();
+        const pending: string[] = [];
+        for (const subpath of entries) {
+          const target = conditions(subpath);
+          pending.push(target.import.slice(2), target.types.slice(2));
         }
-      }
+        while (pending.length > 0) {
+          const path = pending.pop()!;
+          if (reached.has(path)) continue;
+          reached.add(path);
+          const file = join(installed, path);
+          assert.ok(existsSync(file), `${path} is in the tarball`);
+          for (const specifier of specifiers(readFileSync(file, "utf8"))) {
+            if (!specifier.startsWith(".")) {
+              packages.add(specifier);
+              continue;
+            }
+            let next = join(dirname(path), specifier);
+            if (path.endsWith(".d.ts")) next = next.replace(/\.js$/, ".d.ts");
+            pending.push(next);
+          }
+        }
+        return { reached, packages };
+      };
+      const outsideOf = (allowed: readonly string[], packages: Set<string>) =>
+        [...packages].filter(
+          (name) =>
+            !allowed.some(
+              (peer) => name === peer || name.startsWith(`${peer}/`),
+            ),
+        );
 
+      const { reached, packages } = walk(kernelEntries);
       const outside = [...reached].filter(
         (path) => !path.startsWith("dist/kernel/"),
       );
       assert.deepEqual(outside, [], "every reachable module is kernel code");
-      const undeclared = [...packages].filter(
-        (name) =>
-          !kernelPeers.some(
-            (peer) => name === peer || name.startsWith(`${peer}/`),
-          ),
+      assert.deepEqual(
+        outsideOf([...kernelPeers, ...flowsDependencies], packages),
+        [],
+        "a kernel entry imports no package but its optional peers and the flows' declared dependencies, and no Node built-in",
+      );
+      const core = walk(
+        kernelEntries.filter((entry) => entry !== "./kernel/flows"),
       );
       assert.deepEqual(
-        undeclared,
+        outsideOf(kernelPeers, core.packages),
         [],
-        "a kernel entry imports no package but its optional peers, and no Node built-in",
+        "the kernel and its interface prover import no package but their optional peers, and no Node built-in",
       );
+      for (const name of flowsDependencies)
+        assert.ok(
+          name in manifest.dependencies,
+          `${name}, which the flows import, is a dependency of the package`,
+        );
       for (const module of [
         "dist/kernel/ceremony.js",
         "dist/kernel/model.js",
