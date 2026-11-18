@@ -25,14 +25,14 @@ const inFlight = (v) =>
 
 // The states the rule NoDeadEnd marks: a step is marked unclear and nothing
 // but Cancel, or running the step again only to fail again, can change
-// anything any more.  Every step runs again from "uncertain", so the one
-// such state is an app of another account that Ceremony holds while it
-// will not let you register again.
+// anything any more.  Every step runs again from "uncertain", and "Start a
+// new registration" replaces an app of another account, so the model finds
+// none; the label stays so that one would show.
 const stuck = (v) => {
   if (inFlight(v)) return false;
   if (v.step.app !== "uncertain" || v.local !== "shared") return false;
   if (!["uncertain", "converting"].includes(v.setup)) return false;
-  const mayRestart = v.setup === "uncertain" && v.app === "none";
+  const mayRestart = v.app === "none" || v.app === "wrong";
   return v.created === "wrong" && !v.haveRight && !mayRestart;
 };
 
@@ -158,7 +158,9 @@ export const step = (action, from, to) => {
     case "RecoveryReleasesStep":
       return "Ceremony lets the app step run again";
     case "RegistrationRestarted":
-      return "you start a new registration [when Ceremony holds no app]";
+      return from.app === "wrong"
+        ? "you start a new registration [Ceremony keeps a note of the other account's app]"
+        : "you start a new registration [when Ceremony holds no app]";
 
     // timers
     case "HandoffExpires":

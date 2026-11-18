@@ -25,7 +25,9 @@ CONSTANTS
   GitHubFailsInSteps,       \* the steps of the run (subset of {"app", "inst", "access"}) in which a
                             \*   GitHub call may fail
   WrongAccountPossible,     \* you may create the app while signed in to another GitHub account than
-                            \*   the one you chose (github.ts:574 names the account only for an organization)
+                            \*   the one you chose: for a user the form posts to /settings/apps/new
+                            \*   (github.ts:610-616), and the page only names the account
+                            \*   (github-runtime.ts:1380)
   RequestsDie,              \* the process handling a return or a recovery may die between transactions
   RequestsOverlap,          \* requests and timers may fall between another request's transactions
                             \*   (FALSE only in Chart.cfg, to draw the flow one request at a time)
@@ -39,8 +41,14 @@ CONSTANTS
                             \*   such a step again from "uncertain" (commands.ts:927-937)
   RefusalLeavesRun,         \* github-runtime.ts:1327  the return route does not advance the run after
                             \*   a refused return (GitHubCallbackRefused, github.ts:647, 678, 730)
-  ExpiryRetriesOnConflict   \* github.ts:428-433  prepare() reads the record again when its expiry
+  ExpiryRetriesOnConflict,  \* github.ts:457-463  prepare() reads the record again when its expiry
                             \*   write meets PersistenceConflict
+  RestartReplacesForeignApp,\* github.ts:822-828  restartRegistration() takes the phases "uncertain"
+                            \*   and "converting", and an app owned by another account than the chosen
+                            \*   one, which it records as orphaned (github.ts:855-873)
+  ReturnReleasesClaim,      \* github.ts:769  a failed return ends its claim when it writes "uncertain"
+  StoreChecksRun            \* github.ts:203-214  every write of an app or an artifact reads the run's
+                            \*   record in its transaction and refuses a cancelled run
 
 VARIABLES
   \* the run and its three steps (commands.ts)
@@ -88,7 +96,10 @@ vars == << run, step, eng, setup, issued, expired, app, claim, local,
 Steps == {"app", "inst", "access"}
 Idle == [node |-> "none", sPhase |-> "none", sApp |-> "none", sIssued |-> FALSE, fresh |-> TRUE,
          tries |-> 0]
-RetIdle == [pc |-> "idle", id |-> "none"]
+\* old: the return was admitted for a nonce that "Start a new registration"
+\* has since replaced; its conversion counts against that nonce, not the
+\* current one (bookkeeping for ConvertedAtMostOnce only).
+RetIdle == [pc |-> "idle", id |-> "none", old |-> FALSE]
 
 \* The phase read() returns (github.ts:194-209): the setup record while the
 \* run points at it, the run's own record afterwards.
@@ -118,6 +129,7 @@ TypeOK ==
   /\ \A c \in Returns :
        /\ ret[c].pc \in {"idle", "regRead", "regStale", "admitted", "saved", "instRead", "instStale"}
        /\ ret[c].id \in {"none", "good", "bad"}
+       /\ ret[c].old \in BOOLEAN
   /\ page \in {"idle", "open", "stale"}
   /\ rec \in {"idle", "read", "stale", "stored"}
   /\ converted \in 0..3 /\ haveRight \in BOOLEAN /\ deadSeen \in BOOLEAN
@@ -157,6 +169,11 @@ StalePage == IF page = "open" THEN "stale" ELSE page
 Settle(n, result) ==
   /\ step' = IF run = "active" THEN [step EXCEPT ![n] = result] ELSE step
   /\ eng' = Idle
+
+\* A write of an app or an artifact refuses a run whose cancel has committed
+\* (assertRunActive, github.ts:203-214): the run record is read in the same
+\* transaction.
+RunRefuses == StoreChecksRun /\ run = "cancelled"
 
 (***************************************************************************)
 (* THE RUN ENGINE RUNS A STEP.  commands.ts:757-1255.                      *)
@@ -202,7 +219,7 @@ HandoffPreparedOn(e) ==
   e.node = "app" /\ e.sPhase = "none" /\ e.sApp = "none" /\ local = "none"
 AppConfirmedOn(e) ==
   /\ e.node = "app" /\ e.sApp = "right" /\ e.sPhase # "cancelled"
-  /\ ~(SaveChecksCancelled /\ local = "cancelled")
+  /\ ~(SaveChecksCancelled /\ local = "cancelled") /\ ~RunRefuses
 HandoffLapsedOn(e) ==
   e.node = "app" /\ e.sApp = "none" /\ e.sPhase = "registration" /\ expired
 StepStillWaitingOn(e) ==
@@ -212,7 +229,7 @@ InstallHandoffPreparedOn(e) ==
 InstallConfirmedOn(e) == e.node = "inst" /\ instArt # "none"
 TokenStoredOn(e) ==
   /\ e.node = "access" /\ instArt = "good"
-  /\ ~(SaveChecksCancelled /\ local = "cancelled")
+  /\ ~(SaveChecksCancelled /\ local = "cancelled") /\ ~RunRefuses
 
 \* Running step n again from "uncertain" can end differently: with the step
 \* no longer "uncertain", or with a record changed.  A rerun that can only
@@ -254,7 +271,8 @@ AppCheckUnanswered ==
   /\ eng.node = "app" /\ eng.sApp # "none" /\ eng.sPhase # "cancelled"
   /\ "app" \in GitHubFailsInSteps \/ eng.sApp = "wrong"
   /\ \E saved \in BOOLEAN :
-       /\ saved => eng.sApp = "right" /\ ~(SaveChecksCancelled /\ local = "cancelled")
+       /\ saved => /\ eng.sApp = "right" /\ ~(SaveChecksCancelled /\ local = "cancelled")
+                   /\ ~RunRefuses
        /\ appArt' = (appArt \/ saved)
   /\ Settle("app", "uncertain")
   /\ UNCHANGED << run, setup, issued, expired, app, claim, local,
@@ -306,12 +324,14 @@ StepMarkedUnclear ==
                   instExpired, appArt, instArt, token, ret, page, rec,
                   converted, created, haveRight, frozen, deadSeen, refusedMoved >>
 
-\* prepare() throws because the run was cancelled. github.ts:396-397, 439-440, 289-290
+\* prepare() throws because the run was cancelled. github.ts:396-397, 439-440, 289-290,
+\* and the run check in saveArtifact (github.ts:319)
 AppStepRefused ==
   /\ eng.node = "app"
   /\ \/ eng.sPhase = "cancelled"
      \/ eng.sPhase = "none" /\ eng.sApp = "none" /\ local # "none"
      \/ eng.sApp = "right" /\ SaveChecksCancelled /\ local = "cancelled"
+     \/ eng.sApp = "right" /\ eng.sPhase # "cancelled" /\ RunRefuses
   /\ Settle("app", "uncertain")
   /\ UNCHANGED << run, setup, issued, expired, app, claim, local,
                   instExpired, appArt, instArt, token, ret, page, rec,
@@ -368,6 +388,7 @@ AccessStepRefused ==
   /\ eng.node = "access"
   /\ \/ instArt # "good"
      \/ SaveChecksCancelled /\ local = "cancelled"
+     \/ RunRefuses
      \/ "access" \in GitHubFailsInSteps
   /\ Settle("access", "uncertain")
   /\ UNCHANGED << run, setup, issued, expired, app, claim, local,
@@ -418,7 +439,7 @@ ReturnArrives(c) ==
   /\ MayStart
   /\ run = "active" /\ ret[c].pc = "idle"
   /\ local = "shared" /\ setup = "registration" /\ issued /\ ~expired
-  /\ ret' = [ret EXCEPT ![c].pc = "regRead"]
+  /\ ret' = [ret EXCEPT ![c].pc = "regRead", ![c].old = FALSE]
   \* a second delivery of the same return carries the same app
   /\ \E a \in IF created # "none" THEN {created}
               ELSE IF WrongAccountPossible THEN {"right", "wrong"} ELSE {"right"} :
@@ -486,32 +507,45 @@ DuplicateReturnRefused(c) ==
                   local, instExpired, appArt, instArt, token, ret, page, rec,
                   converted, created, haveRight, frozen, deadSeen >>
 
-\* What the catch block writes (github.ts:710-725): "uncertain", but only
-\* while this return still holds the fence and nobody cancelled.
+\* What the catch block writes (github.ts:753-771): "uncertain", but only
+\* while this return still holds the fence and nobody cancelled.  In the
+\* same transaction it ends its own claim on the setup key (github.ts:769).
 CatchWrites(c) ==
   IF claim = {c} /\ setup # "cancelled"
     THEN /\ setup' = "uncertain"
+         /\ claim' = IF ReturnReleasesClaim THEN {} ELSE claim
          /\ ret' = [StaleRets(ret) EXCEPT ![c].pc = "idle"]
          /\ eng' = StaleEng /\ rec' = StaleRec
     ELSE /\ ret' = [ret EXCEPT ![c].pc = "idle"]
-         /\ UNCHANGED << setup, eng, rec, refusedMoved >>
+         /\ UNCHANGED << setup, claim, eng, rec, refusedMoved >>
+
+\* A conversion is counted against the current nonce, unless the return was
+\* admitted for one that a restart has since replaced.
+Count(c) == IF ret[c].old THEN converted ELSE converted + 1
 
 \* POST /app-manifests/{code}/conversions answers with the app; it is kept
-\* at once, under the fence. github.ts:681-698
+\* at once, under the fence. github.ts:731-740.  When the run's cancel has
+\* committed, the run check in that transaction (github.ts:734) throws and
+\* the catch block runs instead.
 ConversionSaved(c) ==
   /\ ret[c].pc = "admitted" /\ claim = {c}
-  /\ converted' = converted + 1
-  /\ app' = created /\ setup' = "converting"
-  /\ ret' = [StaleRets(ret) EXCEPT ![c].pc = "saved"]
-  /\ eng' = StaleEng /\ rec' = StaleRec
-  /\ UNCHANGED << run, step, issued, expired, claim, local, instExpired,
-                  appArt, instArt, token, page, created, haveRight, frozen, deadSeen, refusedMoved >>
+  /\ converted' = Count(c)
+  /\ IF RunRefuses
+       THEN /\ CatchWrites(c)
+            /\ UNCHANGED app
+       ELSE /\ app' = created /\ setup' = "converting"
+            /\ ret' = [StaleRets(ret) EXCEPT ![c].pc = "saved"]
+            /\ eng' = StaleEng /\ rec' = StaleRec
+            /\ UNCHANGED claim
+  /\ UNCHANGED << run, step, issued, expired, local, instExpired,
+                  appArt, instArt, token, page, created, haveRight, frozen, deadSeen,
+                  refusedMoved >>
 
 \* The answer came but the fence is gone (cancelled, recovered, or 60 s
 \* over): nothing is written. github.ts:691, 712-716
 ConversionDropped(c) ==
   /\ ret[c].pc = "admitted" /\ claim # {c}
-  /\ converted' = converted + 1
+  /\ converted' = Count(c)
   /\ ret' = [ret EXCEPT ![c].pc = "idle"]
   /\ UNCHANGED << run, step, eng, setup, issued, expired, app, claim,
                   local, instExpired, appArt, instArt, token, page, rec,
@@ -521,9 +555,9 @@ ConversionDropped(c) ==
 ConversionFails(c) ==
   /\ GitHubFailsInReturn
   /\ ret[c].pc = "admitted"
-  /\ converted' = converted + 1
+  /\ converted' = Count(c)
   /\ CatchWrites(c)
-  /\ UNCHANGED << run, step, issued, expired, app, claim, local,
+  /\ UNCHANGED << run, step, issued, expired, app, local,
                   instExpired, appArt, instArt, token, page, created, haveRight, frozen,
                   deadSeen, refusedMoved >>
 
@@ -546,7 +580,7 @@ AppVerifyFails(c) ==
   /\ GitHubFailsInReturn \/ created = "wrong"
   /\ ret[c].pc = "saved"
   /\ CatchWrites(c)
-  /\ UNCHANGED << run, step, issued, expired, app, claim, local,
+  /\ UNCHANGED << run, step, issued, expired, app, local,
                   instExpired, appArt, instArt, token, page, converted,
                   created, haveRight, frozen, deadSeen, refusedMoved >>
 
@@ -569,7 +603,7 @@ InstallReturnArrives(c, id) ==
   /\ MayStart
   /\ run = "active" /\ ret[c].pc = "idle"
   /\ local = "installation" /\ ~instExpired
-  /\ ret' = [ret EXCEPT ![c] = [pc |-> "instRead", id |-> id]]
+  /\ ret' = [ret EXCEPT ![c] = [pc |-> "instRead", id |-> id, old |-> FALSE]]
   /\ UNCHANGED << run, step, eng, setup, issued, expired, app, claim,
                   local, instExpired, appArt, instArt, token, page, rec,
                   converted, created, haveRight, frozen, deadSeen, refusedMoved >>
@@ -579,16 +613,18 @@ InstallReturnArrives(c, id) ==
 InstallReturnRecorded(c) ==
   /\ ret[c].pc = "instRead"
   /\ ret[c].id = "good" \/ ~ReturnChecksInstallation
+  /\ ~RunRefuses
   /\ local' = "installed" /\ instArt' = ret[c].id
   /\ ret' = [StaleInst(ret) EXCEPT ![c] = RetIdle]
   /\ UNCHANGED << run, step, eng, setup, issued, expired, app, claim,
                   instExpired, appArt, token, page, rec, converted, created, haveRight,
                   frozen, deadSeen, refusedMoved >>
 
-\* GitHub rejects the installation or does not answer, or the run's
-\* record moved since it was read.
+\* GitHub rejects the installation or does not answer, the run's record
+\* moved since it was read, or the run's cancel has committed (github.ts:786).
 InstallReturnRefused(c) ==
   /\ \/ ret[c].pc = "instStale"
+     \/ ret[c].pc = "instRead" /\ RunRefuses
      \/ ret[c].pc = "instRead" /\ ret[c].id = "bad" /\ ReturnChecksInstallation
      \/ ret[c].pc = "instRead" /\ GitHubFailsInReturn
   /\ ret' = [ret EXCEPT ![c] = RetIdle]
@@ -614,16 +650,18 @@ RecoveryStarts ==
 \* GitHub confirms the app; one transaction cancels the fence and writes
 \* "app-ready" with the revision that was read. github.ts:821-852
 RecoveryStoresApp ==
-  /\ rec = "read"
+  /\ rec = "read" /\ ~RunRefuses
   /\ setup' = "app-ready" /\ app' = "right" /\ claim' = {}
   /\ rec' = "stored"
   /\ ret' = StaleRets(ret) /\ eng' = StaleEng
   /\ UNCHANGED << run, step, issued, expired, local, instExpired, appArt,
                   instArt, token, page, converted, created, haveRight, frozen, deadSeen, refusedMoved >>
 
-\* The record moved since it was read, or GitHub did not confirm the app.
+\* The record moved since it was read, GitHub did not confirm the app, or
+\* the run's cancel has committed (github.ts:916).
 RecoveryFails ==
   /\ \/ rec = "stale"
+     \/ rec = "read" /\ RunRefuses
      \/ rec = "read" /\ GitHubFailsInReturn
   /\ rec' = "idle"
   /\ UNCHANGED << run, step, eng, setup, issued, expired, app, claim,
@@ -650,19 +688,37 @@ RecoveryDies ==
                   local, instExpired, appArt, instArt, token, ret, page,
                   converted, created, haveRight, frozen, deadSeen, refusedMoved >>
 
+\* What restartRegistration() accepts (restartable, github.ts:822-828): the
+\* phase "uncertain" or "converting", and no app or an app owned by another
+\* account.  With RestartReplacesForeignApp = FALSE: "uncertain" and no app.
+RestartPhase ==
+  IF RestartReplacesForeignApp THEN setup \in {"uncertain", "converting"}
+  ELSE setup = "uncertain"
+RestartApp ==
+  IF RestartReplacesForeignApp THEN app \in {"none", "wrong"} ELSE app = "none"
+
 \* "Start a new registration": one transaction. restartRegistration()
-\* (github.ts:771-808) needs phase "uncertain", no app and no live claim;
-\* the same transaction releases step "app" (github-runtime.ts:1193-1273).
+\* (github.ts:831-879) needs RestartPhase, RestartApp and no live claim
+\* (its own claim, github.ts:849-853, fails while one is live); it drops
+\* the app, keeping its identity as orphaned.  The same transaction
+\* releases step "app" (github-runtime.ts:1193-1273).  It claims the run
+\* key (github-runtime.ts:1218-1222), which the engine holds while it runs
+\* a step (commands.ts:964-968), so it does not go through while the engine
+\* runs one.  A return still in flight was admitted for the old nonce.
 RegistrationRestarted ==
   /\ MayStart
-  /\ run = "active" /\ step.app = "uncertain"
-  /\ local = "shared" /\ setup = "uncertain" /\ app = "none" /\ claim = {}
+  /\ run = "active" /\ step.app = "uncertain" /\ eng.node = "none"
+  /\ local = "shared" /\ RestartPhase /\ RestartApp /\ claim = {}
   /\ setup' = "registration" /\ issued' = FALSE /\ expired' = FALSE
+  /\ app' = "none"
   /\ converted' = 0 /\ created' = "none"
   /\ step' = [step EXCEPT !.app = "open"]
-  /\ ret' = StaleRets(ret) /\ eng' = StaleEng /\ rec' = StaleRec
+  /\ ret' = [c \in Returns |->
+              LET r == StaleRets(ret)[c] IN
+                IF r.pc \in {"admitted", "saved"} THEN [r EXCEPT !.old = TRUE] ELSE r]
+  /\ eng' = StaleEng /\ rec' = StaleRec
   /\ page' = StalePage
-  /\ UNCHANGED << run, app, claim, local, instExpired, appArt, instArt,
+  /\ UNCHANGED << run, claim, local, instExpired, appArt, instArt,
                   token, haveRight, frozen, deadSeen, refusedMoved >>
 
 (***************************************************************************)
@@ -720,11 +776,13 @@ Acts ==
 Open == run = "active" /\ step.access # "complete"
 
 \* One timer opens a way forward: "Start a new registration" claims the
-\* setup key (github.ts:790-794) and is refused while a return's 60-second
-\* claim is still live; once it lapses the restart goes through.
+\* setup key (github.ts:849-853) and is refused while a return's 60-second
+\* claim is still live; once it lapses the restart goes through.  A return
+\* that fails ends its claim itself (RestartWithoutWaiting), so the claim
+\* waited out is one of a return whose process died.
 WaitThenRestart ==
   /\ claim # {}
-  /\ step.app = "uncertain" /\ local = "shared" /\ setup = "uncertain" /\ app = "none"
+  /\ step.app = "uncertain" /\ local = "shared" /\ RestartPhase /\ RestartApp
 
 DeadEnd == Open /\ ~ENABLED Acts /\ ~WaitThenRestart
 
@@ -752,8 +810,9 @@ InstallHandoffExpires ==
                   local, appArt, instArt, token, ret, page, rec, converted,
                   created, haveRight, frozen, refusedMoved >>
 
-\* The return's claim lasts 60 s and is never released by the return
-\* itself (github.ts:665-669; persistence/index.ts:399-440).
+\* The return's claim lasts 60 s (github.ts:707-711; persistence/index.ts:
+\* 399-440).  A return that ends in its catch block ends it itself
+\* (github.ts:769); one whose process dies leaves it to lapse.
 ClaimLapses ==
   /\ MayStart
   /\ run = "active" /\ claim # {}
@@ -838,9 +897,10 @@ NothingStoredAfterCancel ==
 \* Cancel can still change it.
 NoDeadEnd == ~DeadEnd
 
-\* NoDeadEnd does not hold.  Its four parts, one per finding in README.md,
-\* name the dead ends the code had; parts 1 to 3 hold since every step runs
-\* again from "uncertain" (github.ts:348), and part 4 does not:
+\* NoDeadEnd holds.  Its four parts, one per finding in README.md, name the
+\* dead ends the code had; parts 1 to 3 hold since every step runs again
+\* from "uncertain" (github.ts:377), part 4 since a restart replaces an app
+\* of another account (github.ts:822-828):
 \*   1. the app is stored, but step "app" is "uncertain" and recover() refuses
 \*      the phase "app-ready" (github.ts:819-820)
 AppReadyNeverStranded ==
@@ -866,20 +926,12 @@ ExpiryWrittenByTheStep ==
 LaterStepsNeverStranded ==
   ~(DeadEnd /\ (step.inst = "uncertain" \/ step.access = "uncertain"))
 \*   4. the app was created under another account: it can never be
-\*      confirmed, so running the app step again only throws again, you have
-\*      no other app to enter, and restartRegistration() refuses because an
-\*      app is stored or the phase is still "converting" (github.ts:785-789)
+\*      confirmed, so running the app step again only throws again, and you
+\*      have no other app to enter; restartRegistration() replaces it, in
+\*      the phase "uncertain" or "converting"
 WrongAccountNeverStranded ==
   ~(DeadEnd /\ step.app = "uncertain" /\ local = "shared"
             /\ setup \in {"uncertain", "converting"})
-
-\* Checked by the normal configuration, with parts 1 to 3: there is no dead
-\* end of any other shape than part 4.  Together with the four parts above
-\* this is NoDeadEnd.
-OnlyKnownDeadEnds ==
-  DeadEnd => \/ step.app = "uncertain" /\ local = "shared"
-                  /\ setup \in {"uncertain", "converting"}
-                  /\ created = "wrong" /\ ~haveRight
 
 \* Counting no timer but the one in WaitThenRestart is fair: once in a dead
 \* end, no timer running out makes anything possible again.  It is read
