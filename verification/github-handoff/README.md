@@ -40,10 +40,10 @@ DeadEndGitHubSilent` (the last word is the `.cfg` name; leave it out for
 | --- | --- | --- |
 | `GitHubHandoff.cfg` | The code as written; two returns, GitHub may fail anywhere, processes may die, wrong account possible. Rules: `TypeOK`, `ConvertedAtMostOnce`, `CancelledStaysCancelled`, `InstallationCheckedBeforeToken`, `OnlyKnownDeadEnds`, `TimersNeverRescue` | No error. 51,946 states, depth 37, 4 s |
 | `NoDeadEndOneAtATime.cfg` | The code as written with none of the findings' triggers: one request at a time, GitHub fails only while a return is handled, right account, no process dies. Rule: `NoDeadEnd` | No error. 338 states |
-| `DeadEndGitHubSilent.cfg` | The code as written; `AppReadyNeverStranded` | Violated: finding 1 |
+| `DeadEndGitHubSilent.cfg` | The code as written; `AppReadyNeverStranded` | No error: `prepare-app` is replay `read-only`, so an `uncertain` app step runs again |
 | `DeadEndReplayedReturn.cfg` | The code as written; `AppReadyNeverStranded` | Violated: finding 1 |
 | `DeadEndExpiry.cfg` | The code as written; `ExpiredHandoffNeverStranded` | Violated: finding 2 |
-| `DeadEndLaterStep.cfg` | The code as written; `LaterStepsNeverStranded` | Violated: finding 3 |
+| `DeadEndLaterStep.cfg` | The code as written; `LaterStepsNeverStranded` | No error: `authorize-installation` and `verify-access` are replay `read-only`, so an `uncertain` step runs again |
 | `DeadEndWrongAccount.cfg` | The code as written; `WrongAccountNeverStranded` | Violated: finding 4 |
 | `BrokenAdmit.cfg` | `github.ts:663` without the revision; `ConvertedAtMostOnce` | Violated, as it must be |
 | `BrokenFence.cfg` | `github.ts:689` removed; `CancelledStaysCancelled` | Violated, as it must be |

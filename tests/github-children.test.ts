@@ -9,8 +9,10 @@ import {
 } from "../src/server/recipes/github.js";
 import {
   OperationRegistry,
+  replayRerunsUncertain,
   type OperationContext,
 } from "../src/server/recipes/registry.js";
+import { ProtectedCommandService } from "../src/server/commands.js";
 import {
   SQLiteCeremonyStore,
   PostgresCeremonyStore,
@@ -34,11 +36,17 @@ async function fixture(t: TestContext, configured = false) {
     suspended: false,
     extraPermission: false,
     revoked: false,
+    /** Paths GitHub does not answer: the connection closes with no response. */
+    silent: new Set<string>(),
   };
   const server = createServer(async (req, res) => {
     res.setHeader("content-type", "application/json");
     try {
       const path = new URL(req.url!, "http://fixture").pathname;
+      if (behavior.silent.has(path)) {
+        req.socket.destroy();
+        return;
+      }
       if (path === "/users/alice") {
         res.end(JSON.stringify({ login: "alice", type: behavior.accountType }));
         return;
@@ -758,4 +766,113 @@ test("AC-33: cancellation while a one-shot conversion is in flight fences its la
   await assert.rejects(f.github.prepare(f.context), /cancelled/);
   assert.equal(f.counters.conversion, 1);
   assert.equal(f.counters.token, 0);
+});
+
+// One GitHub call that gets no answer while the engine runs a step records
+// the step `uncertain`. Each of the three steps only reads from GitHub or
+// re-finds what it stored, so a new command id runs it again once GitHub
+// answers, and the run goes on to completion without a second registration.
+for (const [nodeId, silentPath] of [
+  ["app", "/app"],
+  ["installation", "/app"],
+  ["access", "/app/installations/7"],
+  ["access", "/installation/repositories"],
+] as const)
+  test(`one unanswered GitHub call (${silentPath}) in step ${nodeId} leaves the step re-runnable`, async (t) => {
+    const f = await fixture(t);
+    const commands = new ProtectedCommandService(
+      f.store,
+      f.registry,
+      async (actor, run) => actor.subjectId === run.subjectId,
+    );
+    const actor = f.context.actor;
+    const run = await commands.createRun(
+      actor,
+      {
+        provider: "github",
+        profile: "github-app",
+        target: f.context.target,
+        origin: f.context.origin,
+        environment: f.context.environment,
+        configurationVersion: f.context.configurationVersion,
+      },
+      [
+        {
+          id: "app",
+          operationId: "github.prepare-app",
+          operationVersion: "1.0.0",
+          dependsOn: [],
+          bindings: {},
+        },
+        {
+          id: "installation",
+          operationId: "github.authorize-installation",
+          operationVersion: "1.0.0",
+          dependsOn: ["app"],
+          bindings: { app: { from: "output", node: "app", name: "app" } },
+        },
+        {
+          id: "access",
+          operationId: "github.verify-access",
+          operationVersion: "1.0.0",
+          dependsOn: ["installation"],
+          bindings: {
+            installation: {
+              from: "output",
+              node: "installation",
+              name: "installation",
+            },
+          },
+        },
+      ],
+      {},
+    );
+    const selected = { ...f.context, runId: run.id };
+    let attempt = 0;
+    const advance = async (node: string) =>
+      commands.advance(
+        actor,
+        run.id,
+        node,
+        (await commands.snapshot(actor, run.id)).revision,
+        `step:${node}:${attempt++}`,
+      );
+    const state = async (node: string) =>
+      (await commands.snapshot(actor, run.id)).nodes.find((n) => n.id === node)!
+        .state;
+    const reach = async (node: string) => {
+      if (node === nodeId) f.behavior.silent.add(silentPath);
+      await advance(node).catch(() => undefined);
+      if (node === nodeId) {
+        assert.equal(await state(node), "uncertain");
+        f.behavior.silent.clear();
+        const again = await advance(node);
+        assert.equal(again.state, "complete");
+      }
+      assert.equal(await state(node), "complete");
+    };
+
+    assert.equal((await advance("app")).state, "awaiting-human");
+    await f.callback("code=one-use", selected);
+    await reach("app");
+    assert.equal((await advance("installation")).state, "awaiting-human");
+    await f.callback("installation_id=7", selected);
+    await reach("installation");
+    await reach("access");
+    assert.equal((await commands.snapshot(actor, run.id)).status, "complete");
+    assert.equal(f.counters.conversion, 1);
+  });
+
+test("the three GitHub steps run again after an uncertain call", async (t) => {
+  const f = await fixture(t);
+  for (const id of [
+    "github.prepare-app",
+    "github.authorize-installation",
+    "github.verify-access",
+  ])
+    assert.equal(
+      replayRerunsUncertain(f.registry.require(id, "1.0.0")),
+      true,
+      id,
+    );
 });
