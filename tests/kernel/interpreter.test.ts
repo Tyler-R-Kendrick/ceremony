@@ -4,6 +4,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
+import { z } from "zod";
 import {
   advance,
   defineCeremony,
@@ -483,7 +484,7 @@ test("an interface shows the values of the facts it names", async () => {
       }),
       approval: fact({
         description: "",
-        value: of<string>(),
+        value: of<string>(z.string()),
         observable: true,
         discoverable: true,
         requires: ["draft"],
