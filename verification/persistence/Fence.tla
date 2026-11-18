@@ -7,8 +7,8 @@
 (* that no other transaction can come between.  The PostgreSQL backend     *)
 (* runs at READ COMMITTED, so two transactions do interleave there; what   *)
 (* keeps a fenced transaction whole is the row lock that assertFence       *)
-(* takes with SELECT ... FOR UPDATE (index.ts:195, :209).  The SQLite      *)
-(* backend runs each transaction under BEGIN IMMEDIATE (index.ts:409), so  *)
+(* takes with SELECT ... FOR UPDATE (index.ts:224, :233).  The SQLite      *)
+(* backend runs each transaction under BEGIN IMMEDIATE (index.ts:446), so  *)
 (* its runs are the runs of this model in which a transaction's steps      *)
 (* come one right after the other.                                         *)
 (*                                                                         *)
@@ -29,53 +29,50 @@ CONSTANTS
                      \* hold no lease; FALSE only for the small chart model
     Restores,        \* scope: TRUE adds one encryptedBackup of the store and
                      \* one restoreEncryptedBackup into a fresh database
-                     \* (index.ts:492-541, :543-590), while the workers keep
+                     \* (index.ts:529-594, :596-652), while the workers keep
                      \* the fences they hold
 
     \* Each switch below is TRUE in the code as written.  FALSE removes one
     \* check, to show that a rule can fail (the Broken*.cfg files).
-    CheckGeneration,      \* index.ts:217  Number(row.generation) !== fence.generation
-    CheckExpiry,          \* index.ts:219  Number(row.expires) <= (await now())
-    LockFenceRow,         \* index.ts:195  " FOR UPDATE" on the claim row read
-    ClaimOnlyExpired,     \* index.ts:364  WHERE ceremony_claims.expires<=$6
-    ClaimBumpsGeneration, \* index.ts:364  generation=ceremony_claims.generation+1
-    CheckRevision,        \* index.ts:314  AND revision=$6   (and :324 for delete)
-    KeepRetired,          \* index.ts:330-335  delete keeps the last revision in
+    CheckGeneration,      \* index.ts:241  Number(row.generation) !== fence.generation
+    CheckExpiry,          \* index.ts:243  Number(row.expires) <= (await now())
+    LockFenceRow,         \* index.ts:224  " FOR UPDATE" on the claim row read
+    ClaimOnlyExpired,     \* index.ts:393  WHERE ceremony_claims.expires<=$6
+    ClaimBumpsGeneration, \* index.ts:393  generation=ceremony_claims.generation+1
+    CheckRevision,        \* index.ts:338  AND revision=$6   (and :348 for delete)
+    KeepRetired,          \* index.ts:354-359  delete keeps the last revision in
                           \* ceremony_retired, and create starts above it
-                          \* (index.ts:223-274)
-
-    \* Each switch below is a check that the code as written does NOT have, so
-    \* every config that describes the code as written sets it FALSE.  TRUE is
-    \* the check that rules 5, 6 and 7 need.  The Finding*.cfg files state
-    \* each of those rules on the code as written; the Broken*.cfg file of
-    \* the same rule sets the switch FALSE and must keep breaking once the
-    \* check is in the code.
-    HeartbeatMatchesFence, \* index.ts:373-376  the heartbeat UPDATE changes
+                          \* (index.ts:247-298)
+    HeartbeatMatchesFence, \* index.ts:404-413  the heartbeat UPDATE changes
                            \* the row only where generation and worker are the
-                           \* fence's, and a heartbeat that changes no row is
-                           \* a PersistenceConflict
-    ClaimRefusesExpired,   \* index.ts:362-368  claim() never returns a fence
-                           \* whose lease ran out before the upsert ran
-    RestoreBumpsGeneration \* index.ts:570-573  no generation the restored
-                           \* store hands out equals one that a fence from
-                           \* before the restore names
+                           \* fence's (AND generation=$5 AND worker=$6), and a
+                           \* heartbeat that changes no row is a
+                           \* PersistenceConflict
+    ClaimLeaseFromUpsert,  \* index.ts:392-395  the lease claim() writes runs
+                           \* from the database clock when the row is written
+                           \* (${clock}+$5), not from `time`
+    RestoreBumpsGeneration \* index.ts:613-638  the restored store's lease base
+                           \* is above every generation of the store the
+                           \* backup came from, and every generation it hands
+                           \* out is that base plus a count (index.ts:203,
+                           \* :393, :418, :638)
 
 VARIABLES
     \* ---- the database ----
-    now,      \* the database clock, read by now() (index.ts:196-205)
-    claim,    \* the ceremony_claims row of the key (index.ts:167-170)
+    now,      \* the database clock, read by now() (index.ts:225-229)
+    claim,    \* the ceremony_claims row of the key (index.ts:193-196)
     lock,     \* which process's open transaction holds the row lock on `claim`
-    rec,      \* the ceremony_records row of the key (index.ts:164-166)
+    rec,      \* the ceremony_records row of the key (index.ts:190-192)
     retired,  \* the ceremony_retired row of the key: the revision its record
-              \* had when it was deleted (index.ts:171-173)
+              \* had when it was deleted (index.ts:197-199)
     life,     \* 0: the store the workers started on; 1: the fresh database
-              \* that restoreEncryptedBackup filled (index.ts:543-590)
-    backedUp, \* TRUE once encryptedBackup ran (index.ts:492-541)
+              \* that restoreEncryptedBackup filled (index.ts:596-652)
+    backedUp, \* TRUE once encryptedBackup ran (index.ts:529-594)
     backup,   \* the ceremony_claims row of the key in that backup
     \* ---- each worker process ----
     pc,        \* where the process is (see PcValues)
-    fence,     \* the Fence that claim() returned to it (index.ts:67, :368)
-    clockRead, \* `time` in claim(): the clock value it read (index.ts:362)
+    fence,     \* the Fence that claim() returned to it (index.ts:68, :397)
+    clockRead, \* `time` in claim(): the clock value it read (index.ts:386)
     seen,      \* the StoredRecord it last read; its expectedRevision
     \* ---- ghosts: history the rules are stated on; no code stores these ----
     epoch,      \* how many times the lease changed hands (claim or cancel)
@@ -105,9 +102,7 @@ vars   == <<db, local, ghosts>>
 \* "no row" (and, for `seen`, for expectedRevision = null).
 NoClaim  == [generation |-> 0, worker |-> "-", expires |-> 0]
 NoRecord == [revision |-> 0, write |-> 0]
-\* `life` is not a field of the code's Fence: it says which database handed
-\* the fence out, which rule 7 is stated on.
-NoFence  == [generation |-> 0, worker |-> "-", life |-> 0]
+NoFence  == [generation |-> 0, worker |-> "-"]
 NoLock   == "-"
 
 PcValues == {
@@ -120,31 +115,45 @@ PcValues == {
 \* The `worker` argument of claim().
 WorkerOf(p) == IF SharedIdentity THEN "same-workload" ELSE p
 
-\* The row that cancel() leaves (index.ts:379-384).
-Cancelled == [generation |-> claim.generation + 1,
+\* The store's lease base: the row of ceremony_lease_base, or 0 (index.ts:203).
+\* A store that was never restored has base 0.  The restored store's base is
+\* above every generation of the store the backup came from (index.ts:613-622):
+\* in the code a generation is the base plus a count below leaseSpan
+\* (index.ts:117); here the count of a store stays at most MaxEpoch, so
+\* MaxEpoch + 1 stands for the restored base.  With RestoreBumpsGeneration
+\* FALSE the restored store keeps base 0.
+RestoredBase == IF RestoreBumpsGeneration THEN MaxEpoch + 1 ELSE 0
+LeaseBase == IF life = 1 THEN RestoredBase ELSE 0
+\* Every generation a row can hold.
+Generations == 0..(2 * MaxEpoch + 2)
+
+\* The row that cancel() leaves (index.ts:416-421): a key with no row gets
+\* the base + 1 (index.ts:418).
+Cancelled == [generation |-> IF claim = NoClaim THEN LeaseBase + 1
+                             ELSE claim.generation + 1,
               worker     |-> "cancelled",
               expires    |-> 0]
 
 Unlock(p) == IF lock = p THEN NoLock ELSE lock
 
-\* put(key, value, null) (index.ts:223-274): the new record starts one
+\* put(key, value, null) (index.ts:247-298): the new record starts one
 \* above the revision the key's record had when it was deleted, and the
 \* ceremony_retired row goes.  The statements of create are one step: the
 \* INSERT waits for a transaction that is deleting the key, and once it
 \* holds the new row no other transaction can delete the key, so the second
-\* read of ceremony_retired (index.ts:255) sees every delete of the key that
+\* read of ceremony_retired (index.ts:279) sees every delete of the key that
 \* committed before the record exists.
 CreatedRevision == IF KeepRetired THEN retired + 1 ELSE 1
 RetiredAfterCreate == 0
-\* delete(key, revision) (index.ts:320-336): the row goes, and its revision
-\* stays in ceremony_retired.  The upsert at index.ts:332-335 keeps the higher
+\* delete(key, revision) (index.ts:344-360): the row goes, and its revision
+\* stays in ceremony_retired.  The upsert at index.ts:356-359 keeps the higher
 \* of two revisions, but a key with a record has no retired row, because
 \* create removes it, so the delete always writes the record's revision.
 RetiredAfterDelete == IF KeepRetired THEN rec.revision ELSE 0
 
 TypeOK ==
     /\ now \in 0..MaxNow
-    /\ claim.generation \in 0..MaxEpoch
+    /\ claim.generation \in Generations
     /\ claim.expires \in 0..(MaxNow + Duration)
     /\ lock \in Processes \cup {NoLock}
     /\ rec.revision \in 0..MaxWrites
@@ -152,10 +161,10 @@ TypeOK ==
     /\ retired \in 0..MaxWrites
     /\ life \in 0..1
     /\ backedUp \in BOOLEAN
-    /\ backup.generation \in 0..MaxEpoch
+    /\ backup.generation \in Generations
     /\ pc \in [Processes -> PcValues]
     /\ \A p \in Processes :
-          /\ fence[p].generation \in 0..MaxEpoch
+          /\ fence[p].generation \in Generations
           /\ clockRead[p] \in 0..MaxNow
           /\ seen[p].revision \in 0..MaxWrites
           /\ fenceEpoch[p] \in 0..MaxEpoch
@@ -203,7 +212,7 @@ ClockTicks ==
     /\ UNCHANGED <<claim, lock, rec, retired, store, local, ghosts>>
 
 \* tx.get / tx.list in a transaction of their own, or early in a longer one
-\* (index.ts:285-303, :337-357).  The process keeps the revision it read and
+\* (index.ts:309-327, :361-381).  The process keeps the revision it read and
 \* passes it to a later put/delete, as src/server/agent/workflow-api.ts does
 \* with row.revision (:32-39 read, :71 write).
 ReadRecord(p) ==
@@ -212,7 +221,7 @@ ReadRecord(p) ==
     /\ seen' = [seen EXCEPT ![p] = rec]
     /\ UNCHANGED <<db, pc, fence, clockRead, ghosts>>
 
-\* claim(), first statement: `const time = await now()` (index.ts:362).
+\* claim(), first statement: `const time = await now()` (index.ts:386).
 ClaimReadsClock(p) ==
     /\ pc[p] = "idle"
     /\ epoch < MaxEpoch
@@ -222,12 +231,15 @@ ClaimReadsClock(p) ==
 
 \* claim(), second statement, and the COMMIT of its transaction: the upsert
 \* INSERT ... ON CONFLICT DO UPDATE ... WHERE expires<=$6 RETURNING generation
-\* (index.ts:363-368).  The upsert waits while another transaction holds the
+\* (index.ts:392-397).  The upsert waits while another transaction holds the
 \* row, then decides on the row as committed.  An uncommitted upsert is not
 \* visible to anyone, so upsert and COMMIT are one step here.
-\* The upsert can wait on the row lock for longer than durationMs, so the
-\* lease it writes, time + Duration, can have run out by the time it runs.
-\* The code as written returns that fence all the same (rule 6).
+\* The upsert can run long after `time` was read, for longer than durationMs.
+\* `time` decides whether the lease on the row ran out ($6); the lease it
+\* writes runs from the clock at the upsert, ${clock}+$5 in both the INSERT
+\* and the UPDATE, so it has not run out when claim() returns it (rule 6).
+\* With ClaimLeaseFromUpsert FALSE it is time + Duration, which can have
+\* run out by then.
 ClaimUpsert(p) ==
     /\ pc[p] = "claiming"
     /\ lock = NoLock
@@ -236,19 +248,19 @@ ClaimUpsert(p) ==
            free    == claim = NoClaim
            lapsed  == claim.expires <= time
            newGeneration ==
-               IF free THEN 1
+               IF free THEN LeaseBase + 1
                ELSE IF ClaimBumpsGeneration THEN claim.generation + 1
                ELSE claim.generation
-           ranOut  == time + Duration <= now
-       IN IF /\ free \/ lapsed \/ ~ClaimOnlyExpired
-             /\ ClaimRefusesExpired => ~ranOut
+           leaseEnd == IF ClaimLeaseFromUpsert THEN now + Duration
+                       ELSE time + Duration
+           ranOut  == leaseEnd <= now
+       IN IF free \/ lapsed \/ ~ClaimOnlyExpired
           THEN /\ claim' = [generation |-> newGeneration,
                             worker     |-> WorkerOf(p),
-                            expires    |-> time + Duration]
+                            expires    |-> leaseEnd]
                /\ fence' = [fence EXCEPT ![p] =
                                [generation |-> newGeneration,
-                                worker     |-> WorkerOf(p),
-                                life       |-> life]]
+                                worker     |-> WorkerOf(p)]]
                /\ pc' = [pc EXCEPT ![p] = "working"]
                /\ epoch' = epoch + 1
                /\ fenceEpoch' = [fenceEpoch EXCEPT ![p] = epoch + 1]
@@ -261,16 +273,14 @@ ClaimUpsert(p) ==
                               staleFenceCommitted, expiredFencePassed,
                               staleRevisionWrote, foreignLeaseExtended,
                               oldFencePassedRestore, restoreEpoch>>
-          ELSE \* no row returned: PersistenceConflict (index.ts:367); or,
-               \* with ClaimRefusesExpired, a lease that ran out is refused
-               \* and the upsert rolls back
+          ELSE \* no row returned: PersistenceConflict (index.ts:396)
                /\ pc' = [pc EXCEPT ![p] = "idle"]
                /\ clockRead' = [clockRead EXCEPT ![p] = 0]
                /\ UNCHANGED <<db, fence, seen, ghosts>>
 
 \* assertFence(): read the claim row and take its row lock, then compare it
-\* with the fence and the clock (index.ts:213-222).  It opens the fenced
-\* transaction of heartbeat() (index.ts:372) and of every fenced commit
+\* with the fence and the clock (index.ts:237-246).  It opens the fenced
+\* transaction of heartbeat() (index.ts:401) and of every fenced commit
 \* (workflow-api.ts:69, connectors/state/effects.ts:252, hosted/a2h.ts:66, :81).
 \* The lock stays until that transaction ends.
 AssertFence(p) ==
@@ -281,7 +291,6 @@ AssertFence(p) ==
                    /\ CheckGeneration => claim.generation = fence[p].generation
                    /\ claim.worker = fence[p].worker
                    /\ CheckExpiry => claim.expires > now
-                   /\ RestoreBumpsGeneration => fence[p].life = life
        IN IF ok
           THEN /\ pc' = [pc EXCEPT ![p] = "asserted"]
                /\ lock' = IF LockFenceRow THEN p ELSE lock
@@ -294,7 +303,7 @@ AssertFence(p) ==
                               staleFenceCommitted, liveLeaseTakenOver,
                               staleRevisionWrote, foreignLeaseExtended,
                               expiredFenceReturned, restoreEpoch>>
-          ELSE \* PersistenceConflict (index.ts:221): the lease is lost, the
+          ELSE \* PersistenceConflict (index.ts:245): the lease is lost, the
                \* transaction rolls back, the process stops using the fence
                /\ pc' = [pc EXCEPT ![p] = "idle"]
                /\ fence' = [fence EXCEPT ![p] = NoFence]
@@ -303,9 +312,12 @@ AssertFence(p) ==
                               restoreEpoch>>
 
 \* heartbeat(), after its assertFence: UPDATE ceremony_claims SET expires
-\* (index.ts:373-376), then COMMIT.  In the code as written the UPDATE names
-\* the key only, not the generation, so it extends whichever row is there;
-\* only the row lock of assertFence keeps that row the fence's own (rule 5).
+\* ... AND generation=$5 AND worker=$6 (index.ts:404-413), then COMMIT.  The
+\* UPDATE changes the row only where it is still the fence's lease, so it
+\* keeps to the fence's own lease also where no row lock keeps the row still
+\* (rule 5); a heartbeat that changes no row is a PersistenceConflict
+\* (index.ts:413).  With HeartbeatMatchesFence FALSE the UPDATE names the key
+\* only, and only the row lock of assertFence keeps that row the fence's own.
 HeartbeatExtends(p) ==
     /\ pc[p] = "asserted"
     /\ LET own == /\ claim.generation = fence[p].generation
@@ -333,9 +345,9 @@ HeartbeatExtends(p) ==
                               epoch, nextWrite, flags, restoreEpoch>>
 
 \* The rest of a fenced commit, after its assertFence, up to COMMIT:
-\*   write   - tx.put (index.ts:304-319) or tx.delete (index.ts:320-336) with
+\*   write   - tx.put (index.ts:328-343) or tx.delete (index.ts:344-360) with
 \*             the revision the process read, or nothing;
-\*   release - tx.cancel on the same key (index.ts:379-384), or not.
+\*   release - tx.cancel on the same key (index.ts:416-421), or not.
 \* workflow-api.ts:68-73 is put-or-nothing with release; a2h.ts:80-84 is put
 \* without release; a2h.ts:65-68 is release alone.  An uncommitted write is
 \* not visible to anyone and holds its row, so the statements and the COMMIT
@@ -348,8 +360,8 @@ FencedCommit(p, write, release) ==
     /\ write = "put" => nextWrite < MaxWrites
     /\ release => epoch < MaxEpoch
     /\ LET expected == seen[p].revision     \* 0 is expectedRevision = null
-           \* INSERT ... ON CONFLICT DO NOTHING (index.ts:245) when null,
-           \* UPDATE/DELETE ... AND revision=$n (index.ts:314, :324) otherwise
+           \* INSERT ... ON CONFLICT DO NOTHING (index.ts:269) when null,
+           \* UPDATE/DELETE ... AND revision=$n (index.ts:338, :348) otherwise
            rowMatches ==
                IF expected = 0 THEN rec = NoRecord
                ELSE /\ rec # NoRecord
@@ -381,15 +393,15 @@ FencedCommit(p, write, release) ==
                       (staleRevisionWrote \/ (write # "nothing" /\ seen[p] # rec))
                /\ UNCHANGED <<now, store, clockRead, liveLeaseTakenOver,
                               expiredFencePassed, newFlags, restoreEpoch>>
-          ELSE \* PersistenceConflict (index.ts:254, :317, :329), then ROLLBACK
-               \* (index.ts:440, :634): nothing is written, the lease stays
+          ELSE \* PersistenceConflict (index.ts:278, :341, :353), then ROLLBACK
+               \* (index.ts:477, :699): nothing is written, the lease stays
                /\ pc' = [pc EXCEPT ![p] = "working"]
                /\ lock' = Unlock(p)
                /\ UNCHANGED <<now, claim, rec, retired, store, fence, clockRead,
                               seen, ghosts>>
 
 \* tx.cancel(key) by a caller that holds no fence, such as a person
-\* cancelling the run (src/server/commands.ts:436).  One upsert (index.ts:381).
+\* cancelling the run (src/server/commands.ts:436).  One upsert (index.ts:418).
 CancelKey ==
     /\ lock = NoLock
     /\ epoch < MaxEpoch
@@ -401,7 +413,7 @@ CancelKey ==
                    restoreEpoch>>
 
 \* The process stops or restarts: its open transaction rolls back
-\* (index.ts:440, :634) and what it held in memory is gone.  The claim row
+\* (index.ts:477, :699) and what it held in memory is gone.  The claim row
 \* stays as it is until it expires.
 ProcessRestarts(p) ==
     /\ WithEnvironment
@@ -419,7 +431,7 @@ ProcessRestarts(p) ==
 \* always carry the current revision.  They make what a process read stale.
 \*   create  - tx.put(key, value, null), e.g. collections.ts:134
 \*   rewrite - rotateRecords: tx.list then tx.put(record.revision)
-\*             (index.ts:654-662, maintenance.ts:47-56)
+\*             (index.ts:719-727, maintenance.ts:47-56)
 \*   delete  - tx.get/list then tx.delete(record.revision)
 \*             (maintenance.ts:71-100, collections.ts:214-232, :248-268)
 OtherWriterCreates ==
@@ -453,9 +465,10 @@ OtherWriterDeletes ==
     /\ retired' = RetiredAfterDelete
     /\ UNCHANGED <<now, claim, lock, store, local, ghosts>>
 
-\* encryptedBackup() (index.ts:492-541): one transaction that locks every
-\* table, so no transaction of a worker is open, and that refuses a live
-\* lease (index.ts:494-497).  It copies the claim row's generation.
+\* encryptedBackup() (index.ts:529-594): one transaction that locks every
+\* table (index.ts:664), so no transaction of a worker is open, and that
+\* refuses a live lease (index.ts:531-534).  It copies the claim row's
+\* generation (index.ts:551-560) and the store's lease base (index.ts:572-588).
 TakeBackup ==
     /\ Restores
     /\ ~backedUp
@@ -466,13 +479,16 @@ TakeBackup ==
     /\ backup' = claim
     /\ UNCHANGED <<now, claim, lock, rec, retired, life, local, ghosts>>
 
-\* restoreEncryptedBackup() into a fresh database (index.ts:543-590), which
+\* restoreEncryptedBackup() into a fresh database (index.ts:596-652), which
 \* the workers then use with the fences they still hold.  The workers can
 \* go on claiming on the old store after the backup, so their fences can
-\* name generations the backup never saw.  The code as written writes each
-\* claim row of the backup with generation + 1, worker 'restored' and
-\* expires 0 (index.ts:570-573), and a key with no row in the backup has
-\* none.  Records are left as they are: rule 7 is about the lease only.
+\* name generations the backup never saw.  The restore writes the new lease
+\* base (index.ts:613-629) and each claim row of the backup with the base + 1,
+\* worker 'restored' and expires 0 (index.ts:635-638); a key with no row in
+\* the backup has none, and its first claim or cancel starts at the base + 1.
+\* With RestoreBumpsGeneration FALSE the row is at the backup's generation + 1
+\* and the base stays 0.  Records are left as they are: rule 7 is about the
+\* lease only.
 RestoreBackup ==
     /\ Restores
     /\ backedUp
@@ -481,7 +497,9 @@ RestoreBackup ==
     /\ lock = NoLock
     /\ \A p \in Processes : pc[p] \notin {"claiming", "asserted"}
     /\ claim' = IF backup = NoClaim THEN NoClaim
-                ELSE [generation |-> backup.generation + 1,
+                ELSE [generation |-> IF RestoreBumpsGeneration
+                                     THEN RestoredBase + 1
+                                     ELSE backup.generation + 1,
                       worker     |-> "restored",
                       expires    |-> 0]
     /\ life' = 1
