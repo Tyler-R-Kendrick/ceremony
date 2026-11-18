@@ -467,7 +467,9 @@ test("finding 1, fixed: a second id is refused after a revalidation has taken an
 
 test("finding 2, fixed: the first id's takeover does not overwrite a step another command recorded complete", async (t) => {
   const stuck = hanging();
-  const f = await fixture(t, (call) => (call === 1 ? stuck.wait : Promise.resolve()));
+  const f = await fixture(t, (call) =>
+    call === 1 ? stuck.wait : Promise.resolve(),
+  );
 
   // Admit, CallHandler (first): the worker does not return from the provider.
   const first = f.advance("prepare", 1, "first");
@@ -637,4 +639,61 @@ test("finding 4: the same after a takeover, with its reconciliation task still p
 
   stuck.release();
   await first.catch(() => undefined);
+});
+
+// A revalidation that rewrites a step failed must keep the command that holds
+// it (commands.ts:551); otherwise a new id is admitted while that command is
+// still running and the step's handler is called twice.
+
+test("finding 1, fixed: a revalidation that rewrites a step failed keeps the holder of a retry still in flight", async (t) => {
+  const stuck = hanging();
+  const f = await fixture(t, (call) =>
+    call === 3 ? stuck.wait : Promise.resolve(),
+  );
+  const p = await f.advance("prepare", 1, "p1");
+  // verify's first attempt fails verification: step "failed", not exhausted.
+  f.evidence.valid = false;
+  const v1 = await f.advance("verify", p.revision, "v1");
+  assert.equal(v1.state, "failed");
+  f.evidence.valid = true;
+  // A second attempt hangs.
+  const v2 = f.advance("verify", v1.revision, "v2");
+  v2.catch(() => undefined);
+  await until(() => f.calls() === 3);
+  f.leaseRunsOut();
+  // The provider no longer vouches for prepare: prepare and verify are rewritten failed.
+  f.evidence.valid = false;
+  const r = await f.commands.revalidate(actor, f.run.id);
+  f.evidence.valid = true;
+  const p2 = await f.advance("prepare", r.revision, "p2");
+  assert.equal(p2.state, "complete");
+  await assert.rejects(f.advance("verify", p2.revision, "v3"));
+  assert.equal(
+    f.calls(),
+    4,
+    "the handler for verify ran again while v2 was running",
+  );
+  stuck.release();
+  await v2.catch(() => undefined);
+});
+
+test("finding 1, fixed: a revalidation that rewrites a step failed keeps the holder of a first command still in flight", async (t) => {
+  const stuck = hanging();
+  const f = await fixture(t, (call) =>
+    call === 2 ? stuck.wait : Promise.resolve(),
+  );
+  const p = await f.advance("prepare", 1, "p1");
+  const v1 = f.advance("verify", p.revision, "v1");
+  v1.catch(() => undefined);
+  await until(() => f.calls() === 2);
+  f.leaseRunsOut();
+  f.evidence.valid = false;
+  const r = await f.commands.revalidate(actor, f.run.id);
+  f.evidence.valid = true;
+  const p2 = await f.advance("prepare", r.revision, "p2");
+  assert.equal(p2.state, "complete");
+  await assert.rejects(f.advance("verify", p2.revision, "v2"));
+  assert.equal(f.calls(), 3);
+  stuck.release();
+  await v1.catch(() => undefined);
 });
