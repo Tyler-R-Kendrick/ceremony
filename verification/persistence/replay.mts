@@ -149,9 +149,9 @@ try {
     await store.close();
   }
 
-  // BrokenNoGenerationCheck.cfg, index.ts:241: the old holder's fenced write
+  // BrokenNoGenerationCheck.cfg, index.ts:258: the old holder's fenced write
   // commits on the newer lease. Its heartbeat no longer does: the heartbeat
-  // UPDATE names the generation itself (index.ts:404-413).
+  // UPDATE names the generation itself (index.ts:432-441).
   {
     const store = sqlite(
       await variant(
@@ -181,7 +181,7 @@ try {
     await store.close();
   }
 
-  // BrokenNoGenerationBump.cfg, index.ts:393
+  // BrokenNoGenerationBump.cfg, index.ts:411
   {
     const store = sqlite(
       await variant(
@@ -208,13 +208,13 @@ try {
     await store.close();
   }
 
-  // BrokenClaimLiveLease.cfg, index.ts:393
+  // BrokenClaimLiveLease.cfg, index.ts:411
   {
     const store = sqlite(
       await variant(
         "claim-live-lease",
-        " WHERE ceremony_claims.expires<=$6 RETURNING generation",
-        " RETURNING generation",
+        " WHERE ceremony_claims.expires<=$6 AND ",
+        " WHERE ",
       ),
     );
     await store.transaction((tx) => tx.claim(key("a"), "first", longest));
@@ -229,7 +229,7 @@ try {
     await store.close();
   }
 
-  // BrokenNoExpiryCheck.cfg, index.ts:243
+  // BrokenNoExpiryCheck.cfg, index.ts:260
   {
     const store = sqlite(
       await variant(
@@ -253,7 +253,7 @@ try {
     await store.close();
   }
 
-  // BrokenNoRevisionCheck.cfg, index.ts:338
+  // BrokenNoRevisionCheck.cfg, index.ts:355
   {
     const store = sqlite(
       await variant(
@@ -354,7 +354,7 @@ try {
       );
     }
 
-    // BrokenNoRowLock.cfg, index.ts:224: a cancel lands inside the open
+    // BrokenNoRowLock.cfg, index.ts:241: a cancel lands inside the open
     // fenced transaction, and the transaction still commits.
     {
       const unlocked = await variant(

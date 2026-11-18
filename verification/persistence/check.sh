@@ -20,16 +20,17 @@ FindingRevisionReused|holds|rule 4 on the code as written, records deleted and c
 FindingHeartbeatWithoutRowLock|holds|rule 5 without the row lock: the heartbeat UPDATE keeps to its own lease
 FindingClaimReturnsExpired|holds|rule 6 on the code as written: a slow claim returns no expired fence
 FindingRestoreReusesGeneration|holds|rule 7 on the code as written: a restore reuses no generation an old fence names
-BrokenHeartbeatAnyGeneration|HeartbeatExtendsOnlyOwnLease|broken variant, index.ts:404-413
-BrokenClaimReturnsExpired|ClaimNeverReturnsExpiredFence|broken variant, index.ts:392-395
-BrokenRestoreKeepsGeneration|RestoredStoreRefusesOldFences|broken variant, index.ts:613-638
-BrokenNoGenerationCheck|StaleFenceNeverCommits|broken variant, index.ts:241
-BrokenNoRowLock|StaleFenceNeverCommits|broken variant, index.ts:224
-BrokenNoGenerationBump|StaleFenceNeverCommits|broken variant, index.ts:393
-BrokenClaimLiveLease|LiveLeaseNeverTakenOver|broken variant, index.ts:393
-BrokenNoExpiryCheck|ExpiredFenceNeverPasses|broken variant, index.ts:243
-BrokenNoRevisionCheck|StaleRevisionNeverWrites|broken variant, index.ts:338
-BrokenNoRetiredRevision|StaleRevisionNeverWrites|broken variant, index.ts:354-359 and :247-298 (F1)
+BrokenHeartbeatAnyGeneration|HeartbeatExtendsOnlyOwnLease|broken variant, index.ts:432-441
+BrokenClaimReturnsExpired|ClaimNeverReturnsExpiredFence|broken variant, index.ts:410-413
+BrokenRestoreKeepsGeneration|RestoredStoreRefusesOldFences|broken variant, index.ts:643-681
+BrokenRestoreEpochNotFromClock|RestoredStoreRefusesOldFences|broken variant, index.ts:648-665
+BrokenNoGenerationCheck|StaleFenceNeverCommits|broken variant, index.ts:258
+BrokenNoRowLock|StaleFenceNeverCommits|broken variant, index.ts:241
+BrokenNoGenerationBump|StaleFenceNeverCommits|broken variant, index.ts:411
+BrokenClaimLiveLease|LiveLeaseNeverTakenOver|broken variant, index.ts:411
+BrokenNoExpiryCheck|ExpiredFenceNeverPasses|broken variant, index.ts:260
+BrokenNoRevisionCheck|StaleRevisionNeverWrites|broken variant, index.ts:355
+BrokenNoRetiredRevision|StaleRevisionNeverWrites|broken variant, index.ts:371-376 and :264-315 (F1)
 '
 
 configs=$(printf '%s\n' "$table" | cut -d'|' -f1)
