@@ -51,6 +51,7 @@ DeadEndGitHubSilent` (the last word is the `.cfg` name; leave it out for
 | `BrokenInstallCheck.cfg` | `github.ts:724` removed; `InstallationCheckedBeforeToken` | Violated, as it must be |
 | `BrokenReplay.cfg` | `github.ts:348` removed; `LaterStepsNeverStranded`. Not in `check.sh`; run it alone | Violated, as it must be |
 | `BrokenRefusal.cfg` | `github-runtime.ts:1327` removed; `RefusedReturnLeavesRun` | Violated, as it must be |
+| `BrokenExpiryRetry.cfg` | `github.ts:428-433` (at the fix commit) removed; `ExpiryWrittenByTheStep` | Violated, as it must be |
 | `Chart.cfg` | For the chart only: one return, one request at a time | `NoDeadEnd` violated: finding 1 |
 
 ## The rules
@@ -149,6 +150,16 @@ own expiry check just before the hour ends (`github.ts:533`) and calls
 GitHub; the hour ends; `prepare()` reads; `human()` writes `handoffIssued`;
 `prepare()` writes and conflicts.
 
+Fixed: `prepare()` catches `PersistenceConflict` on its expiry write and
+starts again from its reads, at most twice (`github.ts:428-433` at the fix
+commit), as the creation transaction does. Reading again it finds
+`handoffIssued` and writes phase `uncertain`, nonce `consumed`, so "Start a
+new registration" is offered. `DeadEndExpiry.cfg` checks
+`ExpiryWrittenByTheStep` with `ExpiredHandoffNeverStranded`, and
+`BrokenExpiryRetry.cfg` shows the rule failing without the retry. The test
+"a hand-off that expires while its page is served is moved on by the step
+that finds it" in `tests/github-children.test.ts` replays the order above.
+
 ### 3. One unanswered GitHub call strands the install step or the token step
 
 State: step `authorize-installation` or `verify-access` in state `uncertain`.
@@ -218,6 +229,7 @@ shortest.
 | `BrokenInstallCheck.cfg` | `ReturnChecksInstallation` | `github.ts:724` | A return carries an installation id GitHub would reject; it is recorded as `installed` with an installation artifact. 13 steps |
 | `BrokenReplay.cfg` | `RerunUncertain = {}` | `github.ts:348` | The app is created, confirmed and stored, and the app step completes. The engine runs `authorize-installation`; GitHub does not answer `verifyApp`, the step is `uncertain`, and the engine never runs it again. 12 steps |
 | `BrokenRefusal.cfg` | `RefusalLeavesRun` | `github-runtime.ts:1327` | The engine prepares the hand-off. A return whose state is not the current nonce arrives and is refused; the route advances the run and the engine starts the app step. 4 steps |
+| `BrokenExpiryRetry.cfg` | `ExpiryRetriesOnConflict` | `github.ts:428-433` (at the fix commit) | The engine prepares the hand-off and runs the app step again; `prepare()` reads `registration`, page not shown. The person opens the page and `human()` writes `handoffIssued`. The hour ends. `prepare()` writes with the revision it read, gets `PersistenceConflict`, and the step settles `uncertain` with the hand-off still an expired `registration`. 8 steps |
 
 In the `BrokenFence` and `BrokenSave` paths the cancel must land between an
 `authorize` call (`github.ts:687`, `285`) and the transaction after it. The
@@ -235,7 +247,7 @@ is a separate action.
 | `HandoffPrepared` | `github.ts:430-474` |
 | `AppConfirmed` | `github.ts:393-401`, `284-295`, engine verify `344-372`; step state written at `commands.ts:919-967` |
 | `AppCheckUnanswered` | `github.ts:394` or `352` throws (`230-238`, `257-264`); `commands.ts:891-894` |
-| `HandoffLapsed` | `github.ts:403-422` |
+| `HandoffLapsed` | `github.ts:403-422`; at the fix commit `409-436`, with the retry on `PersistenceConflict` at `428-433` (`ExpiryRetriesOnConflict`, the field `eng.tries` counts `admissionAttempt`) |
 | `StepStillWaiting`, `StepMarkedUnclear` | `github.ts:423-429` |
 | `AppStepRefused` | `github.ts:390-391`, `433-434`, `289-290` |
 | `InstallHandoffPrepared` | `github.ts:476-529` |

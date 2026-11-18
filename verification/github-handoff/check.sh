@@ -41,6 +41,7 @@ check BrokenFence CancelledStaysCancelled "the removed check is caught" ok
 check BrokenSave CancelledStaysCancelled "the removed check is caught" ok
 check BrokenInstallCheck InstallationCheckedBeforeToken "the removed check is caught" ok
 check BrokenRefusal RefusedReturnLeavesRun "the removed check is caught" ok
+check BrokenExpiryRetry ExpiryWrittenByTheStep "the removed check is caught" ok
 
 if [ "$changed" -gt 0 ]; then
   echo "$changed result(s) changed. See .claude/skills/verify-github-handoff/SKILL.md."

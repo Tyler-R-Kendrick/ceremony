@@ -37,8 +37,10 @@ CONSTANTS
   ReturnChecksInstallation, \* github.ts:737  checkInstallation before the installation is recorded
   RerunUncertain,           \* github.ts:348  the steps registered replay "read-only": the engine runs
                             \*   such a step again from "uncertain" (commands.ts:927-937)
-  RefusalLeavesRun          \* github-runtime.ts:1327  the return route does not advance the run after
+  RefusalLeavesRun,         \* github-runtime.ts:1327  the return route does not advance the run after
                             \*   a refused return (GitHubCallbackRefused, github.ts:647, 678, 730)
+  ExpiryRetriesOnConflict   \* github.ts:428-433  prepare() reads the record again when its expiry
+                            \*   write meets PersistenceConflict
 
 VARIABLES
   \* the run and its three steps (commands.ts)
@@ -84,7 +86,8 @@ vars == << run, step, eng, setup, issued, expired, app, claim, local,
            created, haveRight, frozen, deadSeen, refusedMoved >>
 
 Steps == {"app", "inst", "access"}
-Idle == [node |-> "none", sPhase |-> "none", sApp |-> "none", sIssued |-> FALSE, fresh |-> TRUE]
+Idle == [node |-> "none", sPhase |-> "none", sApp |-> "none", sIssued |-> FALSE, fresh |-> TRUE,
+         tries |-> 0]
 RetIdle == [pc |-> "idle", id |-> "none"]
 
 \* The phase read() returns (github.ts:194-209): the setup record while the
@@ -176,7 +179,8 @@ Start(n) == [node |-> n,
                       ELSE IF local = "shared" THEN app
                       ELSE "none",
              sIssued |-> n = "app" /\ issued,
-             fresh |-> TRUE]
+             fresh |-> TRUE,
+             tries |-> 0]
 
 StepStarts(n) ==
   /\ MayStart
@@ -257,11 +261,16 @@ AppCheckUnanswered ==
                   instExpired, instArt, token, ret, page, rec, converted,
                   created, haveRight, frozen, deadSeen, refusedMoved >>
 
-\* The registration hand-off's hour is over. github.ts:409-428
+\* The registration hand-off's hour is over. github.ts:409-436
 \*   page was rendered  -> "uncertain", nonce consumed (an app may exist)
 \*   page never rendered -> a new nonce and a new hour
-\* The put uses the revision prepare() read; if the record moved since,
-\* PersistenceConflict leaves prepare() and the step becomes "uncertain".
+\* The put uses the revision prepare() read (github.ts:426).  If the record
+\* moved since, PersistenceConflict makes prepare() start again from its
+\* reads (github.ts:428-432), at most twice (admissionAttempt < 2); then the
+\* exception leaves prepare() and the step becomes "uncertain".  Starting
+\* again is one action: the failed put and the reads at github.ts:386-393
+\* change nothing another request can see.
+\* With ExpiryRetriesOnConflict = FALSE the conflict always leaves prepare().
 HandoffLapsed ==
   /\ HandoffLapsedOn(eng)
   /\ IF eng.fresh
@@ -274,7 +283,10 @@ HandoffLapsed ==
                       /\ Settle("app", "open")
             /\ ret' = StaleRets(ret) /\ rec' = StaleRec /\ page' = StalePage
        ELSE /\ UNCHANGED << setup, expired, converted, created, ret, rec, page, refusedMoved >>
-            /\ Settle("app", "uncertain")
+            /\ IF ExpiryRetriesOnConflict /\ eng.tries < 2
+                 THEN /\ eng' = [Start("app") EXCEPT !.tries = eng.tries + 1]
+                      /\ UNCHANGED step
+                 ELSE Settle("app", "uncertain")
   /\ UNCHANGED << run, issued, app, claim, local, instExpired, appArt,
                   instArt, token, haveRight, frozen, deadSeen, refusedMoved >>
 
@@ -822,7 +834,7 @@ AppReadyNeverStranded ==
 ExpiredHandoffNeverStranded ==
   ~(DeadEnd /\ step.app = "uncertain" /\ local = "shared" /\ setup = "registration")
 \* The step that finds the hand-off's hour over moves the hand-off on
-\* (github.ts:409-428), even when the record moved since prepare() read it:
+\* (github.ts:409-436), even when the record moved since prepare() read it:
 \* step "app" never settles "uncertain" while the hand-off is still an
 \* expired "registration".  A rerun of the step may move it on later; this
 \* rule asks that the step which found the expiry does not leave it to one.
