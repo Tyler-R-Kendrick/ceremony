@@ -20,6 +20,13 @@ import {
   unsure,
   type InterfaceField,
 } from "../ceremony.js";
+import { z } from "zod";
+
+/** A value that has to be a non-empty string. */
+const text = z.string().min(1);
+
+/** Named form fields, each a string. */
+const fields = z.record(z.string(), z.string());
 
 const network = {
   rateLimited: retry("The provider asked the caller to slow down."),
@@ -53,13 +60,13 @@ function suppliedCredential<const Id extends string>(spec: {
     facts: {
       entered: fact({
         description: "The person entered the secret.",
-        value: of<Readonly<Record<string, string>>>(),
+        value: of<Readonly<Record<string, string>>>(fields),
         volatile: true,
         secret: true,
       }),
       credential: fact({
         description: "Ceremony holds a secret the provider accepts.",
-        value: of<Readonly<Record<string, string>>>(),
+        value: of<Readonly<Record<string, string>>>(fields),
         volatile: true,
         observable: true,
         secret: true,
@@ -131,20 +138,22 @@ export const httpBasic = suppliedCredential({
 const oauthFacts = {
   client: fact({
     description: "Ceremony is registered as a client of the provider.",
-    value: of<{ readonly clientId: string }>(),
+    value: of<{ readonly clientId: string }>(z.object({ clientId: text })),
     observable: true,
     discoverable: true,
     volatile: true,
   }),
   refreshToken: fact({
     description: "Ceremony holds a refresh token.",
-    value: of<string>(),
+    value: of<string>(text),
     volatile: true,
     secret: true,
   }),
   accessToken: fact({
     description: "Ceremony holds an unexpired access token.",
-    value: of<{ readonly token: string; readonly expiresAt: string }>(),
+    value: of<{ readonly token: string; readonly expiresAt: string }>(
+      z.object({ token: text, expiresAt: z.iso.datetime({ offset: true }) }),
+    ),
     volatile: true,
     observable: true,
     secret: true,
@@ -193,7 +202,9 @@ export const oauthAuthorizationCode = defineCeremony({
     ...oauthFacts,
     authorizationCode: fact({
       description: "The provider returned a one-time code with matching state.",
-      value: of<{ readonly code: string; readonly verifier: string }>(),
+      value: of<{ readonly code: string; readonly verifier: string }>(
+        z.object({ code: text, verifier: text }),
+      ),
       requires: ["client"],
       volatile: true,
       secret: true,
@@ -273,7 +284,7 @@ export const oauthDevice = defineCeremony({
       value: of<{
         readonly userCode: string;
         readonly verificationUri: string;
-      }>(),
+      }>(z.object({ userCode: text, verificationUri: z.url() })),
       requires: ["client"],
       volatile: true,
     }),
@@ -338,7 +349,9 @@ export const oauthClientCredentials = defineCeremony({
   facts: {
     clientSecret: fact({
       description: "The host configured a client id and secret.",
-      value: of<{ readonly clientId: string; readonly clientSecret: string }>(),
+      value: of<{ readonly clientId: string; readonly clientSecret: string }>(
+        z.object({ clientId: text, clientSecret: text }),
+      ),
       observable: true,
       discoverable: true,
       volatile: true,
@@ -374,7 +387,7 @@ export const oauthTokenExchange = defineCeremony({
   facts: {
     subjectToken: fact({
       description: "The caller presented a token to act on behalf of.",
-      value: of<string>(),
+      value: of<string>(text),
       observable: true,
       discoverable: true,
       volatile: true,
@@ -409,7 +422,7 @@ export const oauthTokenExchange = defineCeremony({
 
 const sessionFact = fact({
   description: "The provider recognises a signed-in session.",
-  value: of<{ readonly sessionId: string }>(),
+  value: of<{ readonly sessionId: string }>(z.object({ sessionId: text })),
   volatile: true,
   observable: true,
   secret: true,
@@ -426,19 +439,21 @@ export const passwordSignIn = defineCeremony({
   facts: {
     password: fact({
       description: "The person entered their identifier and password.",
-      value: of<{ readonly identifier: string; readonly password: string }>(),
+      value: of<{ readonly identifier: string; readonly password: string }>(
+        z.object({ identifier: text, password: text }),
+      ),
       volatile: true,
       secret: true,
     }),
     primary: fact({
       description: "The provider accepted the password for this attempt.",
-      value: of<{ readonly attempt: string }>(),
+      value: of<{ readonly attempt: string }>(z.object({ attempt: text })),
       volatile: true,
       secret: true,
     }),
     oneTimeCode: fact({
       description: "The person entered a code from their second factor.",
-      value: of<string>(),
+      value: of<string>(text),
       requires: ["primary"],
       volatile: true,
       secret: true,
@@ -567,11 +582,11 @@ export const magicLink = defineCeremony({
   facts: {
     address: fact({
       description: "The person said where to send the link.",
-      value: of<string>(),
+      value: of<string>(text),
     }),
     linkToken: fact({
       description: "The person opened the link and its one-time token arrived.",
-      value: of<string>(),
+      value: of<string>(text),
       requires: ["address"],
       volatile: true,
       secret: true,
@@ -664,12 +679,12 @@ export const passkey = defineCeremony({
   facts: {
     challenge: fact({
       description: "The provider issued a challenge to sign.",
-      value: of<string>(),
+      value: of<string>(text),
       volatile: true,
     }),
     assertion: fact({
       description: "The person's device signed the challenge.",
-      value: of<string>(),
+      value: of<string>(text),
       requires: ["challenge"],
       volatile: true,
       secret: true,
@@ -748,14 +763,14 @@ export const federatedSignIn = defineCeremony({
   facts: {
     trust: fact({
       description: "The host configured the identity provider's metadata.",
-      value: of<{ readonly issuer: string }>(),
+      value: of<{ readonly issuer: string }>(z.object({ issuer: text })),
       observable: true,
       discoverable: true,
       given: true,
     }),
     assertion: fact({
       description: "The identity provider returned a signed assertion.",
-      value: of<string>(),
+      value: of<string>(text),
       requires: ["trust"],
       volatile: true,
       secret: true,
@@ -826,7 +841,9 @@ export const mutualTls = defineCeremony({
   facts: {
     certificate: fact({
       description: "The host configured a client certificate and key.",
-      value: of<{ readonly fingerprint: string }>(),
+      value: of<{ readonly fingerprint: string }>(
+        z.object({ fingerprint: text }),
+      ),
       observable: true,
       discoverable: true,
       volatile: true,
@@ -835,7 +852,7 @@ export const mutualTls = defineCeremony({
     }),
     channel: fact({
       description: "The provider accepted the certificate on a connection.",
-      value: of<true>(),
+      value: of<true>(z.literal(true)),
       requires: ["certificate"],
       volatile: true,
       observable: true,
