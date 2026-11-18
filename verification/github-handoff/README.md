@@ -38,10 +38,10 @@ DeadEndGitHubSilent` (the last word is the `.cfg` name; leave it out for
 
 | Configuration | What it checks | Recorded result |
 | --- | --- | --- |
-| `GitHubHandoff.cfg` | The code as written; two returns, GitHub may fail anywhere, processes may die, wrong account possible. Rules: `TypeOK`, `ConvertedAtMostOnce`, `CancelledStaysCancelled`, `InstallationCheckedBeforeToken`, `OnlyKnownDeadEnds`, `TimersNeverRescue` | No error. 51,946 states, depth 37, 4 s |
+| `GitHubHandoff.cfg` | The code as written; two returns, GitHub may fail anywhere, processes may die, wrong account possible. Rules: `TypeOK`, `ConvertedAtMostOnce`, `CancelledStaysCancelled`, `InstallationCheckedBeforeToken`, `RefusedReturnLeavesRun`, `OnlyKnownDeadEnds`, `TimersNeverRescue` | No error. 111,398 states, depth 39, 8 s |
 | `NoDeadEndOneAtATime.cfg` | The code as written with none of the findings' triggers: one request at a time, GitHub fails only while a return is handled, right account, no process dies. Rule: `NoDeadEnd` | No error. 338 states |
 | `DeadEndGitHubSilent.cfg` | The code as written; `AppReadyNeverStranded` | No error: `prepare-app` is replay `read-only`, so an `uncertain` app step runs again |
-| `DeadEndReplayedReturn.cfg` | The code as written; `AppReadyNeverStranded` | No error: `prepare-app` is replay `read-only`, so after the replayed return the app step runs again and completes |
+| `DeadEndReplayedReturn.cfg` | The code as written; `AppReadyNeverStranded`, `RefusedReturnLeavesRun` | No error: the replayed return is refused and the route does not advance the run (`github-runtime.ts:1327`); the first return alone moves it on. Should the app step become `uncertain` another way, `prepare-app` is replay `read-only` and runs again |
 | `DeadEndExpiry.cfg` | The code as written; `ExpiredHandoffNeverStranded` | No error: the app step runs again, writes phase `uncertain`, and "Start a new registration" is offered |
 | `DeadEndLaterStep.cfg` | The code as written; `LaterStepsNeverStranded` | No error: `authorize-installation` and `verify-access` are replay `read-only`, so an `uncertain` step runs again |
 | `DeadEndWrongAccount.cfg` | The code as written; `WrongAccountNeverStranded` | Violated: finding 4 |
@@ -50,6 +50,7 @@ DeadEndGitHubSilent` (the last word is the `.cfg` name; leave it out for
 | `BrokenSave.cfg` | `github.ts:289-290` removed; `CancelledStaysCancelled` | Violated, as it must be |
 | `BrokenInstallCheck.cfg` | `github.ts:724` removed; `InstallationCheckedBeforeToken` | Violated, as it must be |
 | `BrokenReplay.cfg` | `github.ts:348` removed; `LaterStepsNeverStranded`. Not in `check.sh`; run it alone | Violated, as it must be |
+| `BrokenRefusal.cfg` | `github-runtime.ts:1327` removed; `RefusedReturnLeavesRun` | Violated, as it must be |
 | `Chart.cfg` | For the chart only: one return, one request at a time | `NoDeadEnd` violated: finding 1 |
 
 ## The rules
@@ -59,6 +60,7 @@ DeadEndGitHubSilent` (the last word is the `.cfg` name; leave it out for
 | `ConvertedAtMostOnce` | For one nonce, `POST /app-manifests/{code}/conversions` is sent at most once. |
 | `CancelledStaysCancelled` | After `cancel()` (`github.ts:843-887`) has committed, the run's record stays `cancelled`, a cancelled setup record keeps its phase and app, and no app, installation or connection artifact is written. |
 | `InstallationCheckedBeforeToken` | The installation artifact, and so the installation a token is minted for, is one that `checkInstallation` (`github.ts:888-920`) accepted. |
+| `RefusedReturnLeavesRun` | A return that `callback()` refuses (`GitHubCallbackRefused`: wrong or consumed state, admission lost to another return, hand-off already past its installation return) does not make the engine run a step. The route answers 409 and the run stays as it was. |
 | `NoDeadEnd` | While the run is active and not connected, some request, return or step other than Cancel can still change something. It is the conjunction of the four `...NeverStranded` rules and `OnlyKnownDeadEnds`. |
 | `OnlyKnownDeadEnds` | There is no dead end other than the four kinds under Findings. This is what the normal configuration checks in place of `NoDeadEnd`; it fails as soon as a new kind appears. |
 | `TimersNeverRescue` | Once in a dead end, no timer running out makes anything possible again. It justifies that `NoDeadEnd` counts only one timer as a way forward: the 60-second claim that must lapse before "Start a new registration" goes through (`github.ts:777-781`). |
@@ -108,7 +110,11 @@ No failure at all, only a second request while the first is converting
 5. The engine runs `prepare-app` meanwhile. One way: the same return arrives
    again, is refused (`github.ts:638`), and the route then advances the run
    (`github-runtime.ts:1323-1324`). `prepare()` sees `converting` and returns
-   `uncertain` (`github.ts:423-429`).
+   `uncertain` (`github.ts:423-429`). The route no longer does this: a
+   refused return ends in `GitHubCallbackRefused` and the route does not
+   advance the run (`github-runtime.ts:1324-1328`; rule
+   `RefusedReturnLeavesRun`). The connection page or the assistant can still
+   run the step meanwhile, which the model keeps.
 6. The first `callback()` stores the app and writes `app-ready`
    (`github.ts:668-696`). Its own `advance` is refused.
 
@@ -210,6 +216,7 @@ shortest.
 | `BrokenSave.cfg` | `SaveChecksCancelled` | `github.ts:289-290` | `prepare()` has read the stored app. The person cancels and `cancel()` commits. `saveArtifact` writes the app artifact afterwards. 11 steps |
 | `BrokenInstallCheck.cfg` | `ReturnChecksInstallation` | `github.ts:724` | A return carries an installation id GitHub would reject; it is recorded as `installed` with an installation artifact. 13 steps |
 | `BrokenReplay.cfg` | `RerunUncertain = {}` | `github.ts:348` | The app is created, confirmed and stored, and the app step completes. The engine runs `authorize-installation`; GitHub does not answer `verifyApp`, the step is `uncertain`, and the engine never runs it again. 12 steps |
+| `BrokenRefusal.cfg` | `RefusalLeavesRun` | `github-runtime.ts:1327` | The engine prepares the hand-off. A return whose state is not the current nonce arrives and is refused; the route advances the run and the engine starts the app step. 4 steps |
 
 In the `BrokenFence` and `BrokenSave` paths the cancel must land between an
 `authorize` call (`github.ts:687`, `285`) and the transaction after it. The
@@ -239,7 +246,9 @@ is a separate action.
 | `PageRenders` | `github.ts:546-581`; `github-runtime.ts:1374-1385` |
 | `PageFails` | `github.ts:548-559`; `github-runtime.ts:1348-1364` |
 | `ReturnArrives` | `github-runtime.ts:1320-1322`; `github.ts:631-642` |
-| `ReturnAdmitted`, `ReturnRefused` | `github.ts:643-666` |
+| `ReturnAdmitted`, `ReturnRefused` | `github.ts:643-666` (at the fix commit `663-681`; a lost admission throws `GitHubCallbackRefused`, `678-680`) |
+| `RefusalAnswered` | `github-runtime.ts:1324-1328`: no `advance` after `GitHubCallbackRefused`; with `RefusalLeavesRun = FALSE`, `advance` (`github-runtime.ts:1391-1405`) |
+| `DuplicateReturnRefused` | `github.ts:638-647` and `729-730` (at the fix commit) throw `GitHubCallbackRefused`; then `RefusalAnswered`. In `Next` only, not in `Acts` |
 | `ConversionSaved` | `github.ts:668-685` |
 | `ConversionDropped` | `github.ts:678`, `697-703` |
 | `ConversionFails` | `github.ts:668-675`, `697-712` |
@@ -272,7 +281,7 @@ is a separate action.
 | `local` | The record `github:{runId}` (`github.ts:168-174`). `shared` means it carries `sharedSetup`, so `read()` returns the setup record (`github.ts:194-209`) |
 | `appArt`, `instArt`, `token` | Artifact records (`github.ts:47-54`, `182-193`) |
 | `ret`, `page`, `rec` | Where a `callback()`, a `human()` and a recovery request stand between their transactions. `...Stale` means the record moved since the request read it, so its compare-and-set fails (`persistence/index.ts:223-243`) |
-| `converted`, `created`, `haveRight`, `frozen`, `deadSeen` | Bookkeeping for the rules; not in the code |
+| `converted`, `created`, `haveRight`, `frozen`, `deadSeen`, `refusedMoved` | Bookkeeping for the rules; not in the code |
 
 ## Bounds
 

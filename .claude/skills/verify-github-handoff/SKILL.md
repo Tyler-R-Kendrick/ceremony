@@ -11,7 +11,7 @@ description: "Check a change to the GitHub App hand-off (\"Connect GitHub\": cre
 
 If it breaks, a person ends up with a GitHub App that Ceremony lost or created twice, a cancelled connection that still stores an app or a token, a token for an unchecked installation, or a connection that can neither finish nor be repaired.
 
-The last part does not hold today. `verification/github-handoff/README.md` lists four dead ends as findings 1 to 4. The three steps are registered replay `read-only`, so the engine runs an `uncertain` step again; that removed findings 1 to 3. Finding 4 is left: running the app step again only fails again. It is a failure of the product code, not of the model. Do not edit the model to hide it.
+The last part does not hold today. `verification/github-handoff/README.md` lists four dead ends as findings 1 to 4. The three steps are registered replay `read-only`, so the engine runs an `uncertain` step again; that removed findings 1 to 3. A return that `callback()` refuses throws `GitHubCallbackRefused`, and the return route then does not advance the run; the rule `RefusedReturnLeavesRun` checks this, and `BrokenRefusal.cfg` shows it failing without that check. Finding 4 is left: running the app step again only fails again. It is a failure of the product code, not of the model. Do not edit the model to hide it.
 
 ## Does your change touch it
 
@@ -28,7 +28,7 @@ The model describes these files and functions. A change to any of them touches i
 To see what changed since the model was last confirmed:
 
 ```sh
-git diff 36710d246105a496a482e232ed99cb2934f67906 -- src/server/recipes/github.ts src/server/recipes/registry.ts src/server/github-runtime.ts src/server/commands.ts src/server/persistence/index.ts
+git diff f4d8f879477e25e0bfc9b667ef495b79b985d314 -- src/server/recipes/github.ts src/server/recipes/registry.ts src/server/github-runtime.ts src/server/commands.ts src/server/persistence/index.ts
 ```
 
 No output means the model still describes the code; run the check anyway if your working tree changes these files. The store and the engine have their own checks, `verify-persistence` and `verify-commands`. This model takes their behaviour as given, so a change there needs those skills too.
@@ -101,7 +101,7 @@ Change the rule only when the promise itself changes, for example a second conve
 The model was last confirmed against the code at:
 
 ```
-36710d246105a496a482e232ed99cb2934f67906
+f4d8f879477e25e0bfc9b667ef495b79b985d314
 ```
 
 Move this commit forward, here and in the README's "Sync" section, only after you have compared every changed function in the table above with its actions and the check gives its recorded results at the new commit. If covered code changed and nobody did that, use `/maintain-formal-verification-skill` to bring the model back in line.

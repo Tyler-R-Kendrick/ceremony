@@ -32,7 +32,7 @@ check() {
 check GitHubHandoff pass "the rules that hold today hold" ok
 check NoDeadEndOneAtATime pass "NoDeadEnd holds without the findings' triggers" ok
 check DeadEndGitHubSilent pass "an unanswered GitHub call in the app step leaves it re-runnable" ok
-check DeadEndReplayedReturn pass "a replayed return leaves the app step re-runnable" ok
+check DeadEndReplayedReturn pass "a replayed return is refused without advancing the run" ok
 check DeadEndExpiry pass "finding 2 is fixed: the app step runs again and a new registration is offered" ok
 check DeadEndLaterStep pass "finding 3 is fixed: the install and token steps run again" ok
 check DeadEndWrongAccount WrongAccountNeverStranded "finding 4 is still in the code" FINDING
@@ -40,6 +40,7 @@ check BrokenAdmit ConvertedAtMostOnce "the removed check is caught" ok
 check BrokenFence CancelledStaysCancelled "the removed check is caught" ok
 check BrokenSave CancelledStaysCancelled "the removed check is caught" ok
 check BrokenInstallCheck InstallationCheckedBeforeToken "the removed check is caught" ok
+check BrokenRefusal RefusedReturnLeavesRun "the removed check is caught" ok
 
 if [ "$changed" -gt 0 ]; then
   echo "$changed result(s) changed. See .claude/skills/verify-github-handoff/SKILL.md."

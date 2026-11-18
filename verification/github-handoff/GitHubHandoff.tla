@@ -31,12 +31,14 @@ CONSTANTS
                             \*   (FALSE only in Chart.cfg, to draw the flow one request at a time)
 
   \* --- the code as written is TRUE; FALSE removes one check (see Broken*.cfg) ---
-  AdmitComparesRevision,    \* github.ts:669  put(callbackKey, ..., record.revision)
-  AppReadyAssertsFence,     \* github.ts:695  assertFence before "app-ready" is written
+  AdmitComparesRevision,    \* github.ts:673  put(callbackKey, ..., record.revision)
+  AppReadyAssertsFence,     \* github.ts:702  assertFence before "app-ready" is written
   SaveChecksCancelled,      \* github.ts:289-290  saveArtifact refuses a cancelled run
-  ReturnChecksInstallation, \* github.ts:730  checkInstallation before the installation is recorded
-  RerunUncertain            \* github.ts:348  the steps registered replay "read-only": the engine runs
+  ReturnChecksInstallation, \* github.ts:737  checkInstallation before the installation is recorded
+  RerunUncertain,           \* github.ts:348  the steps registered replay "read-only": the engine runs
                             \*   such a step again from "uncertain" (commands.ts:927-937)
+  RefusalLeavesRun          \* github-runtime.ts:1327  the return route does not advance the run after
+                            \*   a refused return (GitHubCallbackRefused, github.ts:647, 678, 730)
 
 VARIABLES
   \* the run and its three steps (commands.ts)
@@ -74,11 +76,12 @@ VARIABLES
   haveRight,    \* you created an app under the chosen account, so you have one to enter
                 \*   on the recovery page
   frozen,       \* what was recorded when the hand-off was cancelled
-  deadSeen      \* a dead end was reached before a timer ran out
+  deadSeen,     \* a dead end was reached before a timer ran out
+  refusedMoved  \* a refused return made the engine run a step
 
 vars == << run, step, eng, setup, issued, expired, app, claim, local,
            instExpired, appArt, instArt, token, ret, page, rec, converted,
-           created, haveRight, frozen, deadSeen >>
+           created, haveRight, frozen, deadSeen, refusedMoved >>
 
 Steps == {"app", "inst", "access"}
 Idle == [node |-> "none", sPhase |-> "none", sApp |-> "none", sIssued |-> FALSE, fresh |-> TRUE]
@@ -115,6 +118,7 @@ TypeOK ==
   /\ page \in {"idle", "open", "stale"}
   /\ rec \in {"idle", "read", "stale", "stored"}
   /\ converted \in 0..3 /\ haveRight \in BOOLEAN /\ deadSeen \in BOOLEAN
+  /\ refusedMoved \in BOOLEAN
 
 Init ==
   /\ run = "active"
@@ -127,6 +131,7 @@ Init ==
   /\ ret = [c \in Returns |-> RetIdle]
   /\ page = "idle" /\ rec = "idle"
   /\ converted = 0 /\ created = "none" /\ haveRight = FALSE /\ deadSeen = FALSE
+  /\ refusedMoved = FALSE
   /\ frozen = << "none", FALSE, "none", "none", FALSE, "none" >>
 
 (***************************************************************************)
@@ -154,8 +159,10 @@ Settle(n, result) ==
 (* THE RUN ENGINE RUNS A STEP.  commands.ts:757-1255.                      *)
 (* Anyone may ask for it at any time: the connection page (teaching.tsx:   *)
 (* 1733-1757), the assistant's advance tool, and the return and hand-off   *)
-(* routes themselves after a refused request (github-runtime.ts:1324,      *)
-(* 1338, 1349), each under a new command id.  A step marked "complete" is  *)
+(* routes themselves (github-runtime.ts:1328, 1342, 1353), each under a    *)
+(* new command id.  The return route asks for it after a return that       *)
+(* failed once admitted or arrived after the hour, never after a refused   *)
+(* return (RefusalAnswered).  A step marked "complete" is                  *)
 (* never run again; one marked "uncertain" is run again only when its      *)
 (* operation is registered replay "read-only" (commands.ts:927-937), which *)
 (* all three are (github.ts:348).                                          *)
@@ -182,7 +189,7 @@ StepStarts(n) ==
   /\ eng' = Start(n)
   /\ UNCHANGED << run, step, setup, issued, expired, app, claim, local,
                   instExpired, appArt, instArt, token, ret, page, rec,
-                  converted, created, haveRight, frozen, deadSeen >>
+                  converted, created, haveRight, frozen, deadSeen, refusedMoved >>
 
 \* The guards of the outcomes that leave a step other than where it stood,
 \* for the engine holding e.  The actions below use them with e = eng;
@@ -223,7 +230,7 @@ HandoffPrepared ==
   /\ issued' = FALSE /\ expired' = FALSE /\ converted' = 0 /\ created' = "none"
   /\ Settle("app", "open")
   /\ UNCHANGED << run, app, claim, instExpired, appArt, instArt, token,
-                  ret, page, rec, haveRight, frozen, deadSeen >>
+                  ret, page, rec, haveRight, frozen, deadSeen, refusedMoved >>
 
 \* An app is known: verify it with GitHub, save the artifact, then the
 \* engine's own verify passes. github.ts:399-407, 284-295, 350-378
@@ -233,7 +240,7 @@ AppConfirmed ==
   /\ Settle("app", "complete")
   /\ UNCHANGED << run, setup, issued, expired, app, claim, local,
                   instExpired, instArt, token, ret, page, rec, converted,
-                  created, haveRight, frozen, deadSeen >>
+                  created, haveRight, frozen, deadSeen, refusedMoved >>
 
 \* GitHub does not answer verifyApp (github.ts:400), or the engine's verify
 \* after the artifact was saved (github.ts:358), or verifyApp rejects an app
@@ -248,7 +255,7 @@ AppCheckUnanswered ==
   /\ Settle("app", "uncertain")
   /\ UNCHANGED << run, setup, issued, expired, app, claim, local,
                   instExpired, instArt, token, ret, page, rec, converted,
-                  created, haveRight, frozen, deadSeen >>
+                  created, haveRight, frozen, deadSeen, refusedMoved >>
 
 \* The registration hand-off's hour is over. github.ts:409-428
 \*   page was rendered  -> "uncertain", nonce consumed (an app may exist)
@@ -260,16 +267,16 @@ HandoffLapsed ==
   /\ IF eng.fresh
        THEN /\ IF eng.sIssued
                  THEN /\ setup' = "uncertain"
-                      /\ UNCHANGED << expired, converted, created >>
+                      /\ UNCHANGED << expired, converted, created, refusedMoved >>
                       /\ Settle("app", "uncertain")
                  ELSE /\ expired' = FALSE /\ converted' = 0 /\ created' = "none"
                       /\ UNCHANGED setup
                       /\ Settle("app", "open")
             /\ ret' = StaleRets(ret) /\ rec' = StaleRec /\ page' = StalePage
-       ELSE /\ UNCHANGED << setup, expired, converted, created, ret, rec, page >>
+       ELSE /\ UNCHANGED << setup, expired, converted, created, ret, rec, page, refusedMoved >>
             /\ Settle("app", "uncertain")
   /\ UNCHANGED << run, issued, app, claim, local, instExpired, appArt,
-                  instArt, token, haveRight, frozen, deadSeen >>
+                  instArt, token, haveRight, frozen, deadSeen, refusedMoved >>
 
 \* Nothing to do but wait for you. github.ts:429-435 -> "awaiting-human"
 StepStillWaiting ==
@@ -277,7 +284,7 @@ StepStillWaiting ==
   /\ Settle("app", "open")
   /\ UNCHANGED << run, setup, issued, expired, app, claim, local,
                   instExpired, appArt, instArt, token, ret, page, rec,
-                  converted, created, haveRight, frozen, deadSeen >>
+                  converted, created, haveRight, frozen, deadSeen, refusedMoved >>
 
 \* prepare() saw "converting" or "uncertain" and no app. github.ts:429-435 -> "uncertain"
 StepMarkedUnclear ==
@@ -285,7 +292,7 @@ StepMarkedUnclear ==
   /\ Settle("app", "uncertain")
   /\ UNCHANGED << run, setup, issued, expired, app, claim, local,
                   instExpired, appArt, instArt, token, ret, page, rec,
-                  converted, created, haveRight, frozen, deadSeen >>
+                  converted, created, haveRight, frozen, deadSeen, refusedMoved >>
 
 \* prepare() throws because the run was cancelled. github.ts:396-397, 439-440, 289-290
 AppStepRefused ==
@@ -296,7 +303,7 @@ AppStepRefused ==
   /\ Settle("app", "uncertain")
   /\ UNCHANGED << run, setup, issued, expired, app, claim, local,
                   instExpired, appArt, instArt, token, ret, page, rec,
-                  converted, created, haveRight, frozen, deadSeen >>
+                  converted, created, haveRight, frozen, deadSeen, refusedMoved >>
 
 \* --- step "inst": install(), github.ts:482-535 ---
 
@@ -305,11 +312,11 @@ AppStepRefused ==
 InstallHandoffPrepared ==
   /\ InstallHandoffPreparedOn(eng)
   /\ IF local = "installation" /\ ~instExpired
-       THEN UNCHANGED << local, instExpired, ret >>
+       THEN UNCHANGED << local, instExpired, ret, refusedMoved >>
        ELSE local' = "installation" /\ instExpired' = FALSE /\ ret' = StaleInst(ret)
   /\ Settle("inst", "open")
   /\ UNCHANGED << run, setup, issued, expired, app, claim, appArt,
-                  instArt, token, page, rec, converted, created, haveRight, frozen, deadSeen >>
+                  instArt, token, page, rec, converted, created, haveRight, frozen, deadSeen, refusedMoved >>
 
 \* The installation artifact exists: done, if the engine's verify accepts
 \* it (checkInstallation again, github.ts:359-364). github.ts:490-495
@@ -318,7 +325,7 @@ InstallConfirmed ==
   /\ Settle("inst", IF instArt = "good" THEN "complete" ELSE "uncertain")
   /\ UNCHANGED << run, setup, issued, expired, app, claim, local,
                   instExpired, appArt, instArt, token, ret, page, rec,
-                  converted, created, haveRight, frozen, deadSeen >>
+                  converted, created, haveRight, frozen, deadSeen, refusedMoved >>
 
 \* install() throws: the run was cancelled (github.ts:503-504), or GitHub
 \* does not answer verifyApp (github.ts:489).
@@ -329,9 +336,9 @@ InstallStepRefused ==
   /\ Settle("inst", "uncertain")
   /\ UNCHANGED << run, setup, issued, expired, app, claim, local,
                   instExpired, appArt, instArt, token, ret, page, rec,
-                  converted, created, haveRight, frozen, deadSeen >>
+                  converted, created, haveRight, frozen, deadSeen, refusedMoved >>
 
-\* --- step "access": verifyAccess(), github.ts:927-983 ---
+\* --- step "access": verifyAccess(), github.ts:934-990 ---
 
 \* Check the recorded installation again (939-943), mint the token
 \* (950-963), read the repositories, save the connection artifact (976).
@@ -341,7 +348,7 @@ TokenStored ==
   /\ Settle("access", "complete")
   /\ UNCHANGED << run, setup, issued, expired, app, claim, local,
                   instExpired, appArt, instArt, ret, page, rec, converted,
-                  created, haveRight, frozen, deadSeen >>
+                  created, haveRight, frozen, deadSeen, refusedMoved >>
 
 \* verifyAccess() throws: installation rejected, run cancelled, or GitHub
 \* does not answer.
@@ -353,12 +360,12 @@ AccessStepRefused ==
   /\ Settle("access", "uncertain")
   /\ UNCHANGED << run, setup, issued, expired, app, claim, local,
                   instExpired, appArt, instArt, token, ret, page, rec,
-                  converted, created, haveRight, frozen, deadSeen >>
+                  converted, created, haveRight, frozen, deadSeen, refusedMoved >>
 
 (***************************************************************************)
 (* THE HAND-OFF PAGE "Continue at GitHub".  human(), github.ts:537-595,    *)
-(* behind github-runtime.ts:1348-1385.  The route serves it only for an    *)
-(* active run (github-runtime.ts:888-893).                                 *)
+(* behind github-runtime.ts:1352-1389.  The route serves it only for an    *)
+(* active run (github-runtime.ts:889-894).                                 *)
 (***************************************************************************)
 \* read(), the expiry check, then GET /users/{target}. github.ts:538-551
 PageOpens ==
@@ -368,7 +375,7 @@ PageOpens ==
   /\ page' = "open"
   /\ UNCHANGED << run, step, eng, setup, issued, expired, app, claim,
                   local, instExpired, appArt, instArt, token, ret, rec,
-                  converted, created, haveRight, frozen, deadSeen >>
+                  converted, created, haveRight, frozen, deadSeen, refusedMoved >>
 
 \* Mark handoffIssued and send the form that posts the manifest. github.ts:552-587
 PageRenders ==
@@ -377,7 +384,7 @@ PageRenders ==
   /\ ret' = StaleRets(ret) /\ eng' = StaleEng /\ rec' = StaleRec
   /\ UNCHANGED << run, step, setup, expired, app, claim, local,
                   instExpired, appArt, instArt, token, converted, created, haveRight,
-                  frozen, deadSeen >>
+                  frozen, deadSeen, refusedMoved >>
 
 \* The hand-off moved on meanwhile (github.ts:554-565), or GitHub did not answer.
 PageFails ==
@@ -387,14 +394,14 @@ PageFails ==
   /\ page' = "idle"
   /\ UNCHANGED << run, step, eng, setup, issued, expired, app, claim,
                   local, instExpired, appArt, instArt, token, ret, rec,
-                  converted, created, haveRight, frozen, deadSeen >>
+                  converted, created, haveRight, frozen, deadSeen, refusedMoved >>
 
 (***************************************************************************)
 (* GITHUB SENDS YOU BACK WITH A MANIFEST CODE.  callback(), registration   *)
-(* branch, github.ts:637-721, behind github-runtime.ts:1320-1346.          *)
+(* branch, github.ts:637-728, behind github-runtime.ts:1321-1350.          *)
 (***************************************************************************)
 \* You created the app; the URL carries the current nonce, which only a
-\* rendered page gave you.  read() and the checks at github.ts:638-648.
+\* rendered page gave you.  read() and the checks at github.ts:638-649.
 ReturnArrives(c) ==
   /\ MayStart
   /\ run = "active" /\ ret[c].pc = "idle"
@@ -407,11 +414,11 @@ ReturnArrives(c) ==
        /\ haveRight' = (haveRight \/ a = "right")
   /\ UNCHANGED << run, step, eng, setup, issued, expired, app, claim,
                   local, instExpired, appArt, instArt, token, page, rec,
-                  converted, frozen, deadSeen >>
+                  converted, frozen, deadSeen, refusedMoved >>
 
 \* One transaction claims the fence and consumes the nonce: phase
 \* "converting", nonce "consumed", written with the revision that was read.
-\* github.ts:660-672.  With AdmitComparesRevision = FALSE the put takes
+\* github.ts:661-679.  With AdmitComparesRevision = FALSE the put takes
 \* whatever revision is there, and writes the phase it read over it.
 ReturnAdmitted(c) ==
   /\ \/ ret[c].pc = "regRead"
@@ -422,18 +429,52 @@ ReturnAdmitted(c) ==
   /\ ret' = [StaleRets(ret) EXCEPT ![c].pc = "admitted"]
   /\ eng' = StaleEng /\ rec' = StaleRec /\ page' = StalePage
   /\ UNCHANGED << run, step, issued, expired, local, instExpired, appArt,
-                  instArt, token, converted, created, haveRight, frozen, deadSeen >>
+                  instArt, token, converted, created, haveRight, frozen, deadSeen, refusedMoved >>
 
-\* The claim is taken, or the record moved since it was read: PersistenceConflict.
+\* What the return route does after a refused return.  callback() throws
+\* GitHubCallbackRefused and the route answers 409 without advancing the
+\* run (github-runtime.ts:1324-1328).  With RefusalLeavesRun = FALSE the
+\* route calls advance() (github-runtime.ts:1391-1405), whose first
+\* transaction starts the first step not yet complete, as StepStarts does.
+\* refusedMoved records that the refusal started the engine.
+RefusalAnswered ==
+  LET n == IF step.app # "complete" THEN "app"
+           ELSE IF step.inst # "complete" THEN "inst" ELSE "access"
+      starts == /\ ~RefusalLeavesRun
+                /\ run = "active" /\ eng.node = "none"
+                /\ \/ step[n] = "open"
+                   \/ step[n] = "uncertain" /\ n \in RerunUncertain
+  IN /\ eng' = IF starts THEN Start(n) ELSE eng
+     /\ refusedMoved' = (refusedMoved \/ starts)
+
+\* The claim is taken, or the record moved since it was read:
+\* PersistenceConflict, which callback() turns into GitHubCallbackRefused.
+\* github.ts:663-681
 ReturnRefused(c) ==
   /\ \/ ret[c].pc = "regStale" /\ AdmitComparesRevision
      \/ ret[c].pc \in {"regRead", "regStale"} /\ claim # {}
   /\ ret' = [ret EXCEPT ![c].pc = "idle"]
-  /\ UNCHANGED << run, step, eng, setup, issued, expired, app, claim,
+  /\ RefusalAnswered
+  /\ UNCHANGED << run, step, setup, issued, expired, app, claim,
                   local, instExpired, appArt, instArt, token, page, rec,
                   converted, created, haveRight, frozen, deadSeen >>
 
-\* What the catch block writes (github.ts:703-718): "uncertain", but only
+\* A return whose state is not the hand-off's current nonce arrives: the
+\* same return again after another delivery consumed the nonce, or a return
+\* from an earlier hand-off page.  The state check refuses it before
+\* anything is written: read() and github.ts:638-647, or "already consumed"
+\* at github.ts:729-730.  With the code as written this changes nothing,
+\* so it is left out of Acts: it opens no way forward.
+DuplicateReturnRefused(c) ==
+  /\ MayStart
+  /\ run = "active" /\ ret[c].pc = "idle"
+  /\ local \in {"shared", "installation", "installed"}
+  /\ RefusalAnswered
+  /\ UNCHANGED << run, step, setup, issued, expired, app, claim,
+                  local, instExpired, appArt, instArt, token, ret, page, rec,
+                  converted, created, haveRight, frozen, deadSeen >>
+
+\* What the catch block writes (github.ts:710-725): "uncertain", but only
 \* while this return still holds the fence and nobody cancelled.
 CatchWrites(c) ==
   IF claim = {c} /\ setup # "cancelled"
@@ -441,10 +482,10 @@ CatchWrites(c) ==
          /\ ret' = [StaleRets(ret) EXCEPT ![c].pc = "idle"]
          /\ eng' = StaleEng /\ rec' = StaleRec
     ELSE /\ ret' = [ret EXCEPT ![c].pc = "idle"]
-         /\ UNCHANGED << setup, eng, rec >>
+         /\ UNCHANGED << setup, eng, rec, refusedMoved >>
 
 \* POST /app-manifests/{code}/conversions answers with the app; it is kept
-\* at once, under the fence. github.ts:674-691
+\* at once, under the fence. github.ts:681-698
 ConversionSaved(c) ==
   /\ ret[c].pc = "admitted" /\ claim = {c}
   /\ converted' = converted + 1
@@ -452,19 +493,19 @@ ConversionSaved(c) ==
   /\ ret' = [StaleRets(ret) EXCEPT ![c].pc = "saved"]
   /\ eng' = StaleEng /\ rec' = StaleRec
   /\ UNCHANGED << run, step, issued, expired, claim, local, instExpired,
-                  appArt, instArt, token, page, created, haveRight, frozen, deadSeen >>
+                  appArt, instArt, token, page, created, haveRight, frozen, deadSeen, refusedMoved >>
 
 \* The answer came but the fence is gone (cancelled, recovered, or 60 s
-\* over): nothing is written. github.ts:684, 705-709
+\* over): nothing is written. github.ts:691, 712-716
 ConversionDropped(c) ==
   /\ ret[c].pc = "admitted" /\ claim # {c}
   /\ converted' = converted + 1
   /\ ret' = [ret EXCEPT ![c].pc = "idle"]
   /\ UNCHANGED << run, step, eng, setup, issued, expired, app, claim,
                   local, instExpired, appArt, instArt, token, page, rec,
-                  created, haveRight, frozen, deadSeen >>
+                  created, haveRight, frozen, deadSeen, refusedMoved >>
 
-\* The conversion throws: no answer, or an answer that cannot be used. github.ts:703-718
+\* The conversion throws: no answer, or an answer that cannot be used. github.ts:710-725
 ConversionFails(c) ==
   /\ GitHubFailsInReturn
   /\ ret[c].pc = "admitted"
@@ -472,9 +513,9 @@ ConversionFails(c) ==
   /\ CatchWrites(c)
   /\ UNCHANGED << run, step, issued, expired, app, claim, local,
                   instExpired, appArt, instArt, token, page, created, haveRight, frozen,
-                  deadSeen >>
+                  deadSeen, refusedMoved >>
 
-\* verifyApp passes; "app-ready" is written under the fence. github.ts:692-702
+\* verifyApp passes; "app-ready" is written under the fence. github.ts:699-709
 AppVerified(c) ==
   /\ ret[c].pc = "saved" /\ created = "right"
   /\ IF claim = {c} \/ ~AppReadyAssertsFence
@@ -482,20 +523,20 @@ AppVerified(c) ==
             /\ ret' = [StaleRets(ret) EXCEPT ![c].pc = "idle"]
             /\ eng' = StaleEng /\ rec' = StaleRec
        ELSE /\ ret' = [ret EXCEPT ![c].pc = "idle"]
-            /\ UNCHANGED << setup, eng, rec >>
+            /\ UNCHANGED << setup, eng, rec, refusedMoved >>
   /\ UNCHANGED << run, step, issued, expired, app, claim, local,
                   instExpired, appArt, instArt, token, page, converted,
-                  created, haveRight, frozen, deadSeen >>
+                  created, haveRight, frozen, deadSeen, refusedMoved >>
 
 \* verifyApp throws after the app was kept: no answer, or the app belongs
-\* to another account. github.ts:692, 703-718
+\* to another account. github.ts:699, 710-725
 AppVerifyFails(c) ==
   /\ GitHubFailsInReturn \/ created = "wrong"
   /\ ret[c].pc = "saved"
   /\ CatchWrites(c)
   /\ UNCHANGED << run, step, issued, expired, app, claim, local,
                   instExpired, appArt, instArt, token, page, converted,
-                  created, haveRight, frozen, deadSeen >>
+                  created, haveRight, frozen, deadSeen, refusedMoved >>
 
 \* The process handling the return dies after the nonce was consumed.
 ReturnDies(c) ==
@@ -504,12 +545,12 @@ ReturnDies(c) ==
   /\ ret' = [ret EXCEPT ![c].pc = "idle"]
   /\ UNCHANGED << run, step, eng, setup, issued, expired, app, claim,
                   local, instExpired, appArt, instArt, token, page, rec,
-                  converted, created, haveRight, frozen, deadSeen >>
+                  converted, created, haveRight, frozen, deadSeen, refusedMoved >>
 
 (***************************************************************************)
 (* GITHUB SENDS YOU BACK AFTER THE INSTALLATION.  callback(), installation *)
-(* branch, github.ts:722-754, reached through the installation-return      *)
-(* route (github.ts:70-99, github-runtime.ts:741-754).                     *)
+(* branch, github.ts:729-761, reached through the installation-return      *)
+(* route (github.ts:70-99, github-runtime.ts:742-755).                     *)
 (***************************************************************************)
 \* The installation id in the URL is whatever the browser sends.
 InstallReturnArrives(c, id) ==
@@ -519,10 +560,10 @@ InstallReturnArrives(c, id) ==
   /\ ret' = [ret EXCEPT ![c] = [pc |-> "instRead", id |-> id]]
   /\ UNCHANGED << run, step, eng, setup, issued, expired, app, claim,
                   local, instExpired, appArt, instArt, token, page, rec,
-                  converted, created, haveRight, frozen, deadSeen >>
+                  converted, created, haveRight, frozen, deadSeen, refusedMoved >>
 
 \* checkInstallation (730), then one transaction: phase "installed" with
-\* the revision that was read, and the installation artifact. github.ts:732-754
+\* the revision that was read, and the installation artifact. github.ts:739-761
 InstallReturnRecorded(c) ==
   /\ ret[c].pc = "instRead"
   /\ ret[c].id = "good" \/ ~ReturnChecksInstallation
@@ -530,7 +571,7 @@ InstallReturnRecorded(c) ==
   /\ ret' = [StaleInst(ret) EXCEPT ![c] = RetIdle]
   /\ UNCHANGED << run, step, eng, setup, issued, expired, app, claim,
                   instExpired, appArt, token, page, rec, converted, created, haveRight,
-                  frozen, deadSeen >>
+                  frozen, deadSeen, refusedMoved >>
 
 \* GitHub rejects the installation or does not answer, or the run's
 \* record moved since it was read.
@@ -541,14 +582,14 @@ InstallReturnRefused(c) ==
   /\ ret' = [ret EXCEPT ![c] = RetIdle]
   /\ UNCHANGED << run, step, eng, setup, issued, expired, app, claim,
                   local, instExpired, appArt, instArt, token, page, rec,
-                  converted, created, haveRight, frozen, deadSeen >>
+                  converted, created, haveRight, frozen, deadSeen, refusedMoved >>
 
 (***************************************************************************)
-(* THE RECOVERY PAGE.  github-runtime.ts:1073-1318.  Served only while     *)
+(* THE RECOVERY PAGE.  github-runtime.ts:1074-1319.  Served only while     *)
 (* step "app" is "uncertain" (1085-1086).                                  *)
 (***************************************************************************)
 \* You enter the app's id and private key.  recover() accepts only the
-\* phases "uncertain" and "converting". github.ts:804-813
+\* phases "uncertain" and "converting". github.ts:811-820
 RecoveryStarts ==
   /\ MayStart
   /\ run = "active" /\ rec = "idle" /\ step.app = "uncertain" /\ haveRight
@@ -556,17 +597,17 @@ RecoveryStarts ==
   /\ rec' = "read"
   /\ UNCHANGED << run, step, eng, setup, issued, expired, app, claim,
                   local, instExpired, appArt, instArt, token, ret, page,
-                  converted, created, haveRight, frozen, deadSeen >>
+                  converted, created, haveRight, frozen, deadSeen, refusedMoved >>
 
 \* GitHub confirms the app; one transaction cancels the fence and writes
-\* "app-ready" with the revision that was read. github.ts:814-845
+\* "app-ready" with the revision that was read. github.ts:821-852
 RecoveryStoresApp ==
   /\ rec = "read"
   /\ setup' = "app-ready" /\ app' = "right" /\ claim' = {}
   /\ rec' = "stored"
   /\ ret' = StaleRets(ret) /\ eng' = StaleEng
   /\ UNCHANGED << run, step, issued, expired, local, instExpired, appArt,
-                  instArt, token, page, converted, created, haveRight, frozen, deadSeen >>
+                  instArt, token, page, converted, created, haveRight, frozen, deadSeen, refusedMoved >>
 
 \* The record moved since it was read, or GitHub did not confirm the app.
 RecoveryFails ==
@@ -575,10 +616,10 @@ RecoveryFails ==
   /\ rec' = "idle"
   /\ UNCHANGED << run, step, eng, setup, issued, expired, app, claim,
                   local, instExpired, appArt, instArt, token, ret, page,
-                  converted, created, haveRight, frozen, deadSeen >>
+                  converted, created, haveRight, frozen, deadSeen, refusedMoved >>
 
 \* A second transaction lets the engine run step "app" again: node state
-\* "uncertain" -> "verifying". github-runtime.ts:1190-1272
+\* "uncertain" -> "verifying". github-runtime.ts:1191-1273
 RecoveryReleasesStep ==
   /\ rec = "stored"
   /\ step' = IF run = "active" /\ step.app = "uncertain"
@@ -586,7 +627,7 @@ RecoveryReleasesStep ==
   /\ rec' = "idle"
   /\ UNCHANGED << run, eng, setup, issued, expired, app, claim, local,
                   instExpired, appArt, instArt, token, ret, page, converted,
-                  created, haveRight, frozen, deadSeen >>
+                  created, haveRight, frozen, deadSeen, refusedMoved >>
 
 \* The process dies between those two transactions.
 RecoveryDies ==
@@ -595,11 +636,11 @@ RecoveryDies ==
   /\ rec' = "idle"
   /\ UNCHANGED << run, step, eng, setup, issued, expired, app, claim,
                   local, instExpired, appArt, instArt, token, ret, page,
-                  converted, created, haveRight, frozen, deadSeen >>
+                  converted, created, haveRight, frozen, deadSeen, refusedMoved >>
 
 \* "Start a new registration": one transaction. restartRegistration()
-\* (github.ts:764-801) needs phase "uncertain", no app and no live claim;
-\* the same transaction releases step "app" (github-runtime.ts:1192-1272).
+\* (github.ts:771-808) needs phase "uncertain", no app and no live claim;
+\* the same transaction releases step "app" (github-runtime.ts:1193-1273).
 RegistrationRestarted ==
   /\ MayStart
   /\ run = "active" /\ step.app = "uncertain"
@@ -610,22 +651,22 @@ RegistrationRestarted ==
   /\ ret' = StaleRets(ret) /\ eng' = StaleEng /\ rec' = StaleRec
   /\ page' = StalePage
   /\ UNCHANGED << run, app, claim, local, instExpired, appArt, instArt,
-                  token, haveRight, frozen, deadSeen >>
+                  token, haveRight, frozen, deadSeen, refusedMoved >>
 
 (***************************************************************************)
 (* CANCEL.  Two transactions: the run (commands.ts:443-473), then the      *)
-(* hand-off (github-runtime.ts:756-776 calling github.ts:849-893).         *)
+(* hand-off (github-runtime.ts:757-777 calling github.ts:856-900).         *)
 (***************************************************************************)
 YouCancel ==
   /\ run = "active" /\ step.access # "complete"
   /\ run' = "cancelled"
   /\ UNCHANGED << step, eng, setup, issued, expired, app, claim, local,
                   instExpired, appArt, instArt, token, ret, page, rec,
-                  converted, created, haveRight, frozen, deadSeen >>
+                  converted, created, haveRight, frozen, deadSeen, refusedMoved >>
 
 \* The run's record becomes "cancelled".  While it still pointed at the
 \* setup record and no other run subscribes, that record is cancelled too
-\* and its fence is ended (github.ts:856-882).
+\* and its fence is ended (github.ts:863-889).
 CancelReachesHandoff ==
   /\ run = "cancelled" /\ local # "cancelled"
   /\ local' = "cancelled"
@@ -634,11 +675,11 @@ CancelReachesHandoff ==
             /\ ret' = StaleInst(StaleRets(ret))
             /\ eng' = StaleEng /\ rec' = StaleRec /\ page' = StalePage
        ELSE /\ ret' = StaleInst(ret)
-            /\ UNCHANGED << setup, claim, eng, rec, page >>
+            /\ UNCHANGED << setup, claim, eng, rec, page, refusedMoved >>
   /\ frozen' = << local', appArt, instArt, token, setup' = "cancelled",
                   IF setup' = "cancelled" THEN app ELSE "none" >>
   /\ UNCHANGED << run, step, issued, expired, app, instExpired, appArt,
-                  instArt, token, converted, created, haveRight, deadSeen >>
+                  instArt, token, converted, created, haveRight, deadSeen, refusedMoved >>
 
 (***************************************************************************)
 (* What can still change something while the run is active: every action   *)
@@ -667,7 +708,7 @@ Acts ==
 Open == run = "active" /\ step.access # "complete"
 
 \* One timer opens a way forward: "Start a new registration" claims the
-\* setup key (github.ts:783-787) and is refused while a return's 60-second
+\* setup key (github.ts:790-794) and is refused while a return's 60-second
 \* claim is still live; once it lapses the restart goes through.
 WaitThenRestart ==
   /\ claim # {}
@@ -679,7 +720,7 @@ DeadEnd == Open /\ ~ENABLED Acts /\ ~WaitThenRestart
 (* TIMERS.  They only run while the run is active; afterwards nothing      *)
 (* reads them.                                                             *)
 (***************************************************************************)
-\* expires = now + 3600000, github.ts:423, 459, 795
+\* expires = now + 3600000, github.ts:423, 459, 802
 HandoffExpires ==
   /\ MayStart
   /\ run = "active" /\ local = "shared" /\ setup = "registration" /\ ~expired
@@ -687,7 +728,7 @@ HandoffExpires ==
   /\ deadSeen' = (deadSeen \/ DeadEnd)
   /\ UNCHANGED << run, step, eng, setup, issued, app, claim, local,
                   instExpired, appArt, instArt, token, ret, page, rec,
-                  converted, created, haveRight, frozen >>
+                  converted, created, haveRight, frozen, refusedMoved >>
 
 \* github.ts:511
 InstallHandoffExpires ==
@@ -697,10 +738,10 @@ InstallHandoffExpires ==
   /\ deadSeen' = (deadSeen \/ DeadEnd)
   /\ UNCHANGED << run, step, eng, setup, issued, expired, app, claim,
                   local, appArt, instArt, token, ret, page, rec, converted,
-                  created, haveRight, frozen >>
+                  created, haveRight, frozen, refusedMoved >>
 
 \* The return's claim lasts 60 s and is never released by the return
-\* itself (github.ts:661-665; persistence/index.ts:399-440).
+\* itself (github.ts:665-669; persistence/index.ts:399-440).
 ClaimLapses ==
   /\ MayStart
   /\ run = "active" /\ claim # {}
@@ -708,7 +749,7 @@ ClaimLapses ==
   /\ deadSeen' = (deadSeen \/ DeadEnd)
   /\ UNCHANGED << run, step, eng, setup, issued, expired, app, local,
                   instExpired, appArt, instArt, token, ret, page, rec,
-                  converted, created, haveRight, frozen >>
+                  converted, created, haveRight, frozen, refusedMoved >>
 
 \* Connected, or cancelled with nothing left in flight: the end.
 Done ==
@@ -718,7 +759,8 @@ Done ==
   /\ UNCHANGED vars
 
 \* Next lists the actions of Acts again, so that TLC names each step.  Keep
-\* the two lists the same.
+\* the two lists the same.  DuplicateReturnRefused is in Next only (see
+\* there).
 Next ==
   \/ \E n \in Steps : StepStarts(n)
   \/ HandoffPrepared \/ AppConfirmed \/ AppCheckUnanswered \/ HandoffLapsed
@@ -732,6 +774,7 @@ Next ==
        \/ AppVerified(c) \/ AppVerifyFails(c) \/ ReturnDies(c)
        \/ \E id \in {"good", "bad"} : InstallReturnArrives(c, id)
        \/ InstallReturnRecorded(c) \/ InstallReturnRefused(c)
+       \/ DuplicateReturnRefused(c)
   \/ RecoveryStarts \/ RecoveryStoresApp \/ RecoveryFails
   \/ RecoveryReleasesStep \/ RecoveryDies \/ RegistrationRestarted
   \/ YouCancel \/ CancelReachesHandoff
@@ -759,6 +802,10 @@ InstallationCheckedBeforeToken ==
   /\ instArt # "bad"
   /\ token # "none" => instArt = "good" /\ token = "good"
 
+\* A refused return writes nothing and proves nothing about the hand-off,
+\* so it does not make the engine run a step: the run stays as it was.
+RefusedReturnLeavesRun == ~refusedMoved
+
 \* While the run is active and not yet connected, something other than
 \* Cancel can still change it.
 NoDeadEnd == ~DeadEnd
@@ -767,7 +814,7 @@ NoDeadEnd == ~DeadEnd
 \* name the dead ends the code had; parts 1 to 3 hold since every step runs
 \* again from "uncertain" (github.ts:348), and part 4 does not:
 \*   1. the app is stored, but step "app" is "uncertain" and recover() refuses
-\*      the phase "app-ready" (github.ts:812-813)
+\*      the phase "app-ready" (github.ts:819-820)
 AppReadyNeverStranded ==
   ~(DeadEnd /\ step.app = "uncertain" /\ local = "shared" /\ setup = "app-ready")
 \*   2. the hand-off expired, but step "app" is "uncertain" and only prepare()
@@ -775,13 +822,13 @@ AppReadyNeverStranded ==
 ExpiredHandoffNeverStranded ==
   ~(DeadEnd /\ step.app = "uncertain" /\ local = "shared" /\ setup = "registration")
 \*   3. step "inst" or "access" is "uncertain"; the recovery page serves only
-\*      step "app" (github-runtime.ts:1073-1086)
+\*      step "app" (github-runtime.ts:1074-1087)
 LaterStepsNeverStranded ==
   ~(DeadEnd /\ (step.inst = "uncertain" \/ step.access = "uncertain"))
 \*   4. the app was created under another account: it can never be
 \*      confirmed, so running the app step again only throws again, you have
 \*      no other app to enter, and restartRegistration() refuses because an
-\*      app is stored or the phase is still "converting" (github.ts:778-782)
+\*      app is stored or the phase is still "converting" (github.ts:785-789)
 WrongAccountNeverStranded ==
   ~(DeadEnd /\ step.app = "uncertain" /\ local = "shared"
             /\ setup \in {"uncertain", "converting"})
