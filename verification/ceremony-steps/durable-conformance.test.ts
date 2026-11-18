@@ -6,10 +6,12 @@
 // passes it; the ceremony's own clock is the controller's `now`.
 //
 // The first three tests show what DurableSteps.tla takes as given: the lease,
-// the reload in instance(), and the poll on redirect. The last three show the
-// two rules of the database path on the real code: a lease that runs out
-// during an adapter call does not let a second worker's answer be applied
-// over the first, and a reload never moves a final step.
+// the reload in instance(), and the poll on redirect. The rest show the two
+// rules of the database path on the real code: a lease that runs out during
+// an adapter call does not let a second worker's answer be applied over the
+// first, and a reload never moves a final step. They cover a late answer of
+// the begin, callback and poll flights and a late throw of the callback and
+// poll flights.
 //
 // Run from the repo root:
 //   node --import tsx --test verification/ceremony-steps/durable-conformance.test.ts
@@ -231,4 +233,82 @@ test("ReloadNeverMovesAnEndStep: expired stays expired after a late callback ans
   assert.equal(again.step, "expired", "the reload keeps the end step");
   assert.equal(again.revision, expired.revision);
   assert.equal(again.outcome, undefined);
+});
+
+// DurableSteps.tla sends every answer of every flight through Fenced,
+// including the poll flight and the "throws" answers of the callback and poll
+// flights. The tests below replay those answers on the real code: a poll
+// answer, a callback that throws, and a poll that throws while waiting, each
+// landing after its lease ran out and another worker cancelled.
+
+const waiting: AdapterUpdate = {
+  step: "waiting",
+  verificationUri: "https://provider.example/device",
+  userCode: "ABCD-EFGH",
+};
+
+test("OneWorkerAppliesAnswers on the poll flight: a poll answer that lands after its lease ran out is not stored over cancelled", async (t) => {
+  // DurableSteps.tla: Read(w1) polls on redirect, LeaseExpires, ActCancel(w2),
+  // Answer(w1) for the "poll" flight.
+  const c = cluster(t);
+  const first = c.w1.start();
+  const atProvider = await c.w1.act(first.id, "begin", first.revision);
+  const pending = Promise.withResolvers<AdapterUpdate | undefined>();
+  c.w1.script.poll = () => pending.promise;
+  const reading = c.w1.read(first.id);
+  assert.equal(c.w1.script.polls, 1);
+  c.leaseRunsOut();
+  const cancelled = await c.w2.act(first.id, "cancel", atProvider.revision);
+  assert.equal(cancelled.step, "cancelled");
+  pending.resolve(complete);
+  await reading.catch(() => undefined);
+  const now = c.stored(first.id);
+  assert.equal(now?.step, "cancelled", "the late poll answer is not stored");
+  assert.equal(now?.revision, cancelled.revision);
+  assert.equal(now?.outcome, undefined);
+});
+
+test("OneWorkerAppliesAnswers on a throw: a callback that throws after its lease ran out does not store error over cancelled", async (t) => {
+  // DurableSteps.tla: ActCallback(w1), LeaseExpires, ActCancel(w2),
+  // Answer(w1) with "throws" for the "callback" flight.
+  const c = cluster(t);
+  const first = c.w1.start();
+  const atProvider = await c.w1.act(first.id, "begin", first.revision);
+  const pending = Promise.withResolvers<AdapterUpdate>();
+  c.w1.script.callback = () => pending.promise;
+  const returning = c.w1.callback(first.id);
+  c.leaseRunsOut();
+  const cancelled = await c.w2.act(first.id, "cancel", atProvider.revision);
+  assert.equal(cancelled.step, "cancelled");
+  pending.reject(new Error("provider down"));
+  await returning.catch(() => undefined);
+  const now = c.stored(first.id);
+  assert.equal(now?.step, "cancelled", "the late throw is not stored as error");
+  assert.equal(now?.revision, cancelled.revision);
+});
+
+test("OneWorkerAppliesAnswers on a throw while waiting: a poll that throws after its lease ran out does not store waiting over cancelled", async (t) => {
+  // DurableSteps.tla: Read(w1) polls while waiting, LeaseExpires,
+  // ActCancel(w2), Answer(w1) with "throws" for the "poll" flight.
+  const c = cluster(t);
+  const first = c.w1.start();
+  c.w1.script.begin = async () => waiting;
+  const onDevice = await c.w1.act(first.id, "begin", first.revision);
+  assert.equal(onDevice.step, "waiting");
+  const pending = Promise.withResolvers<AdapterUpdate | undefined>();
+  c.w1.script.poll = () => pending.promise;
+  const reading = c.w1.read(first.id);
+  assert.equal(c.w1.script.polls, 1);
+  c.leaseRunsOut();
+  const cancelled = await c.w2.act(first.id, "cancel", onDevice.revision);
+  assert.equal(cancelled.step, "cancelled");
+  pending.reject(new Error("provider down"));
+  await reading.catch(() => undefined);
+  const now = c.stored(first.id);
+  assert.equal(
+    now?.step,
+    "cancelled",
+    "the late throw is not stored as waiting",
+  );
+  assert.equal(now?.revision, cancelled.revision);
 });
