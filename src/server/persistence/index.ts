@@ -623,7 +623,9 @@ export class PostgresCeremonyStore implements AsyncCeremonyStore {
     };
     const tx = transaction(query, true, this.keyring);
     try {
-      await query("BEGIN");
+      // A create re-reads the key's retired revision after waiting on a delete;
+      // that read must see the committed delete, whatever the database default.
+      await query("BEGIN ISOLATION LEVEL READ COMMITTED");
       const value = await work(tx);
       await query("COMMIT");
       this.idleFailure = false;

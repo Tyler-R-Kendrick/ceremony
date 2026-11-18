@@ -301,7 +301,7 @@ FencedCommit(p, write, release) ==
                /\ UNCHANGED <<now, clockRead, liveLeaseTakenOver,
                               expiredFencePassed>>
           ELSE \* PersistenceConflict (index.ts:254, :317, :329), then ROLLBACK
-               \* (index.ts:440, :632): nothing is written, the lease stays
+               \* (index.ts:440, :634): nothing is written, the lease stays
                /\ pc' = [pc EXCEPT ![p] = "working"]
                /\ lock' = Unlock(p)
                /\ UNCHANGED <<now, claim, rec, retired, fence, clockRead, seen,
@@ -319,7 +319,7 @@ CancelKey ==
                    expiredFencePassed, staleRevisionWrote>>
 
 \* The process stops or restarts: its open transaction rolls back
-\* (index.ts:440, :632) and what it held in memory is gone.  The claim row
+\* (index.ts:440, :634) and what it held in memory is gone.  The claim row
 \* stays as it is until it expires.
 ProcessRestarts(p) ==
     /\ WithEnvironment
@@ -336,7 +336,7 @@ ProcessRestarts(p) ==
 \* always carry the current revision.  They make what a process read stale.
 \*   create  - tx.put(key, value, null), e.g. collections.ts:134
 \*   rewrite - rotateRecords: tx.list then tx.put(record.revision)
-\*             (index.ts:652-660, maintenance.ts:47-56)
+\*             (index.ts:654-662, maintenance.ts:47-56)
 \*   delete  - tx.get/list then tx.delete(record.revision)
 \*             (maintenance.ts:71-100, collections.ts:214-232, :248-268)
 OtherWriterCreates ==
