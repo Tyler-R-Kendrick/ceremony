@@ -1,0 +1,85 @@
+#!/bin/sh
+# Check the lease and revision model of src/server/persistence against what
+# README.md in this folder records.  Run from anywhere:
+#   verification/persistence/check.sh
+# It runs every config in this folder with the pinned TLC (../tlc.sh), all at
+# once, and compares each result with the expected one below.
+# Exit 0: every config did what is recorded.  Exit 1: something changed.
+set -u
+here=$(cd "$(dirname "$0")" && pwd)
+out=$(mktemp -d)
+trap 'rm -rf "$out"' EXIT
+
+# config | expected | what it is
+#   expected is "holds", or the name of the rule that must break
+table='
+Fence|holds|rules 1-3 and 5 on the code as written
+RevisionNoDelete|holds|rule 4 for a key that is never deleted
+Chart|holds|the small model behind chart.mmd
+FindingRevisionReused|holds|rule 4 on the code as written, records deleted and created again (F1)
+FindingHeartbeatWithoutRowLock|holds|rule 5 without the row lock: the heartbeat UPDATE keeps to its own lease
+FindingClaimReturnsExpired|holds|rule 6 on the code as written: a slow claim returns no expired fence
+FindingRestoreReusesGeneration|holds|rule 7 on the code as written: a restore reuses no generation an old fence names
+BrokenHeartbeatAnyGeneration|HeartbeatExtendsOnlyOwnLease|broken variant, index.ts:446-455
+BrokenClaimReturnsExpired|ClaimNeverReturnsExpiredFence|broken variant, index.ts:413-416 and :428-438
+BrokenClaimLeaseNotAfterUpsert|ClaimNeverReturnsExpiredFence|broken variant, index.ts:428-438
+BrokenRestoreKeepsGeneration|RestoredStoreRefusesOldFences|broken variant, index.ts:657-695
+BrokenRestoreEpochNotFromClock|RestoredStoreRefusesOldFences|broken variant, index.ts:662-679
+BrokenNoGenerationCheck|StaleFenceNeverCommits|broken variant, index.ts:258
+BrokenNoRowLock|StaleFenceNeverCommits|broken variant, index.ts:241
+BrokenNoGenerationBump|StaleFenceNeverCommits|broken variant, index.ts:414
+BrokenClaimLiveLease|LiveLeaseNeverTakenOver|broken variant, index.ts:414
+BrokenNoExpiryCheck|ExpiredFenceNeverPasses|broken variant, index.ts:260
+BrokenNoRevisionCheck|StaleRevisionNeverWrites|broken variant, index.ts:355
+BrokenNoRetiredRevision|StaleRevisionNeverWrites|broken variant, index.ts:371-376 and :264-315 (F1)
+'
+
+configs=$(printf '%s\n' "$table" | cut -d'|' -f1)
+for config in $configs; do
+  # TLC unpacks its standard modules into the Java temp folder and removes
+  # them when it ends, so runs that share that folder break each other.
+  mkdir "$out/$config.tmp"
+  JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djava.io.tmpdir=$out/$config.tmp" \
+    "$here/../tlc.sh" persistence Fence "$config" >"$out/$config.out" 2>&1 &
+done
+wait
+
+status=0
+old_ifs=$IFS
+IFS='
+'
+for row in $table; do
+  IFS='|' read -r config expected what <<ROW
+$row
+ROW
+  IFS='
+'
+  log="$out/$config.out"
+  if grep -q '^Model checking completed. No error has been found.' "$log"; then
+    got=holds
+  else
+    got=$(sed -n 's/^Error: Invariant \(.*\) is violated\.$/\1/p' "$log" | head -n 1)
+    [ -n "$got" ] || got=error
+  fi
+  if [ "$got" = "$expected" ]; then
+    case $expected in
+      holds) printf 'ok    %-30s holds: %s\n' "$config" "$what" ;;
+      *) printf 'ok    %-30s breaks %s, as recorded: %s\n' "$config" "$expected" "$what" ;;
+    esac
+  else
+    status=1
+    printf 'FAIL  %-30s expected %s, got %s: %s\n' "$config" "$expected" "$got" "$what"
+    printf '      see it with: verification/tlc.sh persistence Fence %s\n' "$config"
+    if [ "$got" = error ]; then
+      grep -v '^Picked up' "$log" | tail -n 15 | sed 's/^/      | /'
+    fi
+  fi
+done
+IFS=$old_ifs
+
+if [ "$status" -eq 0 ]; then
+  echo 'All configs did what README.md records.'
+else
+  echo 'Something changed. Read .claude/skills/verify-persistence/SKILL.md before you go on.'
+fi
+exit "$status"

@@ -1,0 +1,13 @@
+{
+  "ceremony": "github-app-access",
+  "interfaces": ["chooseTarget", "registerApp", "installApp"],
+  "endings": [
+    "success",
+    "awaiting-approval",
+    "declined",
+    "wrong-owner",
+    "unreachable",
+    "unobservable",
+    "unstable"
+  ]
+}

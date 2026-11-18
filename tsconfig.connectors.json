@@ -1,0 +1,37 @@
+// src/server is checked as two projects so that neither reaches the heap
+// limit. This one holds src/server/connectors, src/server/persistence and every
+// file they import; tsconfig.server.json excludes the same list and holds the
+// rest. A file listed here may not import a file of tsconfig.server.json: tsc
+// reports TS6307 when one does, and the file must then move to this list.
+{
+  "extends": "./tsconfig.lib.json",
+  "include": [
+    "src/server/connectors",
+    "src/server/persistence",
+    "src/server/recipes/outcome.ts",
+    "src/server/recipes/registry.ts",
+    "src/server/arazzo.ts",
+    "src/server/async-environment.ts",
+    "src/server/authored-oauth.ts",
+    "src/server/authorization.ts",
+    "src/server/browser-driver.ts",
+    "src/server/browser-interpreter.ts",
+    "src/server/browser-targets.ts",
+    "src/server/ceremony-errors.ts",
+    "src/server/cloudflare.ts",
+    "src/server/commands.ts",
+    "src/server/controller.ts",
+    "src/server/demonstrations.ts",
+    "src/server/environment-schema.ts",
+    "src/server/github.ts",
+    "src/server/identity.ts",
+    "src/server/live-view.ts",
+    "src/server/oauth-public-clients.ts",
+    "src/server/playwright.ts",
+    "src/server/public-auth-fetch.ts",
+    "src/server/storage.ts",
+    "src/server/system-tenants.ts",
+    "src/server/totp.ts"
+  ],
+  "references": [{ "path": "./tsconfig.core.json" }]
+}

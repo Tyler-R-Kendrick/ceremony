@@ -14,6 +14,16 @@ import { Demonstrations } from "../src/server/demonstrations.js";
 import { createTeachingRuntime } from "../src/server/teaching-runtime.js";
 import { postgresFixture } from "./fixtures/postgres.js";
 import { crashActor, crashRegistry } from "./fixtures/command-crash-worker.js";
+import { z } from "zod";
+import {
+  OperationRegistry,
+  type OperationResult,
+  type RegisteredOperation,
+} from "../src/server/recipes/registry.js";
+import { RecipeService } from "../src/server/recipes/index.js";
+import { createGitHubRuntime } from "../src/server/github-runtime.js";
+import type { ActorContext } from "../src/core/operation-contracts.js";
+import type { RecipeOutcome } from "../src/core/recipe-contracts.js";
 
 const context = {
   provider: "fixture",
@@ -358,6 +368,18 @@ for (const [mode, exitCode, expectedEffects] of [
         crashRegistry(provider.url),
         async () => true,
       );
+      // A new command id for the step, sent before the crashed one is
+      // replayed, is refused and makes no provider call.
+      await assert.rejects(
+        resumed.advance(
+          crashActor,
+          run.id,
+          "node",
+          (await resumed.snapshot(crashActor, run.id)).revision,
+          "new-command-before-replay",
+        ),
+      );
+      assert.equal(provider.effects.size, expectedEffects);
       const replay = await resumed.advance(
         crashActor,
         run.id,
@@ -413,3 +435,248 @@ for (const [mode, exitCode, expectedEffects] of [
     }
   });
 }
+
+// ---------------------------------------------------------------------------
+// The way out of an `uncertain` step, and retry permission, by the replay an
+// operation is registered with. An operation with no declared replay is
+// treated as "reconciliation".
+// ---------------------------------------------------------------------------
+
+type Replay = NonNullable<RegisteredOperation["replay"]>;
+
+const replayActor: ActorContext = {
+  tenantId: "tenant",
+  subjectId: "subject",
+  sessionId: "session",
+  actorKind: "human",
+  capabilities: ["executor", "author", "reviewer", "publisher"],
+};
+const replayContext = {
+  provider: "probe",
+  profile: "probe-api",
+  target: "probe-target",
+  origin: "https://app.example",
+  environment: "test",
+  configurationVersion: "v1",
+};
+const retryOutcome: RecipeOutcome = {
+  successCriteria: [],
+  retry: { limit: 2, afterMs: 0, criteria: [] },
+  values: {},
+};
+
+/**
+ * One step, `check`, whose operation is registered with `replay` (none when
+ * undefined). `results[n]` decides the n-th handler call: "throw" throws,
+ * anything else is the state it returns.
+ */
+function replayFixture(
+  t: { after(fn: () => unknown): void },
+  replay: Replay | undefined,
+  results: ("throw" | OperationResult["state"])[] = ["complete"],
+) {
+  const store = new SQLiteCeremonyStore(":memory:", {
+    current: "key",
+    keys: { key: randomBytes(32) },
+  });
+  t.after(() => store.close());
+  const registry = new OperationRegistry(
+    new Map([
+      [
+        "probe.status",
+        { schema: z.string().max(40), classification: "public" as const },
+      ],
+    ]),
+  );
+  let calls = 0;
+  registry.register({
+    contract: {
+      id: "probe.check",
+      version: "1.0.0",
+      provider: "probe",
+      profile: "probe-api",
+      inputs: {},
+      outputs: { status: { contract: "probe.status", required: false } },
+      effects: ["read"],
+      verifier: "probe",
+      humanFallback: "none",
+    },
+    inputSchema: z.strictObject({}),
+    outputSchema: z.strictObject({ status: z.string().optional() }),
+    classifications: {},
+    fixtures: ["tests/command-crash-boundaries.test.ts"],
+    ...(replay ? { replay } : {}),
+    handler: async () => {
+      const result = results[Math.min(calls, results.length - 1)]!;
+      calls++;
+      if (result === "throw") throw new Error("connection reset");
+      return { state: result, outputs: {} };
+    },
+    verify: async () => true,
+  });
+  const commands = new ProtectedCommandService(
+    store,
+    registry,
+    async () => true,
+  );
+  const recipes = new RecipeService(store, registry);
+  const node = (outcome?: RecipeOutcome) => ({
+    id: "check",
+    operationId: "probe.check",
+    operationVersion: "1.0.0",
+    dependsOn: [],
+    bindings: {},
+    ...(outcome ? { outcome } : {}),
+  });
+  return {
+    registry,
+    commands,
+    calls: () => calls,
+    createRun: (outcome?: RecipeOutcome) =>
+      commands.createRun(replayActor, replayContext, [node(outcome)], {}),
+    preview: (outcome: RecipeOutcome) =>
+      recipes.preview(replayActor, {
+        schemaVersion: 1,
+        id: "probe-once",
+        title: "Probe once",
+        description: "",
+        inputs: {},
+        invocations: [
+          {
+            id: "check",
+            use: { kind: "operation", id: "probe.check", version: "1.0.0" },
+            dependsOn: [],
+            bindings: {},
+            outcome,
+          },
+        ],
+        outputs: {},
+      }),
+    advance: async (runId: string, commandId: string) =>
+      commands.advance(
+        replayActor,
+        runId,
+        "check",
+        (await commands.snapshot(replayActor, runId)).revision,
+        commandId,
+      ),
+    outbox: () =>
+      store.transaction(async (tx) =>
+        (
+          await tx.list<{ task: string; status: string }>(
+            replayActor.tenantId,
+            "outbox",
+          )
+        ).map((entry) => [entry.id, entry.value.task, entry.value.status]),
+      ),
+  };
+}
+
+for (const replay of ["read-only", "upstream-idempotency-key"] as const)
+  test(`a recipe retry is allowed for an operation registered replay "${replay}"`, async (t) => {
+    const f = replayFixture(t, replay);
+    assert.deepEqual((await f.preview(retryOutcome)).diagnostics, []);
+    const run = await f.createRun(retryOutcome);
+    assert.equal(run.status, "active");
+  });
+
+for (const replay of ["reconciliation", undefined] as const)
+  test(`a recipe retry is refused for an operation registered ${replay ? `replay "${replay}"` : "with no replay"}`, async (t) => {
+    const f = replayFixture(t, replay);
+    assert.deepEqual((await f.preview(retryOutcome)).diagnostics, [
+      { code: "retry-not-replay-safe", node: "check" },
+    ]);
+    await assert.rejects(f.createRun(retryOutcome), /denied/);
+  });
+
+for (const replay of [
+  "reconciliation",
+  "upstream-idempotency-key",
+  undefined,
+] as const)
+  test(`an uncertain step of an operation registered ${replay ? `replay "${replay}"` : "with no replay"} waits for its reconciliation: a new id is refused`, async (t) => {
+    const f = replayFixture(t, replay, ["throw", "complete"]);
+    const run = await f.createRun();
+    assert.equal((await f.advance(run.id, "first")).state, "uncertain");
+    assert.deepEqual(await f.outbox(), [
+      ["reconciliation:first", "reconciliation-required", "pending"],
+    ]);
+    await assert.rejects(f.advance(run.id, "second"), /denied/);
+    assert.equal(f.calls(), 1);
+    assert.deepEqual(await f.outbox(), [
+      ["reconciliation:first", "reconciliation-required", "pending"],
+    ]);
+  });
+
+test("a read-only step that completes under a new id resolves the reconciliation entries its uncertain calls left", async (t) => {
+  const f = replayFixture(t, "read-only", ["throw", "uncertain", "complete"]);
+  const run = await f.createRun();
+  assert.equal((await f.advance(run.id, "first")).state, "uncertain");
+  assert.equal((await f.advance(run.id, "second")).state, "uncertain");
+  assert.deepEqual(await f.outbox(), [
+    ["reconciliation:first", "reconciliation-required", "pending"],
+    ["reconciliation:second", "reconciliation-required", "pending"],
+  ]);
+  const third = await f.advance(run.id, "third");
+  assert.deepEqual([third.state, third.verified], ["complete", true]);
+  assert.equal(f.calls(), 3);
+  assert.deepEqual(await f.outbox(), [
+    ["reconciliation:first", "reconciliation-required", "resolved"],
+    ["reconciliation:second", "reconciliation-required", "resolved"],
+  ]);
+});
+
+test("a read-only step that fails under a new id leaves the reconciliation entry pending", async (t) => {
+  const f = replayFixture(t, "read-only", ["throw", "failed"]);
+  const run = await f.createRun();
+  assert.equal((await f.advance(run.id, "first")).state, "uncertain");
+  assert.equal((await f.advance(run.id, "second")).state, "failed");
+  assert.deepEqual(await f.outbox(), [
+    ["reconciliation:first", "reconciliation-required", "pending"],
+  ]);
+});
+
+test("every operation registered in the default server registries has an effective replay, listed", async (t) => {
+  const store = new SQLiteCeremonyStore(":memory:", {
+    current: "key",
+    keys: { key: randomBytes(32) },
+  });
+  t.after(() => store.close());
+  const configuration = async () => ({ version: "v1" });
+  const runtime = createGitHubRuntime({
+    store,
+    identity: { authenticate: async () => replayActor },
+    origin: "https://app.example",
+    environment: "test",
+    configurationVersion: "v1",
+    stripe: { configuration },
+    supabase: { configuration },
+    jira: { configuration },
+    allowTarget: async () => true,
+    authorize: async () => true,
+  });
+  const registry = runtime.registry as OperationRegistry & {
+    replays?(): { id: string; version: string; replay: Replay }[];
+  };
+  assert.equal(
+    typeof registry.replays,
+    "function",
+    "the registry lists each registration with its effective replay",
+  );
+  const listed = registry.replays!();
+  t.diagnostic(
+    listed
+      .map((entry) => `${entry.id}@${entry.version} ${entry.replay}`)
+      .join("\n"),
+  );
+  const catalog = registry.catalog();
+  assert.ok(catalog.length > 0);
+  assert.deepEqual(
+    listed.map((entry) => `${entry.id}@${entry.version}`).sort(),
+    catalog.map((contract) => `${contract.id}@${contract.version}`).sort(),
+  );
+  for (const entry of listed) {
+    const declared = registry.get(entry.id, entry.version)!.replay;
+    assert.equal(entry.replay, declared ?? "reconciliation", entry.id);
+  }
+});

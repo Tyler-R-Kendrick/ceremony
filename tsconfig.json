@@ -22,5 +22,5 @@
     "vite.config.ts",
     "playwright.config.ts"
   ],
-  "exclude": ["tests/consumers"]
+  "exclude": ["tests/consumers", "examples/kernel"]
 }

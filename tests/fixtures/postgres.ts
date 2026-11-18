@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:net";
 import { randomBytes } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 import EmbeddedPostgres from "embedded-postgres";
+import { Client, type ClientConfig } from "pg";
 
 /**
  * PostgreSQL refuses to run its server as root and drops to an unprivileged
@@ -57,6 +59,35 @@ const portTaken =
 
 /** Attempts at starting the server, each on a fresh port. */
 const startAttempts = 4;
+
+/**
+ * Waits, up to 5 s, until no other connection is open on the server.
+ *
+ * `Pool.end()` resolves once it has asked each idle client to end, before the
+ * server has seen the client go. Stopping the server then (a fast shutdown)
+ * sends such a connection "terminating connection due to administrator
+ * command", and a pool with no error listener throws it as an uncaught
+ * exception. Waiting for the connections to close first keeps the stop from
+ * reaching any of them.
+ */
+async function disconnected(config: ClientConfig): Promise<void> {
+  const client = new Client(config);
+  client.on("error", () => {});
+  try {
+    await client.connect();
+    for (const until = Date.now() + 5_000; Date.now() < until;) {
+      const { rows } = await client.query(
+        "SELECT count(*)::int AS open FROM pg_stat_activity WHERE backend_type = 'client backend' AND pid <> pg_backend_pid()",
+      );
+      if (rows[0].open === 0) break;
+      await delay(10);
+    }
+  } catch {
+    // The server stops all the same.
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
 
 /** Actual isolated PostgreSQL server, never a production URL or a fake SQL implementation. */
 export async function postgresFixture() {
@@ -120,15 +151,17 @@ export async function postgresFixture() {
       "Local PostgreSQL fixture could not start; verify the installed platform package's native libraries and reviewed symlink hydration (see docs/testing.md). No database tests were skipped.",
     );
   }
+  const config = {
+    host: "127.0.0.1",
+    port,
+    user: "ceremony",
+    password,
+    database: "postgres",
+  };
   return {
-    config: {
-      host: "127.0.0.1",
-      port,
-      user: "ceremony",
-      password,
-      database: "postgres",
-    },
+    config,
     async close() {
+      await disconnected(config);
       await server.stop();
       await rm(directory, { recursive: true, force: true });
     },

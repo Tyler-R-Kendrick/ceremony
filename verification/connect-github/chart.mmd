@@ -1,0 +1,62 @@
+---
+title: "Connect GitHub through a GitHub App"
+---
+stateDiagram-v2
+  state "Legend" as legend {
+    lg0: you
+    lg1: ceremony
+    lg2: done
+    lg3: stopped
+  }
+  class lg0 blue
+  class lg1 teal
+  class lg2 purple
+  class lg3 tan
+  s0: Nothing yet
+  s1: Asked which account
+  s2: Stopped: you said not now
+  s3: Account chosen
+  s4: Asked to create the app
+  s5: Stopped: no way left to an app
+  s6: Back from GitHub with a code
+  s7: Holding the app
+  s8: Asked to install the app
+  s9: App installed
+  s10: Stopped: waiting for an owner's approval
+  s11: Token in hand
+  s12: Connected
+  [*] --> s0
+  s0 --> s1: Ceremony asks which account
+  s1 --> s2: you say not now
+  s1 --> s3: you name the account
+  s3 --> s4: Ceremony asks you to create the app
+  s4 --> s2: you say not now
+  s4 --> s5: you can't create apps here
+  s4 --> s6: you create the app on GitHub
+  s6 --> s3: GitHub rejects the code
+  s6 --> s7: Ceremony trades the code for the app
+  s7 --> s3: the app is deleted
+  s7 --> s8: Ceremony asks you to install
+  s8 --> s2: you say not now
+  s8 --> s9: you install the app
+  s8 --> s10: an owner must approve first
+  s8 --> s3: GitHub no longer knows the app
+  s9 --> s3: the app is deleted
+  s9 --> s7: the installation is removed
+  s9 --> s11: Ceremony mints the token
+  s11 --> s3: the app is deleted
+  s11 --> s7: the installation is removed
+  s11 --> s12: Ceremony finishes
+  class s0 teal
+  class s1 blue
+  class s2 tan
+  class s3 teal
+  class s4 blue
+  class s5 tan
+  class s6 teal
+  class s7 teal
+  class s8 blue
+  class s9 teal
+  class s10 tan
+  class s11 teal
+  class s12 purple

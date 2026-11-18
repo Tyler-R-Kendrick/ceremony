@@ -1,0 +1,60 @@
+#!/bin/sh
+# Run every configuration of the GitHub hand-off model and compare each
+# result with the result recorded in README.md.
+#   verification/github-handoff/check.sh        from the repo root
+# Exit 0: every configuration gave its recorded result.
+# Exit 1: a result changed; TLC's output for it is printed.
+set -u
+here=$(cd "$(dirname "$0")" && pwd)
+tlc="$here/../tlc.sh"
+changed=0
+findings=0
+
+# check <Config> <pass | name of the invariant that must be violated> <what it means>
+check() {
+  out=$("$tlc" github-handoff GitHubHandoff "$1" 2>&1)
+  if printf '%s\n' "$out" | grep -q "Model checking completed. No error has been found."; then
+    got=pass
+  else
+    got=$(printf '%s\n' "$out" | sed -n 's/^Error: \(Invariant\|Action property\) \(.*\) is violated\.$/\2/p' | head -n 1)
+    [ -n "$got" ] || got="TLC error"
+  fi
+  if [ "$got" = "$2" ]; then
+    printf '%-9s %-24s %s\n' "$4" "$1" "$3"
+    [ "$4" = FINDING ] && findings=$((findings + 1))
+  else
+    changed=$((changed + 1))
+    printf '%-9s %-24s recorded: %s, now: %s\n' CHANGED "$1" "$2" "$got"
+    printf '%s\n' "$out" | grep -v '^Picked up JAVA_TOOL_OPTIONS' | sed 's/^/    /'
+  fi
+}
+
+check GitHubHandoff pass "every rule holds, NoDeadEnd included" ok
+check NoDeadEndOneAtATime pass "NoDeadEnd holds without the findings' triggers" ok
+check DeadEndGitHubSilent pass "an unanswered GitHub call in the app step leaves it re-runnable" ok
+check DeadEndReplayedReturn pass "a replayed return is refused without advancing the run" ok
+check DeadEndExpiry pass "finding 2 is fixed: the step that finds the hand-off expired moves it on" ok
+check DeadEndLaterStep pass "finding 3 is fixed: the install and token steps run again" ok
+check DeadEndWrongAccount pass "finding 4 is fixed: an app of another account can be replaced" ok
+check RestartAtOnce pass "a failed return leaves no claim for the restart to wait out" ok
+check CancelStoresNothing pass "nothing is stored once the run's cancel has committed" ok
+check BrokenAdmit ConvertedAtMostOnce "the removed check is caught" ok
+check BrokenFence CancelledStaysCancelled "the removed check is caught" ok
+check BrokenSave CancelledStaysCancelled "the removed check is caught" ok
+check BrokenInstallCheck InstallationCheckedBeforeToken "the removed check is caught" ok
+check BrokenRefusal RefusedReturnLeavesRun "the removed check is caught" ok
+check BrokenExpiryRetry ExpiryWrittenByTheStep "the removed check is caught" ok
+check BrokenRestart WrongAccountNeverStranded "the removed check is caught" ok
+check BrokenRelease RestartWithoutWaiting "the removed check is caught" ok
+check BrokenRunCheck NothingStoredAfterCancel "the removed check is caught" ok
+check BrokenReplay LaterStepsNeverStranded "the removed check is caught" ok
+
+if [ "$changed" -gt 0 ]; then
+  echo "$changed result(s) changed. See .claude/skills/verify-github-handoff/SKILL.md."
+  exit 1
+fi
+if [ "$findings" -gt 0 ]; then
+  echo "All results are as recorded. NoDeadEnd still does not hold: $findings finding configurations fail as recorded (README.md, Findings)."
+else
+  echo "All results are as recorded. NoDeadEnd holds."
+fi

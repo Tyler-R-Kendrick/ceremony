@@ -15,6 +15,7 @@ import {
 } from "./recipes/registry.js";
 import {
   AsyncGitHubChildren,
+  GitHubCallbackRefused,
   githubVocabulary,
   resolveGitHubInstallationRun,
   type AsyncGitHubOptions,
@@ -1320,8 +1321,11 @@ export function createGitHubRuntime(
     if (new URL(request.url).pathname.endsWith("/callback")) {
       try {
         await children.callback(context, callbackUrl);
-      } catch {
-        await advance(actor, runId);
+      } catch (error) {
+        // A refused return wrote nothing and proves nothing about the
+        // hand-off, so the run stays as it is.
+        if (!(error instanceof GitHubCallbackRefused))
+          await advance(actor, runId);
         return new Response(
           `<!doctype html><html lang="en"><title>GitHub needs attention</title><main><h1>GitHub could not confirm this return</h1><p>No authorization was inferred from this callback. Return to the connection for the current verified status and recovery options.</p><a href="${escape(returnUrl(runId))}">Return to connection</a></main></html>`,
           {
@@ -1373,7 +1377,7 @@ export function createGitHubRuntime(
       });
     const nonce = randomUUID();
     return new Response(
-      `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Continue with GitHub</title><main><h1>Continue at GitHub</h1><p>GitHub will ask you to confirm the app and its permissions. If you are not redirected, continue below.</p><form id="handoff" method="post" action="${escape(handoff.url)}"><input type="hidden" name="manifest" value="${escape(JSON.stringify(handoff.manifest))}"><button>Continue with GitHub</button></form></main><script nonce="${nonce}">document.getElementById('handoff').submit();</script></html>`,
+      `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Continue with GitHub</title><main><h1>Continue at GitHub</h1><p>${handoff.accountType === "Organization" ? `GitHub creates the app under the organization <strong>${escape(handoff.account)}</strong>.` : `GitHub creates the app under the account you are signed in to there. Sign in as <strong>${escape(handoff.account)}</strong> first: an app created under another account cannot be used.`}</p><p>GitHub will ask you to confirm the app and its permissions. If you are not redirected, continue below.</p><form id="handoff" method="post" action="${escape(handoff.url)}"><input type="hidden" name="manifest" value="${escape(JSON.stringify(handoff.manifest))}"><button>Continue with GitHub</button></form></main><script nonce="${nonce}">document.getElementById('handoff').submit();</script></html>`,
       {
         headers: {
           "content-type": "text/html; charset=utf-8",

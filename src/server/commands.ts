@@ -14,6 +14,8 @@ import {
 import { AuthorizationError, requireCapability } from "./identity.js";
 import {
   OperationRegistry,
+  replayAllowsRetry,
+  replayRerunsUncertain,
   type OperationContext,
   type OperationResult,
   type RegisteredOperation,
@@ -62,7 +64,8 @@ export type RunRecord = RunContext & {
   scope?: { nodeId: string; connectorId: string };
 };
 type NodeRecord = {
-  state: OperationResult["state"];
+  /** Absent while the step's first command is in flight. */
+  state?: OperationResult["state"];
   verified: boolean;
   outputs: Record<string, unknown>;
   diagnosticCode?: "verification-rejected";
@@ -72,7 +75,21 @@ type NodeRecord = {
   retryAt?: number;
   /** A step with an outcome that failed and may not be attempted again. */
   exhausted?: boolean;
+  /**
+   * The id of the last command admitted for the step. While that command's
+   * record is `running`, admission refuses every other command id.
+   */
+  command?: string;
+  /**
+   * Commands recorded `uncertain` on a read-only step before the command
+   * named on it was admitted. Their reconciliation entries are resolved
+   * when the step is recorded verified.
+   */
+  reconciling?: string[];
 };
+/** A step record's `reconciling` field, to carry into a rewrite of it. */
+const keepReconciling = (record: NodeRecord | undefined) =>
+  record?.reconciling ? { reconciling: record.reconciling } : {};
 const contextFields = [
   "provider",
   "profile",
@@ -178,7 +195,12 @@ export async function pendingProviderStep(
       })
     )
       return undefined;
-    return { node, ...(state ? { state: state.value } : {}) };
+    return {
+      node,
+      ...(state?.value.state !== undefined
+        ? { state: { ...state.value, state: state.value.state } }
+        : {}),
+    };
   }
   return undefined;
 }
@@ -316,8 +338,9 @@ export class ProtectedCommandService {
         )
           throw new AuthorizationError("denied");
       }
-      // A retry repeats the handler: only the host's replay evidence allows it.
-      if (node.outcome?.retry && !operation.replay)
+      // A retry repeats the handler: only an operation that reads, or one the
+      // provider deduplicates by an idempotency key, may declare one.
+      if (node.outcome?.retry && !replayAllowsRetry(operation))
         throw new AuthorizationError("denied");
       commandEnvelopeSchema.parse({
         commandId: "validate",
@@ -404,6 +427,7 @@ export class ProtectedCommandService {
                 },
               }
             : {}),
+          ...(await reconciliationOf(tx, actor, state?.value.command)),
         });
       }
       return {
@@ -439,8 +463,84 @@ export class ProtectedCommandService {
         { ...run.value, status: "cancelled" },
         run.revision,
       );
+      // A command whose handler call is in flight cannot commit once the run
+      // is cancelled, and its effect may already have happened: the command
+      // and its effect are recorded uncertain, with a reconciliation task.
+      for (const node of run.value.nodes)
+        await this.settleInFlight(tx, actor, run.value, node);
     });
     return this.snapshot(actor, runId);
+  }
+  /**
+   * Records the command in flight for a step as uncertain, with its effect, a
+   * reconciliation task and, unless the step is recorded verified, the step.
+   */
+  private async settleInFlight(
+    tx: AsyncTransaction,
+    actor: ActorContext,
+    run: RunRecord,
+    node: RunPlanNode,
+  ) {
+    const nodeKey = key(actor, "node", `${run.id}:${node.id}`);
+    const previous = await tx.get<NodeRecord>(nodeKey);
+    const commandId = previous?.value.command;
+    if (!previous || !commandId) return;
+    const commandKey = key(actor, "command", commandId);
+    const command = await tx.get<CommandRecord>(commandKey);
+    if (command?.value.state !== "running") return;
+    const effectKey = key(actor, "effect", command.value.effectId);
+    const effect = await tx.get<Record<string, unknown>>(effectKey);
+    if (!effect) throw new AuthorizationError("denied");
+    await tx.put(
+      commandKey,
+      { ...command.value, state: "uncertain" },
+      command.revision,
+    );
+    await tx.put(
+      effectKey,
+      { ...effect.value, status: "uncertain", verified: false },
+      effect.revision,
+    );
+    if (previous.value.verified !== true) {
+      await tx.put(
+        nodeKey,
+        {
+          state: "uncertain",
+          verified: false,
+          outputs: {},
+          command: commandId,
+          ...keepReconciling(previous.value),
+        },
+        previous.revision,
+      );
+      await appendSemanticTransition(
+        tx,
+        actor,
+        run.id,
+        {
+          nodeId: node.id,
+          operationId: node.operationId,
+          operationVersion: node.operationVersion,
+          actorKind: "system",
+          kind: "transition",
+          beforeState: previous.value.state ?? "pending",
+          afterState: "uncertain",
+          publicBindings: {},
+          verification: "pending",
+        },
+        {},
+      );
+    }
+    await tx.put(
+      key(actor, "outbox", `reconciliation:${commandId}`),
+      {
+        task: "reconciliation-required",
+        runId: run.id,
+        subjectId: run.subjectId,
+        status: "pending",
+      },
+      null,
+    );
   }
   /** Fresh provider evidence is required for reuse; never rerun an effect to test validity. */
   async revalidate(actor: ActorContext, runId: string) {
@@ -529,10 +629,27 @@ export class ProtectedCommandService {
         if (!invalid.has(node.id)) continue;
         const nodeKey = key(actor, "node", `${runId}:${node.id}`);
         const prior = await tx.get<NodeRecord>(nodeKey);
-        if (prior)
+        // A step whose first command is still in flight has nothing to
+        // reject. An `uncertain` step stays uncertain until it is reconciled:
+        // its effect may have happened, so it is never reopened here.
+        if (
+          prior?.value.state !== undefined &&
+          prior.value.state !== "uncertain"
+        )
           await tx.put(
             nodeKey,
-            { state: "failed", verified: false, outputs: {} },
+            {
+              state: "failed",
+              verified: false,
+              outputs: {},
+              // An exhausted step keeps its attempts and stays exhausted.
+              ...(prior.value.attempts !== undefined
+                ? { attempts: prior.value.attempts }
+                : {}),
+              ...(prior.value.exhausted ? { exhausted: true } : {}),
+              ...(prior.value.command ? { command: prior.value.command } : {}),
+              ...keepReconciling(prior.value),
+            },
             prior.revision,
           );
       }
@@ -709,6 +826,9 @@ export class ProtectedCommandService {
             if (!effect) throw new AuthorizationError("denied");
             const nodeKey = key(actor, "node", `${run.id}:${command.nodeId}`);
             const previous = await tx.get<NodeRecord>(nodeKey);
+            // A step recorded complete and verified keeps that record: the
+            // command and its effect are uncertain, the step is not.
+            const keepsStep = previous?.value.verified === true;
             await tx.put(
               key(actor, "command", command.commandId),
               { ...prior.value, state: "uncertain" },
@@ -719,33 +839,41 @@ export class ProtectedCommandService {
               { ...effect.value, status: "uncertain", verified: false },
               effect.revision,
             );
-            await tx.put(
-              nodeKey,
-              { state: "uncertain", verified: false, outputs: {} },
-              previous?.revision ?? null,
-            );
+            if (!keepsStep)
+              await tx.put(
+                nodeKey,
+                {
+                  state: "uncertain",
+                  verified: false,
+                  outputs: {},
+                  command: command.commandId,
+                  ...keepReconciling(previous?.value),
+                },
+                previous?.revision ?? null,
+              );
             const revision = await tx.put(
               key(actor, "run", run.id),
               run,
               saved.revision,
             );
-            await appendSemanticTransition(
-              tx,
-              actor,
-              run.id,
-              {
-                nodeId: command.nodeId,
-                operationId: command.operationId,
-                operationVersion: command.operationVersion,
-                actorKind: "system",
-                kind: "transition",
-                beforeState: previous?.value.state ?? "pending",
-                afterState: "uncertain",
-                publicBindings: {},
-                verification: "pending",
-              },
-              {},
-            );
+            if (!keepsStep)
+              await appendSemanticTransition(
+                tx,
+                actor,
+                run.id,
+                {
+                  nodeId: command.nodeId,
+                  operationId: command.operationId,
+                  operationVersion: command.operationVersion,
+                  actorKind: "system",
+                  kind: "transition",
+                  beforeState: previous?.value.state ?? "pending",
+                  afterState: "uncertain",
+                  publicBindings: {},
+                  verification: "pending",
+                },
+                {},
+              );
             await tx.put(
               key(actor, "outbox", `reconciliation:${command.commandId}`),
               {
@@ -796,13 +924,27 @@ export class ProtectedCommandService {
       const ownState = await tx.get<NodeRecord>(
         key(actor, "node", `${run.id}:${node.id}`),
       );
+      // An `uncertain` step is run again only for an operation registered
+      // replay "read-only"; any other, and one with no declared replay,
+      // waits for its reconciliation entry.
+      const rerun = ownState?.value.state === "uncertain";
       if (
-        ownState?.value.state === "uncertain" ||
+        (rerun && !replayRerunsUncertain(operation)) ||
         ownState?.value.state === "complete" ||
         ownState?.value.verified ||
         ownState?.value.exhausted
       )
         throw new AuthorizationError("denied");
+      // One call per step: while the command admitted last for the step is
+      // still `running`, its call's outcome is unknown, so no other id may
+      // call the handler, whether or not that command's lease is still live.
+      if (ownState?.value.command) {
+        const holder = await tx.get<CommandRecord>(
+          key(actor, "command", ownState.value.command),
+        );
+        if (holder?.value.state === "running")
+          throw new AuthorizationError("denied");
+      }
       // A declared retry is spaced: an attempt before its time is a conflict
       // the caller resolves by reading the run again, not a new effect.
       if (
@@ -833,6 +975,28 @@ export class ProtectedCommandService {
         nodeId: node.id,
       };
       await tx.put(key(actor, "command", command.commandId), record, null);
+      // The step names the command in flight, in the same transaction that
+      // stores the command, so a second id reads it before its own claim.
+      // A read-only step run again keeps the commands recorded uncertain
+      // on it, whose reconciliation entries its completion resolves.
+      await tx.put(
+        key(actor, "node", `${run.id}:${node.id}`),
+        ownState
+          ? {
+              ...ownState.value,
+              command: command.commandId,
+              ...(rerun && ownState.value.command
+                ? {
+                    reconciling: [
+                      ...(ownState.value.reconciling ?? []),
+                      ownState.value.command,
+                    ],
+                  }
+                : {}),
+            }
+          : { verified: false, outputs: {}, command: command.commandId },
+        ownState?.revision ?? null,
+      );
       await tx.put(
         key(actor, "effect", effectId),
         { commandId: command.commandId, intent, status: "intent-persisted" },
@@ -962,9 +1126,18 @@ export class ProtectedCommandService {
             ? { diagnosticCode: "verification-rejected" as const }
             : {}),
           ...attempts,
+          command: command.commandId,
+          ...(prior?.value.reconciling && !verified
+            ? { reconciling: prior.value.reconciling }
+            : {}),
         },
         prior?.revision ?? null,
       );
+      // A verified result resolves the reconciliation entries of the
+      // commands recorded uncertain on the step before it.
+      if (verified)
+        for (const earlier of prior?.value.reconciling ?? [])
+          await resolveReconciliation(tx, actor, earlier);
       const record = await tx.get<CommandRecord>(
         key(actor, "command", command.commandId),
       );
@@ -979,6 +1152,10 @@ export class ProtectedCommandService {
         { commandId: command.commandId, status: result.state, verified },
         effect!.revision,
       );
+      // A handler that threw or returned `uncertain` may have had its
+      // effect: the command gets a reconciliation entry, as on a takeover.
+      if (result.state === "uncertain")
+        await queueReconciliation(tx, actor, run, command.commandId);
       let complete = true;
       for (const planned of run.nodes) {
         const done = await tx.get<NodeRecord>(
@@ -1076,6 +1253,60 @@ export class ProtectedCommandService {
       };
     });
   }
+}
+
+/**
+ * Stores the `reconciliation-required` entry for a command recorded
+ * `uncertain`, unless it already has one.
+ */
+async function queueReconciliation(
+  tx: AsyncTransaction,
+  actor: ActorContext,
+  run: RunRecord,
+  commandId: string,
+) {
+  const entry = key(actor, "outbox", `reconciliation:${commandId}`);
+  if (await tx.get(entry)) return;
+  await tx.put(
+    entry,
+    {
+      task: "reconciliation-required",
+      runId: run.id,
+      subjectId: run.subjectId,
+      status: "pending",
+    },
+    null,
+  );
+}
+
+/** Marks a command's `reconciliation-required` entry resolved. */
+async function resolveReconciliation(
+  tx: AsyncTransaction,
+  actor: ActorContext,
+  commandId: string,
+) {
+  const entry = key(actor, "outbox", `reconciliation:${commandId}`);
+  const stored = await tx.get<Record<string, unknown>>(entry);
+  if (stored?.value.task !== "reconciliation-required") return;
+  await tx.put(entry, { ...stored.value, status: "resolved" }, stored.revision);
+}
+
+/**
+ * The `reconciliation-required` entry of the command named on a step, as a
+ * run's snapshot shows it on that step: `{ reconciliation: { commandId,
+ * status } }`, or nothing when the command has no entry.
+ */
+async function reconciliationOf(
+  tx: AsyncTransaction,
+  actor: ActorContext,
+  commandId: string | undefined,
+): Promise<{ reconciliation?: { commandId: string; status: string } }> {
+  if (!commandId) return {};
+  const entry = await tx.get<{ task: string; status: string }>(
+    key(actor, "outbox", `reconciliation:${commandId}`),
+  );
+  if (entry?.value.task !== "reconciliation-required") return {};
+  return { reconciliation: { commandId, status: entry.value.status } };
 }
 
 /** Delivery handlers must use the stable ID to deduplicate/reconcile their own external effect. */

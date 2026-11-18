@@ -64,6 +64,41 @@ export type RegisteredOperation = {
    */
   replay?: "read-only" | "upstream-idempotency-key" | "reconciliation";
 };
+export type Replay = NonNullable<RegisteredOperation["replay"]>;
+
+/**
+ * The replay an operation is run under. An operation registered with none
+ * is treated as "reconciliation": an uncertain call waits for its
+ * reconciliation and a recipe may not retry it.
+ */
+export function effectiveReplay(
+  operation: Pick<RegisteredOperation, "replay">,
+): Replay {
+  return operation.replay ?? "reconciliation";
+}
+
+/**
+ * A recipe may declare a retry only for an operation whose repeated call
+ * cannot duplicate an effect: one that only reads, or one the provider
+ * deduplicates by an idempotency key.
+ */
+export function replayAllowsRetry(
+  operation: Pick<RegisteredOperation, "replay">,
+): boolean {
+  const replay = effectiveReplay(operation);
+  return replay === "read-only" || replay === "upstream-idempotency-key";
+}
+
+/**
+ * A step recorded `uncertain` may be run again by a new command id only for
+ * an operation that only reads. Every other replay, "upstream-idempotency-key"
+ * included, waits for the step's reconciliation entry.
+ */
+export function replayRerunsUncertain(
+  operation: Pick<RegisteredOperation, "replay">,
+): boolean {
+  return effectiveReplay(operation) === "read-only";
+}
 export type VocabularyEntry = {
   schema: z.ZodType;
   classification: FieldClassification;
@@ -210,6 +245,14 @@ export class OperationRegistry {
     return pack
       ? { ...pack, destinations: [...pack.destinations] }
       : { kind: "host" };
+  }
+  /** Every registration with the replay it is run under. */
+  replays(): { id: string; version: string; replay: Replay }[] {
+    return Array.from(this.operations.values(), (operation) => ({
+      id: operation.contract.id,
+      version: operation.contract.version,
+      replay: effectiveReplay(operation),
+    }));
   }
   /** The catalog with each operation's provenance, for listing to authors. */
   describe(): OperationDescription[] {

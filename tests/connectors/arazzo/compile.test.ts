@@ -117,7 +117,7 @@ test("a supported workflow compiles to a recipe the existing validator accepts",
   assert.deepEqual(verify!.retry, {
     limit: 2,
     afterMs: 1000,
-    replay: "read-only",
+    replay: "upstream-idempotency-key",
     criteria: [],
   });
   assert.deepEqual(
@@ -581,7 +581,10 @@ test("a retry needs replay evidence in the registry as well as the catalog", () 
       contract.id,
       contract.version,
     )!;
-    assert.equal(replay, "read-only");
+    assert.equal(
+      replay,
+      contract.id === "store.verify" ? "upstream-idempotency-key" : "read-only",
+    );
     bare.register(operation);
   }
   const compilation = compileArazzoToRecipe(

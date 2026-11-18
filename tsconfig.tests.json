@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["tests"],
+  "exclude": ["tests/consumers", "tests/connectors"],
+  "references": [
+    { "path": "./tsconfig.core.json" },
+    { "path": "./tsconfig.kernel.json" },
+    { "path": "./tsconfig.connectors.json" },
+    { "path": "./tsconfig.server.json" },
+    { "path": "./tsconfig.client.json" }
+  ]
+}
