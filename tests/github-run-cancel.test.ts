@@ -99,7 +99,7 @@ async function fixture(t: TestContext, configured: boolean) {
     environment: "local",
     signal: new AbortController().signal,
   };
-  const runKey = { tenant: "tenant", kind: "run", id: context.runId };
+  const runKey = { tenant: "tenant", kind: "run" as const, id: context.runId };
   await store.transaction((tx) => tx.put(runKey, { status: "active" }, null));
   return {
     store,
