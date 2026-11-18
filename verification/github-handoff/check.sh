@@ -47,6 +47,7 @@ check BrokenExpiryRetry ExpiryWrittenByTheStep "the removed check is caught" ok
 check BrokenRestart WrongAccountNeverStranded "the removed check is caught" ok
 check BrokenRelease RestartWithoutWaiting "the removed check is caught" ok
 check BrokenRunCheck NothingStoredAfterCancel "the removed check is caught" ok
+check BrokenReplay LaterStepsNeverStranded "the removed check is caught" ok
 
 if [ "$changed" -gt 0 ]; then
   echo "$changed result(s) changed. See .claude/skills/verify-github-handoff/SKILL.md."

@@ -47,9 +47,8 @@ It takes about 20 seconds and needs Java 11 or later. The first run downloads TL
 
 - `ok` on `GitHubHandoff`: every rule holds, `NoDeadEnd` included.
 - `ok` on `NoDeadEndOneAtATime`: without the triggers of the four findings (overlapping requests, GitHub silent during a step, the wrong GitHub account, a dying process) there is no dead end.
-- `FINDING` on a `DeadEnd...` configuration: that known dead end is still in the code. This is the recorded result.
-- `ok` on a `DeadEnd...` configuration whose finding is fixed: that dead end is gone, as recorded.
-- `ok` on a `Broken...` configuration: the model with one check removed fails, as it must. This shows that the rule can fail. `BrokenReplay.cfg` (the three steps without replay `read-only`, so an `uncertain` step never runs again) is not in `check.sh`; run it alone and expect `LaterStepsNeverStranded` violated.
+- `ok` on a `DeadEnd...` configuration: that dead end, one of the four findings, is fixed and stays fixed. All four are fixed; no line expects `FINDING` any more.
+- `ok` on a `Broken...` configuration: the model with one check removed fails, as it must. This shows that the rule can fail. `BrokenReplay.cfg` takes away replay `read-only` from the three steps, so an `uncertain` step never runs again; `LaterStepsNeverStranded` must be violated.
 - `CHANGED`: the result differs from the recorded one. TLC's output follows. Exit code 1.
 
 Run one configuration with `verification/tlc.sh github-handoff GitHubHandoff DeadEndExpiry`; the last word is the `.cfg` name.
@@ -84,13 +83,9 @@ When `GitHubHandoff` shows `CHANGED`, or a `DeadEnd...` line names a different r
 
 When a `Broken...` line shows `CHANGED` with `now: pass`, the rule no longer catches the removed check. Either the constant lost its effect in your edit of the model, or another check now covers the same case. Find out which before you go on.
 
-## When you fix a known dead end
+## When a change opens a dead end again
 
-1. Change the model to match the new code.
-2. Run the check. The fixed finding's `DeadEnd...` line shows `CHANGED ... now: pass`.
-3. Move its `...NeverStranded` rule into `GitHubHandoff.cfg`, remove its shape from `OnlyKnownDeadEnds` in the `.tla`, and change its line in `check.sh` to expect `pass`.
-4. When all four are fixed, put `NoDeadEnd` itself into `GitHubHandoff.cfg` and delete `OnlyKnownDeadEnds`.
-5. Update the Findings section of the README and draw `chart.mmd` again.
+All four findings are fixed, and `GitHubHandoff.cfg` checks `NoDeadEnd` together with every `...NeverStranded` rule and `ExpiryWrittenByTheStep`. A change that brings a dead end back shows `CHANGED` on `GitHubHandoff` and on the finding's `DeadEnd...` line. Do not move the rule out of `GitHubHandoff.cfg` to make the line pass: fix the code, or, if the dead end is intended, record it as a finding in the README and say why.
 
 ## When a change is intended to alter a rule
 

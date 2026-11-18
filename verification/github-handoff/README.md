@@ -39,7 +39,7 @@ DeadEndGitHubSilent` (the last word is the `.cfg` name; leave it out for
 
 | Configuration | What it checks | Recorded result |
 | --- | --- | --- |
-| `GitHubHandoff.cfg` | The code as written; two returns, GitHub may fail anywhere, processes may die, wrong account possible. Rules: `TypeOK`, `ConvertedAtMostOnce`, `CancelledStaysCancelled`, `InstallationCheckedBeforeToken`, `RefusedReturnLeavesRun`, `AppReadyNeverStranded`, `ExpiredHandoffNeverStranded`, `LaterStepsNeverStranded`, `NoDeadEnd`, `RestartWithoutWaiting`, `TimersNeverRescue`, `NothingStoredAfterCancel` | No error. 170,218 states, depth 48, 8 s |
+| `GitHubHandoff.cfg` | The code as written; two returns, GitHub may fail anywhere, processes may die, wrong account possible. Rules: `TypeOK`, `ConvertedAtMostOnce`, `CancelledStaysCancelled`, `InstallationCheckedBeforeToken`, `RefusedReturnLeavesRun`, `AppReadyNeverStranded`, `ExpiredHandoffNeverStranded`, `LaterStepsNeverStranded`, `WrongAccountNeverStranded`, `NoDeadEnd`, `RestartWithoutWaiting`, `TimersNeverRescue`, `NothingStoredAfterCancel`, `ExpiryWrittenByTheStep` | No error. 170,218 states, depth 48, 8 s |
 | `NoDeadEndOneAtATime.cfg` | The code as written with none of the findings' triggers: one request at a time, GitHub fails only while a return is handled, right account, no process dies. Rule: `NoDeadEnd` | No error. 338 states |
 | `DeadEndGitHubSilent.cfg` | The code as written; `AppReadyNeverStranded` | No error: `prepare-app` is replay `read-only`, so an `uncertain` app step runs again |
 | `DeadEndReplayedReturn.cfg` | The code as written; `AppReadyNeverStranded`, `RefusedReturnLeavesRun` | No error: the replayed return is refused and the route does not advance the run (`github-runtime.ts:1327`); the first return alone moves it on. Should the app step become `uncertain` another way, `prepare-app` is replay `read-only` and runs again |
@@ -52,7 +52,7 @@ DeadEndGitHubSilent` (the last word is the `.cfg` name; leave it out for
 | `BrokenFence.cfg` | `github.ts:689` removed; `CancelledStaysCancelled` | Violated, as it must be |
 | `BrokenSave.cfg` | `github.ts:316-317` removed, with the run check at `319`; `CancelledStaysCancelled` | Violated, as it must be |
 | `BrokenInstallCheck.cfg` | `github.ts:724` removed; `InstallationCheckedBeforeToken` | Violated, as it must be |
-| `BrokenReplay.cfg` | `github.ts:348` removed; `LaterStepsNeverStranded`. Not in `check.sh`; run it alone | Violated, as it must be |
+| `BrokenReplay.cfg` | `github.ts:348` removed; `LaterStepsNeverStranded` | Violated, as it must be |
 | `BrokenRefusal.cfg` | `github-runtime.ts:1327` removed; `RefusedReturnLeavesRun` | Violated, as it must be |
 | `BrokenExpiryRetry.cfg` | `github.ts:428-433` (at the fix commit) removed; `ExpiryWrittenByTheStep` | Violated, as it must be |
 | `BrokenRestart.cfg` | `github.ts:822-828` reduced to phase `uncertain` and no app; `WrongAccountNeverStranded` | Violated, as it must be |
