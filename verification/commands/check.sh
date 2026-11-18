@@ -21,6 +21,7 @@ FindingUnblocked:pass:finding 4, fixed
 FindingReopenedRepeat:pass:finding 4 carried to the repeated call, fixed
 FindingNoWayOut:pass:finding 5, replay reconciliation, every rule
 FindingNoWayOutReadOnly:pass:finding 5, replay read-only, every rule
+NoWayOutIdempotencyKey:pass:replay upstream-idempotency-key, every rule
 BrokenTakeoverReruns:OneCallPerCommand:broken variant, must be caught
 BrokenHandlerBeforeIntent:EveryCallHasIntent:broken variant, must be caught
 BrokenNoAssertFence:SupersededWorkerNeverCommits:broken variant, must be caught
@@ -30,6 +31,7 @@ BrokenCancelLeavesRunning:Deadlock:broken variant, must be caught
 BrokenRevalidateReopens:UncertainStaysBlocked:broken variant, must be caught
 BrokenCommitSkipsReconciliation:UncertainIsReconciled:broken variant, must be caught
 BrokenReadOnlyStaysBlocked:UncertainHasWayOut:broken variant, must be caught
+BrokenResolveWithoutVerified:UncertainIsReconciled:broken variant, must be caught
 Commands:pass:code as written, every rule at once
 Lifecycle:pass:the chart config
 '
