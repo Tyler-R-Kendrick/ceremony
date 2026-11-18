@@ -43,6 +43,21 @@ const manifest = {
       scopes: [],
       templateId: "oauth-code",
     },
+    {
+      id: "key",
+      label: "Paste a key",
+      kind: "form" as const,
+      fields: [
+        {
+          name: "account",
+          label: "Account",
+          type: "text" as const,
+          required: true,
+        },
+      ],
+      scopes: [],
+      templateId: "form",
+    },
   ],
 };
 const redirect: AdapterUpdate = {
@@ -61,6 +76,9 @@ interface Script {
   begin: () => Promise<AdapterUpdate>;
   callback: () => Promise<AdapterUpdate>;
   poll: () => Promise<AdapterUpdate | undefined>;
+  submit: () => Promise<AdapterUpdate>;
+  /** When set, the adapter has its own retry and the controller calls it. */
+  retry?: () => Promise<AdapterUpdate>;
   polls: number;
 }
 
@@ -86,6 +104,7 @@ function cluster(t: TestContext) {
       begin: async () => redirect,
       callback: async () => complete,
       poll: async () => undefined,
+      submit: async () => complete,
       polls: 0,
     };
     const controller = new CeremonyController(
@@ -95,7 +114,12 @@ function cluster(t: TestContext) {
           recoverable: true,
           createAdapter: () => ({
             begin: () => script.begin(),
-            submit: async () => complete,
+            submit: () => script.submit(),
+            // Read on each call, so a test can give the adapter a retry later.
+            get retry() {
+              const retry = script.retry;
+              return retry ? () => retry() : undefined;
+            },
             callback: () => script.callback(),
             poll: () => {
               script.polls++;
@@ -112,9 +136,19 @@ function cluster(t: TestContext) {
     return {
       controller,
       script,
-      start: () => controller.start("alice", "provider", "oauth"),
-      act: (id: string, action: string, revision: number) =>
-        controller.act("alice", id, { action, revision }),
+      start: (method = "oauth") =>
+        controller.start("alice", "provider", method),
+      act: (
+        id: string,
+        action: string,
+        revision: number,
+        values?: Record<string, string>,
+      ) =>
+        controller.act("alice", id, {
+          action,
+          revision,
+          ...(values ? { values } : {}),
+        }),
       read: (id: string) => controller.read("alice", id),
       callback: (id: string) => controller.callback("alice", id, callbackUrl),
     };
@@ -310,5 +344,51 @@ test("OneWorkerAppliesAnswers on a throw while waiting: a poll that throws after
     "cancelled",
     "the late throw is not stored as waiting",
   );
+  assert.equal(now?.revision, cancelled.revision);
+});
+
+// The submit flight and the adapter's own retry flight are adapter calls too:
+// their answers go through the same fence as begin, callback and poll.
+
+test("OneWorkerAppliesAnswers on the submit flight: a submit answer that lands after its lease ran out is not stored over cancelled", async (t) => {
+  const c = cluster(t);
+  const first = c.w1.start("key");
+  assert.equal(first.step, "input");
+  const pending = Promise.withResolvers<AdapterUpdate>();
+  c.w1.script.submit = () => pending.promise;
+  const submitting = c.w1.act(first.id, "submit", first.revision, {
+    account: "acme",
+  });
+  c.leaseRunsOut();
+  const cancelled = await c.w2.act(first.id, "cancel", first.revision);
+  assert.equal(cancelled.step, "cancelled");
+  pending.resolve(complete);
+  await submitting.catch(() => undefined);
+  const now = c.stored(first.id);
+  assert.equal(now?.step, "cancelled", "the late submit answer is not stored");
+  assert.equal(now?.revision, cancelled.revision);
+  assert.equal(now?.outcome, undefined);
+});
+
+test("OneWorkerAppliesAnswers on the retry flight: an adapter's own retry that answers after its lease ran out is not stored over cancelled", async (t) => {
+  const c = cluster(t);
+  for (const w of [c.w1, c.w2]) {
+    w.script.begin = async () => {
+      throw new Error("provider down");
+    };
+  }
+  const first = c.w1.start();
+  const failed = await c.w1.act(first.id, "begin", first.revision);
+  assert.equal(failed.step, "error");
+  const pending = Promise.withResolvers<AdapterUpdate>();
+  c.w1.script.retry = () => pending.promise;
+  const retrying = c.w1.act(first.id, "retry", failed.revision);
+  c.leaseRunsOut();
+  const cancelled = await c.w2.act(first.id, "cancel", failed.revision);
+  assert.equal(cancelled.step, "cancelled");
+  pending.resolve(redirect);
+  await retrying.catch(() => undefined);
+  const now = c.stored(first.id);
+  assert.equal(now?.step, "cancelled", "the late retry answer is not stored");
   assert.equal(now?.revision, cancelled.revision);
 });
