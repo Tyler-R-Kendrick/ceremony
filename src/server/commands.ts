@@ -450,8 +450,83 @@ export class ProtectedCommandService {
         { ...run.value, status: "cancelled" },
         run.revision,
       );
+      // A command whose handler call is in flight cannot commit once the run
+      // is cancelled, and its effect may already have happened: the command
+      // and its effect are recorded uncertain, with a reconciliation task.
+      for (const node of run.value.nodes)
+        await this.settleInFlight(tx, actor, run.value, node);
     });
     return this.snapshot(actor, runId);
+  }
+  /**
+   * Records the command in flight for a step as uncertain, with its effect, a
+   * reconciliation task and, unless the step is recorded verified, the step.
+   */
+  private async settleInFlight(
+    tx: AsyncTransaction,
+    actor: ActorContext,
+    run: RunRecord,
+    node: RunPlanNode,
+  ) {
+    const nodeKey = key(actor, "node", `${run.id}:${node.id}`);
+    const previous = await tx.get<NodeRecord>(nodeKey);
+    const commandId = previous?.value.command;
+    if (!previous || !commandId) return;
+    const commandKey = key(actor, "command", commandId);
+    const command = await tx.get<CommandRecord>(commandKey);
+    if (command?.value.state !== "running") return;
+    const effectKey = key(actor, "effect", command.value.effectId);
+    const effect = await tx.get<Record<string, unknown>>(effectKey);
+    if (!effect) throw new AuthorizationError("denied");
+    await tx.put(
+      commandKey,
+      { ...command.value, state: "uncertain" },
+      command.revision,
+    );
+    await tx.put(
+      effectKey,
+      { ...effect.value, status: "uncertain", verified: false },
+      effect.revision,
+    );
+    if (previous.value.verified !== true) {
+      await tx.put(
+        nodeKey,
+        {
+          state: "uncertain",
+          verified: false,
+          outputs: {},
+          command: commandId,
+        },
+        previous.revision,
+      );
+      await appendSemanticTransition(
+        tx,
+        actor,
+        run.id,
+        {
+          nodeId: node.id,
+          operationId: node.operationId,
+          operationVersion: node.operationVersion,
+          actorKind: "system",
+          kind: "transition",
+          beforeState: previous.value.state ?? "pending",
+          afterState: "uncertain",
+          publicBindings: {},
+          verification: "pending",
+        },
+        {},
+      );
+    }
+    await tx.put(
+      key(actor, "outbox", `reconciliation:${commandId}`),
+      {
+        task: "reconciliation-required",
+        runId: run.id,
+        subjectId: run.subjectId,
+        status: "pending",
+      },
+      null,
+    );
   }
   /** Fresh provider evidence is required for reuse; never rerun an effect to test validity. */
   async revalidate(actor: ActorContext, runId: string) {
@@ -540,14 +615,24 @@ export class ProtectedCommandService {
         if (!invalid.has(node.id)) continue;
         const nodeKey = key(actor, "node", `${runId}:${node.id}`);
         const prior = await tx.get<NodeRecord>(nodeKey);
-        // A step whose first command is still in flight has nothing to reject.
-        if (prior?.value.state !== undefined)
+        // A step whose first command is still in flight has nothing to
+        // reject. An `uncertain` step stays uncertain until it is reconciled:
+        // its effect may have happened, so it is never reopened here.
+        if (
+          prior?.value.state !== undefined &&
+          prior.value.state !== "uncertain"
+        )
           await tx.put(
             nodeKey,
             {
               state: "failed",
               verified: false,
               outputs: {},
+              // An exhausted step keeps its attempts and stays exhausted.
+              ...(prior.value.attempts !== undefined
+                ? { attempts: prior.value.attempts }
+                : {}),
+              ...(prior.value.exhausted ? { exhausted: true } : {}),
               ...(prior.value.command ? { command: prior.value.command } : {}),
             },
             prior.revision,

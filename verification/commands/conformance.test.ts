@@ -322,7 +322,15 @@ test("Commit: refused after the run is cancelled", async (t) => {
   await f.commands.cancel(actor, f.run.id, 1);
   stuck.release();
   await assert.rejects(first);
-  assert.equal((await f.step("prepare")).state, "pending");
+  // The worker's result is not recorded. What the step and the command read
+  // after a cancel is the subject of the finding 3 tests in Part 2.
+  const prepare = await f.step("prepare");
+  assert.notEqual(prepare.state, "complete");
+  assert.equal(prepare.verified, false);
+  assert.deepEqual(
+    (await f.records("command")).filter((c) => c.state === "complete"),
+    [],
+  );
 });
 
 test("Takeover: the same id after the lease runs out is marked uncertain with a reconciliation task, and the handler is not called again", async (t) => {
@@ -499,7 +507,40 @@ test("finding 2, fixed: the first id's takeover does not overwrite a step anothe
   await first.catch(() => undefined);
 });
 
-test("finding 3: a command in flight when its run is cancelled stays `running` for ever, with no reconciliation task", async (t) => {
+/** What finding 3 requires once a command in flight met a cancel. */
+async function settledUncertain(f: Awaited<ReturnType<typeof fixture>>) {
+  // Every replay of the id returns `uncertain`, never `running`.
+  for (let replay = 0; replay < 2; replay++) {
+    const again = await f.advance("prepare", 1, "first");
+    assert.deepEqual(
+      [again.state, again.verified],
+      ["uncertain", false],
+      "finding 3: the command stays `running` after its run is cancelled",
+    );
+  }
+  assert.deepEqual(states(await f.records("command")), [
+    ["first", "uncertain"],
+  ]);
+  assert.deepEqual(
+    (await f.records("effect")).map((e) => [e.commandId, e.status]),
+    [["first", "uncertain"]],
+  );
+  assert.deepEqual(
+    (await f.records("outbox")).map((o) => [o.id, o.task, o.status]),
+    [["reconciliation:first", "reconciliation-required", "pending"]],
+  );
+  const prepare = await f.step("prepare");
+  assert.deepEqual([prepare.state, prepare.verified], ["uncertain", false]);
+  assert.equal((await f.snapshot()).status, "cancelled");
+  // Nothing is run again: the handler was called once, and a new id is
+  // refused.
+  await assert.rejects(
+    f.advance("prepare", (await f.snapshot()).revision, "second"),
+  );
+  assert.equal(f.calls(), 1);
+}
+
+test("finding 3, fixed: a command whose worker returns after its run is cancelled ends on record as uncertain, with a reconciliation task", async (t) => {
   const stuck = hanging();
   const f = await fixture(t, () => stuck.wait);
 
@@ -511,14 +552,25 @@ test("finding 3: a command in flight when its run is cancelled stays `running` f
   stuck.release();
   await assert.rejects(first);
 
-  // The same id sent again, with the lease long gone, changes nothing.
-  f.leaseRunsOut();
-  assert.equal((await f.advance("prepare", 1, "first")).state, "running");
-  assert.deepEqual(
-    (await f.records("effect")).map((e) => e.status),
-    ["intent-persisted"],
-  );
-  assert.deepEqual(await f.records("outbox"), []);
+  await settledUncertain(f);
+});
+
+test("finding 3, fixed: a command whose worker never returns after its run is cancelled ends on record as uncertain, with a reconciliation task", async (t) => {
+  const stuck = hanging();
+  const f = await fixture(t, () => stuck.wait);
+
+  // Admit, CallHandler, CancelRun; the worker is still in the provider call.
+  const first = f.advance("prepare", 1, "first");
+  first.catch(() => undefined);
+  await until(() => f.calls() === 1);
+  await f.commands.cancel(actor, f.run.id, 1);
+
+  await settledUncertain(f);
+
+  // The worker comes back late: its result is refused and changes nothing.
+  stuck.release();
+  await assert.rejects(first);
+  await settledUncertain(f);
 });
 
 test("finding 3, second path closed with finding 1: a second command id cannot complete the run while the first is running, so the first id's takeover still records uncertain", async (t) => {
@@ -555,7 +607,7 @@ test("finding 3, second path closed with finding 1: a second command id cannot c
   await first.catch(() => undefined);
 });
 
-test("finding 4: revalidation that rejects an earlier step reopens an uncertain step, and a new id repeats its handler", async (t) => {
+test("finding 4, fixed: a revalidation that rejects an earlier step leaves a dependent uncertain step uncertain, and a new id is refused", async (t) => {
   // The first call for step `verify` throws: the service records `uncertain`.
   const f = await fixture(t, async (call) => {
     if (call === 2) throw new Error("connection reset");
@@ -574,34 +626,44 @@ test("finding 4: revalidation that rejects an earlier step reopens an uncertain 
   f.evidence.valid = false;
   const revalidated = await f.commands.revalidate(actor, f.run.id);
   f.evidence.valid = true;
-  assert.equal(
-    (await f.step("verify")).state,
-    "failed",
-    "finding 4: the uncertain step is open to a new id",
+  assert.deepEqual(
+    revalidated.nodes.map((node) => [node.id, node.state, node.verified]),
+    [
+      ["prepare", "failed", false],
+      ["verify", "uncertain", false],
+    ],
+    "finding 4: revalidation rewrites the uncertain step as failed",
   );
 
-  // The earlier step is done again, then Admit, CallHandler (second).
+  // The earlier step is done again; a new id for `verify` is still refused.
   const prepared = await f.advance(
     "prepare",
     revalidated.revision,
     "prepare-again",
   );
+  assert.equal(prepared.state, "complete");
   const before = f.calls();
-  const second = await f.advance("verify", prepared.revision, "second");
-  assert.equal(second.state, "complete");
-  assert.equal(f.calls(), before + 1, "the handler ran again for the step");
+  await assert.rejects(
+    f.advance("verify", prepared.revision, "second"),
+    /denied/,
+    "finding 4: a new id is admitted for the reopened step",
+  );
+  assert.equal(f.calls(), before, "the handler ran again for the step");
+  assert.equal((await f.step("verify")).state, "uncertain");
+  assert.equal(
+    (await f.advance("verify", 2, "first")).state,
+    "uncertain",
+    "the first id still reports uncertain",
+  );
   assert.deepEqual(
     states(await f.records("command")).filter(
       ([id]) => id === "first" || id === "second",
     ),
-    [
-      ["first", "uncertain"],
-      ["second", "complete"],
-    ],
+    [["first", "uncertain"]],
   );
 });
 
-test("finding 4: the same after a takeover, with its reconciliation task still pending", async (t) => {
+test("finding 4, fixed: the same after a takeover; the step stays uncertain and its reconciliation task stays pending", async (t) => {
   const stuck = hanging();
   let held = false;
   const f = await fixture(t, (call) => {
@@ -623,15 +685,25 @@ test("finding 4: the same after a takeover, with its reconciliation task still p
   f.evidence.valid = false;
   const revalidated = await f.commands.revalidate(actor, f.run.id);
   f.evidence.valid = true;
+  assert.equal(
+    (await f.step("verify")).state,
+    "uncertain",
+    "finding 4: revalidation rewrites the uncertain step as failed",
+  );
   const prepared = await f.advance(
     "prepare",
     revalidated.revision,
     "prepare-again",
   );
+  assert.equal(prepared.state, "complete");
   const before = f.calls();
-  const second = await f.advance("verify", prepared.revision, "second");
-  assert.equal(second.state, "complete");
-  assert.equal(f.calls(), before + 1);
+  await assert.rejects(
+    f.advance("verify", prepared.revision, "second"),
+    /denied/,
+    "finding 4: a new id is admitted while the reconciliation task is pending",
+  );
+  assert.equal(f.calls(), before);
+  assert.equal((await f.step("verify")).state, "uncertain");
   assert.deepEqual(
     (await f.records("outbox")).map((o) => [o.id, o.task, o.status]),
     [["reconciliation:first", "reconciliation-required", "pending"]],
@@ -639,6 +711,48 @@ test("finding 4: the same after a takeover, with its reconciliation task still p
 
   stuck.release();
   await first.catch(() => undefined);
+});
+
+test("finding 4, fixed: a revalidation that rejects an earlier step leaves a dependent exhausted step exhausted, and a new id is refused", async (t) => {
+  const f = await fixture(t);
+  const prepared = await f.advance("prepare", 1, "prepare");
+  assert.equal(prepared.state, "complete");
+  // `verify` has no attempt left.
+  await f.putStep("verify", {
+    state: "failed",
+    verified: false,
+    attempts: 1,
+    exhausted: true,
+  });
+  await assert.rejects(
+    f.advance("verify", prepared.revision, "blocked"),
+    /denied/,
+  );
+
+  f.evidence.valid = false;
+  const revalidated = await f.commands.revalidate(actor, f.run.id);
+  f.evidence.valid = true;
+  assert.deepEqual(
+    revalidated.nodes.map((node) => [node.id, node.state]),
+    [
+      ["prepare", "failed"],
+      ["verify", "failed"],
+    ],
+  );
+
+  const again = await f.advance(
+    "prepare",
+    revalidated.revision,
+    "prepare-again",
+  );
+  assert.equal(again.state, "complete");
+  const before = f.calls();
+  await assert.rejects(
+    f.advance("verify", again.revision, "second"),
+    /denied/,
+    "finding 4: revalidation drops `exhausted`, and a new id is admitted",
+  );
+  assert.equal(f.calls(), before);
 });
 
 // A revalidation that rewrites a step failed must keep the command that holds
