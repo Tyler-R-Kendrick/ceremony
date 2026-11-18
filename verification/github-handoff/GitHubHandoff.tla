@@ -821,6 +821,18 @@ AppReadyNeverStranded ==
 \*      moves the phase "registration" on (github.ts:409-428)
 ExpiredHandoffNeverStranded ==
   ~(DeadEnd /\ step.app = "uncertain" /\ local = "shared" /\ setup = "registration")
+\* The step that finds the hand-off's hour over moves the hand-off on
+\* (github.ts:409-428), even when the record moved since prepare() read it:
+\* step "app" never settles "uncertain" while the hand-off is still an
+\* expired "registration".  A rerun of the step may move it on later; this
+\* rule asks that the step which found the expiry does not leave it to one.
+\* An action property: it speaks about the step in which "app" settles.
+ExpiryWrittenByTheStep ==
+  [][ ( /\ eng.node = "app" /\ eng.sPhase = "registration" /\ eng.sApp = "none"
+        /\ eng'.node = "none"
+        /\ local = "shared" /\ setup = "registration" /\ expired
+        /\ step'.app = "uncertain" )
+      => ~(setup' = "registration" /\ expired') ]_vars
 \*   3. step "inst" or "access" is "uncertain"; the recovery page serves only
 \*      step "app" (github-runtime.ts:1074-1087)
 LaterStepsNeverStranded ==

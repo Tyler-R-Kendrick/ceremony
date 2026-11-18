@@ -1035,3 +1035,98 @@ test("the same return twice at once: the losing return does not advance the run"
   );
   assert.equal(f.counters.conversion, 1);
 });
+
+// The hour of a registration hand-off ends while its page is being served:
+// human() has passed its own expiry check and waits for GitHub, prepare()
+// reads the expired record, then human() marks the page issued before
+// prepare() writes. prepare() must still move the hand-off on from what is
+// stored now (the page was issued, so phase "uncertain", nonce consumed),
+// not leave it an expired "registration" that only a later run may fix.
+test("a hand-off that expires while its page is served is moved on by the step that finds it", async (t) => {
+  const f = await fixture(t);
+  await f.github.prepare(f.context);
+  const setupKey = await f.store.transaction(async (tx) => {
+    const local = await tx.get<{ sharedSetup: string }>({
+      tenant: "tenant",
+      kind: "handoff",
+      id: `github:${f.context.runId}`,
+    });
+    return {
+      tenant: "tenant",
+      kind: "handoff" as const,
+      id: local!.value.sharedSetup,
+    };
+  });
+
+  // Hold human()'s call to GitHub, after its expiry check.
+  let accountAsked!: () => void;
+  let answerAccount!: () => void;
+  const asked = new Promise<void>((resolve) => (accountAsked = resolve));
+  const answer = new Promise<void>((resolve) => (answerAccount = resolve));
+  const fetchGitHub = f.options.fetch;
+  f.options.fetch = (async (input, init) => {
+    if (new URL(String(input)).pathname === "/users/alice") {
+      accountAsked();
+      await answer;
+    }
+    return fetchGitHub(input, init);
+  }) as typeof fetch;
+  const page = f.github.human(f.context);
+  await asked;
+
+  // The hour ends.
+  await f.store.transaction(async (tx) => {
+    const state = await tx.get<Record<string, unknown>>(setupKey);
+    await tx.put(setupKey, { ...state!.value, expires: 0 }, state!.revision);
+  });
+
+  // prepare() reads the expired record; before its next transaction the
+  // page's own transaction (handoffIssued) commits.
+  let readExpired = false;
+  let pageServed: Promise<unknown> | undefined;
+  const transaction = f.store.transaction.bind(f.store);
+  f.store.transaction = (async (work) => {
+    if (readExpired && !pageServed) {
+      answerAccount();
+      pageServed = page;
+      await page;
+    }
+    return transaction((tx) =>
+      work(
+        Object.assign(Object.create(tx) as typeof tx, {
+          get: async <T>(key: typeof setupKey) => {
+            const record = await tx.get<T>(key);
+            const value = record?.value as
+              { expires?: number; handoffIssued?: boolean } | undefined;
+            if (
+              key.id === setupKey.id &&
+              value?.expires === 0 &&
+              !value.handoffIssued
+            )
+              readExpired = true;
+            return record;
+          },
+        }),
+      ),
+    );
+  }) as typeof f.store.transaction;
+
+  let result;
+  try {
+    result = await f.github.prepare(f.context);
+  } finally {
+    f.store.transaction = transaction;
+    answerAccount();
+  }
+  assert.ok(pageServed, "the page was not served between read and write");
+  await page;
+  assert.equal(result.state, "uncertain");
+  const setup = await f.store.transaction((tx) =>
+    tx.get<Record<string, unknown>>(setupKey),
+  );
+  assert.equal(setup!.value.handoffIssued, true);
+  assert.equal(setup!.value.phase, "uncertain");
+  assert.equal(setup!.value.nonce, "consumed");
+  assert.equal(await f.github.registrationRestartAvailable(f.context), true);
+  assert.equal(f.counters.conversion, 0);
+});
