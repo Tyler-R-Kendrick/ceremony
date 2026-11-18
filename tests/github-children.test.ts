@@ -13,6 +13,7 @@ import {
   type OperationContext,
 } from "../src/server/recipes/registry.js";
 import { ProtectedCommandService } from "../src/server/commands.js";
+import { createGitHubRuntime } from "../src/server/github-runtime.js";
 import {
   SQLiteCeremonyStore,
   PostgresCeremonyStore,
@@ -875,4 +876,82 @@ test("the three GitHub steps run again after an uncertain call", async (t) => {
       true,
       id,
     );
+});
+
+// The same GitHub return delivered twice while the first is converting: the
+// second is refused because the one-time code is already consumed. A refused
+// return proves nothing about the hand-off, so it must leave the run as it
+// was; the first return alone stores the app and moves the run on.
+test("the same return twice: the refused duplicate does not advance the run", async (t) => {
+  const f = await fixture(t);
+  const actor = f.context.actor;
+  const runtime = createGitHubRuntime({
+    store: f.store,
+    identity: { authenticate: async () => actor },
+    origin: f.options.origin,
+    environment: f.options.environment,
+    configurationVersion: f.options.configurationVersion,
+    expectedAccount: "alice",
+    allowTarget: async (_, target) => target === "alice",
+    authorize: async () => true,
+    github: { fetch: f.options.fetch },
+  });
+  await runtime.selectTarget!(actor, "alice");
+  const run = await runtime.connect(actor, "github");
+  const app = run.nodes.find(
+    (node) => node.operationId === "github.prepare-app",
+  )!;
+  assert.equal(
+    (
+      await runtime.commands.advance(
+        actor,
+        run.id,
+        app.id,
+        run.revision,
+        "prepare-twice",
+      )
+    ).state,
+    "awaiting-human",
+  );
+  const route = (path: string) =>
+    new Request(
+      `${f.options.origin}/api/v1/teaching/github/${encodeURIComponent(run.id)}/${path}`,
+    );
+  const page = await (
+    await runtime.human!(actor, run.id, route("human"))
+  ).text();
+  const action = /action="([^"]+)"/.exec(page)?.[1]?.replaceAll("&amp;", "&");
+  assert.ok(action);
+  const state = new URL(action).searchParams.get("state");
+  assert.ok(state);
+  const callback = `callback?state=${encodeURIComponent(state)}&code=twice`;
+
+  const paused = f.pauseConversion();
+  const first = runtime.human!(actor, run.id, route(callback));
+  try {
+    await paused.waiting;
+    const before = await runtime.commands.snapshot(actor, run.id);
+    const duplicate = await runtime.human!(actor, run.id, route(callback));
+    assert.equal(duplicate.status, 409);
+    const after = await runtime.commands.snapshot(actor, run.id);
+    assert.equal(
+      after.nodes.find((node) => node.id === app.id)!.state,
+      before.nodes.find((node) => node.id === app.id)!.state,
+      "the refused return changed the app step",
+    );
+    assert.equal(
+      after.revision,
+      before.revision,
+      "the refused return advanced the run",
+    );
+  } finally {
+    paused.release();
+  }
+  assert.equal((await first).status, 303);
+  const settled = await runtime.commands.snapshot(actor, run.id);
+  assert.equal(
+    settled.nodes.find((node) => node.id === app.id)!.state,
+    "complete",
+  );
+  assert.equal(f.counters.conversion, 1);
 });
