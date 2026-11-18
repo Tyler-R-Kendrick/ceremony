@@ -29,13 +29,15 @@ check() {
   fi
 }
 
-check GitHubHandoff pass "the rules that hold today hold" ok
+check GitHubHandoff pass "every rule holds, NoDeadEnd included" ok
 check NoDeadEndOneAtATime pass "NoDeadEnd holds without the findings' triggers" ok
 check DeadEndGitHubSilent pass "an unanswered GitHub call in the app step leaves it re-runnable" ok
 check DeadEndReplayedReturn pass "a replayed return is refused without advancing the run" ok
 check DeadEndExpiry pass "finding 2 is fixed: the step that finds the hand-off expired moves it on" ok
 check DeadEndLaterStep pass "finding 3 is fixed: the install and token steps run again" ok
-check DeadEndWrongAccount WrongAccountNeverStranded "finding 4 is still in the code" FINDING
+check DeadEndWrongAccount pass "finding 4 is fixed: an app of another account can be replaced" ok
+check RestartAtOnce pass "a failed return leaves no claim for the restart to wait out" ok
+check CancelStoresNothing pass "nothing is stored once the run's cancel has committed" ok
 check BrokenAdmit ConvertedAtMostOnce "the removed check is caught" ok
 check BrokenFence CancelledStaysCancelled "the removed check is caught" ok
 check BrokenSave CancelledStaysCancelled "the removed check is caught" ok
@@ -47,4 +49,8 @@ if [ "$changed" -gt 0 ]; then
   echo "$changed result(s) changed. See .claude/skills/verify-github-handoff/SKILL.md."
   exit 1
 fi
-echo "All results are as recorded. NoDeadEnd still does not hold: $findings finding configurations fail as recorded (README.md, Findings)."
+if [ "$findings" -gt 0 ]; then
+  echo "All results are as recorded. NoDeadEnd still does not hold: $findings finding configurations fail as recorded (README.md, Findings)."
+else
+  echo "All results are as recorded. NoDeadEnd holds."
+fi

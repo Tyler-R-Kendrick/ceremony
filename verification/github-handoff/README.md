@@ -38,13 +38,15 @@ DeadEndGitHubSilent` (the last word is the `.cfg` name; leave it out for
 
 | Configuration | What it checks | Recorded result |
 | --- | --- | --- |
-| `GitHubHandoff.cfg` | The code as written; two returns, GitHub may fail anywhere, processes may die, wrong account possible. Rules: `TypeOK`, `ConvertedAtMostOnce`, `CancelledStaysCancelled`, `InstallationCheckedBeforeToken`, `RefusedReturnLeavesRun`, `OnlyKnownDeadEnds`, `TimersNeverRescue` | No error. 111,398 states, depth 39, 8 s |
+| `GitHubHandoff.cfg` | The code as written; two returns, GitHub may fail anywhere, processes may die, wrong account possible. Rules: `TypeOK`, `ConvertedAtMostOnce`, `CancelledStaysCancelled`, `InstallationCheckedBeforeToken`, `RefusedReturnLeavesRun`, `AppReadyNeverStranded`, `ExpiredHandoffNeverStranded`, `LaterStepsNeverStranded`, `NoDeadEnd`, `RestartWithoutWaiting`, `TimersNeverRescue`, `NothingStoredAfterCancel` | No error. 111,398 states, depth 39, 8 s |
 | `NoDeadEndOneAtATime.cfg` | The code as written with none of the findings' triggers: one request at a time, GitHub fails only while a return is handled, right account, no process dies. Rule: `NoDeadEnd` | No error. 338 states |
 | `DeadEndGitHubSilent.cfg` | The code as written; `AppReadyNeverStranded` | No error: `prepare-app` is replay `read-only`, so an `uncertain` app step runs again |
 | `DeadEndReplayedReturn.cfg` | The code as written; `AppReadyNeverStranded`, `RefusedReturnLeavesRun` | No error: the replayed return is refused and the route does not advance the run (`github-runtime.ts:1327`); the first return alone moves it on. Should the app step become `uncertain` another way, `prepare-app` is replay `read-only` and runs again |
 | `DeadEndExpiry.cfg` | The code as written; `ExpiredHandoffNeverStranded`, `ExpiryWrittenByTheStep` | No error: the step that finds the hand-off expired writes phase `uncertain` (or a new hour) even when the page was served after it read the record, and "Start a new registration" is offered |
 | `DeadEndLaterStep.cfg` | The code as written; `LaterStepsNeverStranded` | No error: `authorize-installation` and `verify-access` are replay `read-only`, so an `uncertain` step runs again |
-| `DeadEndWrongAccount.cfg` | The code as written; `WrongAccountNeverStranded` | Violated: finding 4 |
+| `DeadEndWrongAccount.cfg` | The code as written; `WrongAccountNeverStranded` | Expected: no error. An app stored under another account fails the owner check, and "Start a new registration" replaces it, recording the orphaned app |
+| `RestartAtOnce.cfg` | The code as written, widest surroundings; `RestartWithoutWaiting` | Expected: no error |
+| `CancelStoresNothing.cfg` | The code as written, widest surroundings; `NothingStoredAfterCancel` | Expected: no error |
 | `BrokenAdmit.cfg` | `github.ts:663` without the revision; `ConvertedAtMostOnce` | Violated, as it must be |
 | `BrokenFence.cfg` | `github.ts:689` removed; `CancelledStaysCancelled` | Violated, as it must be |
 | `BrokenSave.cfg` | `github.ts:289-290` removed; `CancelledStaysCancelled` | Violated, as it must be |
@@ -65,6 +67,8 @@ DeadEndGitHubSilent` (the last word is the `.cfg` name; leave it out for
 | `ExpiryWrittenByTheStep` | When `prepare()` finds the registration hand-off's hour over (`github.ts:409-428`), the step that found it moves the hand-off on, even when the record moved since `prepare()` read it: step `prepare-app` never settles `uncertain` with the hand-off still an expired `registration`. An action property. |
 | `NoDeadEnd` | While the run is active and not connected, some request, return or step other than Cancel can still change something. It is the conjunction of the four `...NeverStranded` rules and `OnlyKnownDeadEnds`. |
 | `OnlyKnownDeadEnds` | There is no dead end other than the four kinds under Findings. This is what the normal configuration checks in place of `NoDeadEnd`; it fails as soon as a new kind appears. |
+| `RestartWithoutWaiting` | Once a return that wrote `uncertain` has ended, it leaves no claim on the setup key: "Start a new registration" goes through at once, not after the 60-second claim lapses. |
+| `NothingStoredAfterCancel` | Once the run's cancel (`commands.ts`, the first of the two cancel transactions) has committed, no app is written into the setup record and no app, installation or connection artifact is written. An action property. |
 | `TimersNeverRescue` | Once in a dead end, no timer running out makes anything possible again. It justifies that `NoDeadEnd` counts only one timer as a way forward: the 60-second claim that must lapse before "Start a new registration" goes through (`github.ts:777-781`). |
 
 `NoDeadEnd` asks that some step is possible, not that "connected" can still

@@ -818,6 +818,22 @@ InstallationCheckedBeforeToken ==
 \* so it does not make the engine run a step: the run stays as it was.
 RefusedReturnLeavesRun == ~refusedMoved
 
+\* "Start a new registration" is offered as soon as a return has failed:
+\* once the return that wrote "uncertain" has ended, no claim of it is left
+\* on the setup key for the restart to wait out.  No timer is needed to
+\* reach a restart.
+RestartWithoutWaiting ==
+  ~( /\ claim # {} /\ \A c \in claim : ret[c].pc = "idle"
+     /\ local = "shared" /\ setup = "uncertain" )
+
+\* Once the run's cancel has committed (YouCancel, the first of the two
+\* cancel transactions), nothing more is stored: no app in the setup record,
+\* no app, installation or connection artifact.  CancelledStaysCancelled
+\* speaks only about the time after the second transaction; this rule
+\* closes the window between the two.  An action property.
+NothingStoredAfterCancel ==
+  [][run = "cancelled" => UNCHANGED << app, appArt, instArt, token >>]_vars
+
 \* While the run is active and not yet connected, something other than
 \* Cancel can still change it.
 NoDeadEnd == ~DeadEnd
