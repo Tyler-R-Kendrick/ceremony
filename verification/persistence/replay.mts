@@ -82,7 +82,9 @@ try {
       store.transaction((tx) => tx.claim(key("a"), "same-workload", longest)),
     );
     await store.transaction((tx) => tx.cancel(key("a")));
-    await store.transaction((tx) => tx.claim(key("a"), "same-workload", longest));
+    await store.transaction((tx) =>
+      tx.claim(key("a"), "same-workload", longest),
+    );
     const stale = await outcome(
       store.transaction((tx) => tx.heartbeat(old, longest)),
     );
@@ -101,30 +103,48 @@ try {
     await store.close();
   }
 
-  // FindingRevisionReused.cfg (F1), told across transactions.
+  // FindingRevisionReused.cfg (F1), told across transactions. A record
+  // deleted and created again must not take the revision read before the
+  // delete, so a put or a delete with that revision is refused. Each is tried
+  // on its own key, so neither outcome depends on the other.
   {
     const store = sqlite(written);
-    await store.transaction((tx) =>
-      tx.put(key("f1"), { version: "first" }, null),
-    );
-    const fence = await store.transaction((tx) =>
-      tx.claim(key("f1"), "worker", longest),
-    );
-    const read = (await store.transaction((tx) => tx.get(key("f1"))))!;
-    await store.transaction((tx) => tx.delete(key("f1"), read.revision));
-    await store.transaction((tx) =>
-      tx.put(key("f1"), { version: "second" }, null),
-    );
+    const recreated = async (id: string) => {
+      await store.transaction((tx) =>
+        tx.put(key(id), { version: "first" }, null),
+      );
+      const fence = await store.transaction((tx) =>
+        tx.claim(key(id), "worker", longest),
+      );
+      const read = (await store.transaction((tx) => tx.get(key(id))))!;
+      await store.transaction((tx) => tx.delete(key(id), read.revision));
+      await store.transaction((tx) =>
+        tx.put(key(id), { version: "second" }, null),
+      );
+      return { fence, read };
+    };
+    const forPut = await recreated("f1");
     const stale = await outcome(
       store.transaction(async (tx) => {
-        await tx.assertFence(fence);
-        await tx.put(key("f1"), { version: "based on first" }, read.revision);
+        await tx.assertFence(forPut.fence);
+        await tx.put(
+          key("f1"),
+          { version: "based on first" },
+          forPut.read.revision,
+        );
+      }),
+    );
+    const forDelete = await recreated("f1-delete");
+    const staleDelete = await outcome(
+      store.transaction(async (tx) => {
+        await tx.assertFence(forDelete.fence);
+        await tx.delete(key("f1-delete"), forDelete.read.revision);
       }),
     );
     say(
       "FindingRevisionReused, SQLite, code as written",
-      stale === "accepted",
-      `put with the revision read before the delete ${stale}`,
+      stale === "refused" && staleDelete === "refused",
+      `put with the revision read before the delete ${stale}; delete with it ${staleDelete}`,
     );
     await store.close();
   }
@@ -142,7 +162,9 @@ try {
       tx.claim(key("a"), "same-workload", longest),
     );
     await store.transaction((tx) => tx.cancel(key("a")));
-    await store.transaction((tx) => tx.claim(key("a"), "same-workload", longest));
+    await store.transaction((tx) =>
+      tx.claim(key("a"), "same-workload", longest),
+    );
     const stale = await outcome(
       store.transaction((tx) => tx.heartbeat(old, longest)),
     );
@@ -167,7 +189,9 @@ try {
       tx.claim(key("a"), "same-workload", 5),
     );
     await delay(20);
-    await store.transaction((tx) => tx.claim(key("a"), "same-workload", longest));
+    await store.transaction((tx) =>
+      tx.claim(key("a"), "same-workload", longest),
+    );
     const stale = await outcome(
       store.transaction((tx) => tx.heartbeat(old, longest)),
     );
@@ -286,29 +310,42 @@ try {
     }
 
     // FindingRevisionReused.cfg (F1), step for step as TLC reports it: the
-    // delete and the create land while the holder's fenced transaction is open.
+    // delete and the create land while the holder's fenced transaction is
+    // open, and the holder then writes, or deletes, with the revision it had.
+    // Each is tried on its own key, so neither outcome depends on the other.
     {
-      const fence = await a.transaction((tx) =>
-        tx.claim(key("f1"), "holder", longest),
-      );
-      const first = await a.transaction(async (tx) => {
-        await tx.assertFence(fence);
-        return tx.put(key("f1"), { version: "first" }, null);
-      });
-      const stale = await outcome(
-        a.transaction(async (tx) => {
+      const stalePath = async (
+        id: string,
+        last: (tx: written.AsyncTransaction, first: number) => Promise<unknown>,
+      ) => {
+        const fence = await a.transaction((tx) =>
+          tx.claim(key(id), "holder", longest),
+        );
+        const first = await a.transaction(async (tx) => {
           await tx.assertFence(fence);
-          await b.transaction((other) => other.delete(key("f1"), first));
-          await b.transaction((other) =>
-            other.put(key("f1"), { version: "second" }, null),
-          );
-          await tx.put(key("f1"), { version: "based on first" }, first);
-        }),
+          return tx.put(key(id), { version: "first" }, null);
+        });
+        return outcome(
+          a.transaction(async (tx) => {
+            await tx.assertFence(fence);
+            await b.transaction((other) => other.delete(key(id), first));
+            await b.transaction((other) =>
+              other.put(key(id), { version: "second" }, null),
+            );
+            await last(tx, first);
+          }),
+        );
+      };
+      const stale = await stalePath("f1", (tx, first) =>
+        tx.put(key("f1"), { version: "based on first" }, first),
+      );
+      const staleDelete = await stalePath("f1-delete", (tx, first) =>
+        tx.delete(key("f1-delete"), first),
       );
       say(
         "FindingRevisionReused, PostgreSQL, code as written",
-        stale === "accepted",
-        `put with the revision read before the delete ${stale}`,
+        stale === "refused" && staleDelete === "refused",
+        `put with the revision read before the delete ${stale}; delete with it ${staleDelete}`,
       );
     }
 
@@ -352,4 +389,6 @@ try {
 } finally {
   await rm(scratch, { recursive: true, force: true });
 }
-process.exitCode = different === 0 ? 0 : 1;
+// The PostgreSQL fixture's exit hook ends the process with code 0 on
+// beforeExit, which would hide process.exitCode, so exit explicitly.
+process.exit(different === 0 ? 0 : 1);

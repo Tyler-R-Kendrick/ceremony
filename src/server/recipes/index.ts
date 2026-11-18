@@ -795,10 +795,10 @@ export class RecipeService {
       ...(placed.report ? { connectors: placed.report } : {}),
     };
     const id = `draft-${randomUUID()}`;
-    await this.store.transaction((tx) =>
+    const revision = await this.store.transaction((tx) =>
       tx.put({ tenant: actor.tenantId, kind: "draft", id }, value, null),
     );
-    return { id, revision: 1, ...value };
+    return { id, revision, ...value };
   }
   /**
    * Place a draft's nodes under connectors, when the host supplied its

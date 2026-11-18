@@ -67,37 +67,62 @@ export type StoredRecord<T> = { revision: number; value: T };
 export type Fence = RecordKey & { generation: number; worker: string };
 export type { Keyring };
 const backupKey = z.string().regex(/^[a-zA-Z0-9_.:@/-]{1,200}$/);
-export const encryptedBackupSchema = z.strictObject({
-  schemaVersion: z.literal(1),
-  records: z
-    .array(
-      z.strictObject({
-        tenant: backupKey,
-        kind: z.enum(recordKinds),
-        id: backupKey,
-        revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-        value: z
-          .string()
-          .max(2_000_000)
-          .regex(/^[A-Za-z0-9+/]+={0,2}$/),
-      }),
-    )
-    .max(10000),
-  claims: z
-    .array(
-      z.strictObject({
-        tenant: backupKey,
-        kind: z.enum(recordKinds),
-        id: backupKey,
-        generation: z
-          .number()
-          .int()
-          .positive()
-          .max(Number.MAX_SAFE_INTEGER - 1),
-      }),
-    )
-    .max(10000),
-});
+const backupRecords = z
+  .array(
+    z.strictObject({
+      tenant: backupKey,
+      kind: z.enum(recordKinds),
+      id: backupKey,
+      revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+      value: z
+        .string()
+        .max(2_000_000)
+        .regex(/^[A-Za-z0-9+/]+={0,2}$/),
+    }),
+  )
+  .max(10000);
+const backupClaims = z
+  .array(
+    z.strictObject({
+      tenant: backupKey,
+      kind: z.enum(recordKinds),
+      id: backupKey,
+      generation: z
+        .number()
+        .int()
+        .positive()
+        .max(Number.MAX_SAFE_INTEGER - 1),
+    }),
+  )
+  .max(10000);
+const backupRetired = z
+  .array(
+    z.strictObject({
+      tenant: backupKey,
+      kind: z.enum(recordKinds),
+      id: backupKey,
+      revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+    }),
+  )
+  .max(50000);
+/**
+ * Version 2 adds `retired`: the last revision of each key whose record was
+ * deleted, so that a record created again after a restore starts above it.
+ * A version 1 backup restores with no retired revisions.
+ */
+export const encryptedBackupSchema = z.discriminatedUnion("schemaVersion", [
+  z.strictObject({
+    schemaVersion: z.literal(1),
+    records: backupRecords,
+    claims: backupClaims,
+  }),
+  z.strictObject({
+    schemaVersion: z.literal(2),
+    records: backupRecords,
+    claims: backupClaims,
+    retired: backupRetired,
+  }),
+]);
 export type EncryptedBackup = z.infer<typeof encryptedBackupSchema>;
 export class PersistenceConflict extends Error {
   constructor() {
@@ -142,7 +167,11 @@ const migration = `CREATE TABLE IF NOT EXISTS ceremony_records (
  CREATE TABLE IF NOT EXISTS ceremony_claims (
  tenant TEXT NOT NULL, kind TEXT NOT NULL, id TEXT NOT NULL,
  generation BIGINT NOT NULL, worker TEXT NOT NULL, expires BIGINT NOT NULL,
- PRIMARY KEY(tenant,kind,id));`;
+ PRIMARY KEY(tenant,kind,id));
+ CREATE TABLE IF NOT EXISTS ceremony_retired (
+ tenant TEXT NOT NULL, kind TEXT NOT NULL, id TEXT NOT NULL,
+ revision BIGINT NOT NULL, PRIMARY KEY(tenant,kind,id));
+`;
 function parameters(key: RecordKey): string[] {
   if (
     !recordKinds.includes(key.kind) ||
@@ -191,6 +220,58 @@ function transaction(
     )
       throw new PersistenceConflict();
   };
+  /** The revision the key's record had when it was deleted, or 0. */
+  const retired = async (key: RecordKey) =>
+    Number(
+      (
+        await q(
+          "SELECT revision FROM ceremony_retired WHERE tenant=$1 AND kind=$2 AND id=$3",
+          parameters(key),
+        )
+      )[0]?.revision ?? 0,
+    );
+  /**
+   * put(key, value, null). A key never takes a revision it had before: the
+   * new record starts above `retired`. The INSERT waits for a transaction
+   * that is deleting the key, and once it holds the new row nobody else can
+   * delete the key, so `retired` read again after it is final; if a delete
+   * committed in between, the record moves above it.
+   */
+  const create = async (key: RecordKey, value: unknown) => {
+    let revision = (await retired(key)) + 1;
+    if (
+      !(
+        await q(
+          "INSERT INTO ceremony_records(tenant,kind,id,revision,value) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING RETURNING revision",
+          [
+            ...parameters(key),
+            revision,
+            seal(parameters(key), revision, value, keyring),
+          ],
+        )
+      ).length
+    )
+      throw new PersistenceConflict();
+    const latest = await retired(key);
+    if (latest >= revision) {
+      const inserted = revision;
+      revision = latest + 1;
+      await q(
+        "UPDATE ceremony_records SET revision=$4,value=$5 WHERE tenant=$1 AND kind=$2 AND id=$3 AND revision=$6",
+        [
+          ...parameters(key),
+          revision,
+          seal(parameters(key), revision, value, keyring),
+          inserted,
+        ],
+      );
+    }
+    await q(
+      "DELETE FROM ceremony_retired WHERE tenant=$1 AND kind=$2 AND id=$3",
+      parameters(key),
+    );
+    return revision;
+  };
   const duration = (ms: number) => {
     if (!Number.isSafeInteger(ms) || ms < 1 || ms > 300_000)
       throw new Error("Invalid claim duration");
@@ -226,18 +307,13 @@ function transaction(
         (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1)
       )
         throw new Error("Invalid expected revision");
-      const revision = (expectedRevision ?? 0) + 1;
+      if (expectedRevision === null) return create(key, value);
+      const revision = expectedRevision + 1;
       const bytes = seal(parameters(key), revision, value, keyring);
-      const rows =
-        expectedRevision === null
-          ? await q(
-              "INSERT INTO ceremony_records(tenant,kind,id,revision,value) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING RETURNING revision",
-              [...parameters(key), revision, bytes],
-            )
-          : await q(
-              "UPDATE ceremony_records SET revision=$4,value=$5 WHERE tenant=$1 AND kind=$2 AND id=$3 AND revision=$6 RETURNING revision",
-              [...parameters(key), revision, bytes, expectedRevision],
-            );
+      const rows = await q(
+        "UPDATE ceremony_records SET revision=$4,value=$5 WHERE tenant=$1 AND kind=$2 AND id=$3 AND revision=$6 RETURNING revision",
+        [...parameters(key), revision, bytes, expectedRevision],
+      );
       if (!rows.length) throw new PersistenceConflict();
       return revision;
     },
@@ -251,6 +327,12 @@ function transaction(
         ).length
       )
         throw new PersistenceConflict();
+      // The key keeps its last revision while it has no record, so that the
+      // record created next starts above it.
+      await q(
+        "INSERT INTO ceremony_retired(tenant,kind,id,revision) VALUES($1,$2,$3,$4) ON CONFLICT(tenant,kind,id) DO UPDATE SET revision=CASE WHEN excluded.revision > ceremony_retired.revision THEN excluded.revision ELSE ceremony_retired.revision END",
+        [...parameters(key), expectedRevision],
+      );
     },
     async list<T>(tenant: string, kind: RecordKind, limit = 100, afterId = "") {
       parameters({ tenant, kind, id: "validation" });
@@ -439,7 +521,22 @@ export class PostgresCeremonyStore implements AsyncCeremonyStore {
         id: r.id,
         generation: Number(r.generation),
       }));
-      return encryptedBackupSchema.parse({ schemaVersion: 1, records, claims });
+      // More than 50,000 retired revisions: the schema refuses the backup.
+      const retired = (
+        await client.query(
+          "SELECT tenant,kind,id,revision FROM ceremony_retired ORDER BY tenant,kind,id LIMIT 50001",
+        )
+      ).rows.map((r) => ({
+        tenant: r.tenant,
+        kind: r.kind,
+        id: r.id,
+        revision: Number(r.revision),
+      }));
+      const backup = { schemaVersion: 2 as const, records, claims, retired };
+      // restoreEncryptedBackup refuses a backup longer than this, so the
+      // backup is refused here rather than written and found unusable.
+      if (JSON.stringify(backup).length > 24_000_000) throw new Error();
+      return encryptedBackupSchema.parse(backup);
     });
   }
   /** Fresh, offline database only. Authenticate every envelope before importing; invalidate every historical worker generation. */
@@ -462,7 +559,7 @@ export class PostgresCeremonyStore implements AsyncCeremonyStore {
     }
     await this.maintenance(async (client) => {
       const existing = await client.query(
-        "SELECT 1 FROM ceremony_records UNION ALL SELECT 1 FROM ceremony_claims LIMIT 1",
+        "SELECT 1 FROM ceremony_records UNION ALL SELECT 1 FROM ceremony_claims UNION ALL SELECT 1 FROM ceremony_retired LIMIT 1",
       );
       if (existing.rowCount) throw new Error();
       for (const r of backup.records)
@@ -475,6 +572,18 @@ export class PostgresCeremonyStore implements AsyncCeremonyStore {
           "INSERT INTO ceremony_claims(tenant,kind,id,generation,worker,expires) VALUES($1,$2,$3,$4,'restored',0)",
           [c.tenant, c.kind, c.id, c.generation + 1],
         );
+      if (backup.schemaVersion === 2)
+        for (const r of backup.retired)
+          // A key has a record or a retired revision, never both.
+          if (
+            !(
+              await client.query(
+                "INSERT INTO ceremony_retired(tenant,kind,id,revision) SELECT $1::text,$2::text,$3::text,$4::bigint WHERE NOT EXISTS (SELECT 1 FROM ceremony_records WHERE tenant=$1 AND kind=$2 AND id=$3) RETURNING id",
+                [r.tenant, r.kind, r.id, r.revision],
+              )
+            ).rowCount
+          )
+            throw new Error();
     });
   }
   private async maintenance<T>(
@@ -487,7 +596,7 @@ export class PostgresCeremonyStore implements AsyncCeremonyStore {
       await client.query("BEGIN");
       await client.query("SET LOCAL lock_timeout = '5s'");
       await client.query(
-        "LOCK TABLE ceremony_records, ceremony_claims IN ACCESS EXCLUSIVE MODE",
+        "LOCK TABLE ceremony_records, ceremony_claims, ceremony_retired IN ACCESS EXCLUSIVE MODE",
       );
       const result = await work(client);
       await client.query("COMMIT");
