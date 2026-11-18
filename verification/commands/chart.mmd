@@ -7,15 +7,11 @@ stateDiagram-v2
     lg1: working
     lg2: recovery
     lg3: recorded
-    lg4: Breaks UncertainStaysBlocked
-    lg5: Path to the UncertainStaysBlocked bug
   }
   class lg0 tan
   class lg1 blue
   class lg2 orange
   class lg3 purple
-  class lg4 breaks
-  class lg5 bugPath
   s0: Not sent
   s1: Admitted: intent saved, handler not called
   s2: Result in hand, not recorded
@@ -27,7 +23,6 @@ stateDiagram-v2
   s8: Recorded uncertain by its worker
   s9: Recorded waiting for a person or a check
   s10: Recorded complete, step rejected later
-  s11: Uncertain, but the step is open again
   [*] --> s0
   s0 --> s1: a caller sends the command
   s1 --> s2: the handler is called and returns or the call is stopped before the handler
@@ -44,26 +39,15 @@ stateDiagram-v2
   s2 --> s9: the result is recorded as waiting
   s4 --> s5: the run is cancelled: marked uncertain or the same id is sent again: marked uncertain
   s4 --> s3: the worker dies or the late result is refused
-  s8 --> s8: revalidation takes the lease
   s6 --> s10: revalidation rejects this step or an earlier one
-  s5 --> s11: revalidation rejects an earlier step
-  s8 --> s11: revalidation rejects an earlier step
-  classDef breaks fill:#ffecee,stroke:#e72e3b,stroke-width:2.5px,color:#cd2834
   class s0 tan
-  class s0 bugPath
   class s1 blue
-  class s1 bugPath
   class s2 blue
-  class s2 bugPath
   class s3 orange
   class s4 blue
   class s5 purple
   class s6 purple
   class s7 purple
   class s8 purple
-  class s8 bugPath
   class s9 purple
   class s10 purple
-  class s11 purple
-  class s11 breaks
-  class s11 bugPath

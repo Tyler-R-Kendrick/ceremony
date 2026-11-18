@@ -25,6 +25,7 @@ BrokenNoAssertFence:SupersededWorkerNeverCommits:broken variant, must be caught
 BrokenAdmitIgnoresHolder:OneCallPerStep:broken variant, must be caught
 BrokenTakeoverIgnoresStep:CompleteStaysVerified:broken variant, must be caught
 BrokenCancelLeavesRunning:Deadlock:broken variant, must be caught
+BrokenRevalidateReopens:UncertainStaysBlocked:broken variant, must be caught
 Commands:pass:code as written, every rule at once
 Lifecycle:pass:the chart config
 '
