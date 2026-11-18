@@ -19,6 +19,9 @@ FindingOverwritten:pass:finding 2, fixed
 FindingDeadEnd:pass:finding 3, fixed
 FindingUnblocked:pass:finding 4, fixed
 FindingReopenedRepeat:pass:finding 4 carried to the repeated call, fixed
+FindingNoWayOut:pass:finding 5, replay reconciliation, every rule
+FindingNoWayOutReadOnly:pass:finding 5, replay read-only, every rule
+NoWayOutIdempotencyKey:pass:replay upstream-idempotency-key, every rule
 BrokenTakeoverReruns:OneCallPerCommand:broken variant, must be caught
 BrokenHandlerBeforeIntent:EveryCallHasIntent:broken variant, must be caught
 BrokenNoAssertFence:SupersededWorkerNeverCommits:broken variant, must be caught
@@ -26,6 +29,9 @@ BrokenAdmitIgnoresHolder:OneCallPerStep:broken variant, must be caught
 BrokenTakeoverIgnoresStep:CompleteStaysVerified:broken variant, must be caught
 BrokenCancelLeavesRunning:Deadlock:broken variant, must be caught
 BrokenRevalidateReopens:UncertainStaysBlocked:broken variant, must be caught
+BrokenCommitSkipsReconciliation:UncertainIsReconciled:broken variant, must be caught
+BrokenReadOnlyStaysBlocked:UncertainHasWayOut:broken variant, must be caught
+BrokenResolveWithoutVerified:UncertainIsReconciled:broken variant, must be caught
 Commands:pass:code as written, every rule at once
 Lifecycle:pass:the chart config
 '
@@ -53,7 +59,7 @@ done
 wait
 
 status=0
-printf '%-26s %-29s %-29s %s\n' CONFIG EXPECTED GOT ''
+printf '%-32s %-29s %-29s %s\n' CONFIG EXPECTED GOT ''
 for line in $lines; do
   config=${line%%:*}
   rest=${line#*:}
@@ -75,7 +81,7 @@ for line in $lines; do
     mark="MISMATCH  $what"
     status=1
   fi
-  printf '%-26s %-29s %-29s %s\n' "$config" "$expected" "$got" "$mark"
+  printf '%-32s %-29s %-29s %s\n' "$config" "$expected" "$got" "$mark"
   if [ "$got" = TOOL-ERROR ]; then
     sed 's/^/    | /' "$file" | grep -v 'Picked up JAVA_TOOL_OPTIONS' | tail -n 15
   fi
@@ -89,14 +95,14 @@ else
   mark="MISMATCH  the model's facts and findings on the real code"
   status=1
 fi
-printf '%-26s %-29s %-29s %s\n' conformance.test.ts pass "$got" "$mark"
+printf '%-32s %-29s %-29s %s\n' conformance.test.ts pass "$got" "$mark"
 if [ "$got" = FAIL ]; then
   grep -E '^not ok|^# fail|message:|expected:|actual:' "$out/conformance.out" |
     sed 's/^/    | /' | head -n 30
 fi
 
 if [ "$status" -eq 0 ]; then
-  echo "All rows match. Findings 1, 2, 3 and 4 are fixed."
+  echo "All rows match. Findings 1, 2, 3, 4 and 5 are fixed."
 else
   echo "At least one row does not match. For the steps of a model row, run:"
   echo "  verification/tlc.sh $area Commands <CONFIG>"

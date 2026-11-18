@@ -20,9 +20,8 @@ stateDiagram-v2
   s5: Marked uncertain, reconciliation queued
   s6: Recorded complete
   s7: Recorded failed
-  s8: Recorded uncertain by its worker
-  s9: Recorded waiting for a person or a check
-  s10: Recorded complete, step rejected later
+  s8: Recorded waiting for a person or a check
+  s9: Recorded complete, step rejected later
   [*] --> s0
   s0 --> s1: a caller sends the command
   s1 --> s2: the handler is called and returns or the call is stopped before the handler
@@ -32,14 +31,13 @@ stateDiagram-v2
   s2 --> s3: the worker dies
   s2 --> s4: the lease runs out
   s2 --> s6: the result is recorded as complete
-  s2 --> s5: the run is cancelled: marked uncertain
+  s2 --> s5: the run is cancelled: marked uncertain or the result is recorded as uncertain
   s2 --> s7: the result is recorded as failed
   s3 --> s5: the run is cancelled: marked uncertain or the same id is sent again: marked uncertain
-  s2 --> s8: the result is recorded as uncertain
-  s2 --> s9: the result is recorded as waiting
+  s2 --> s8: the result is recorded as waiting
   s4 --> s5: the run is cancelled: marked uncertain or the same id is sent again: marked uncertain
   s4 --> s3: the worker dies or the late result is refused
-  s6 --> s10: revalidation rejects this step or an earlier one
+  s6 --> s9: revalidation rejects this step or an earlier one
   class s0 tan
   class s1 blue
   class s2 blue
@@ -50,4 +48,3 @@ stateDiagram-v2
   class s7 purple
   class s8 purple
   class s9 purple
-  class s10 purple

@@ -20,7 +20,11 @@ import { test, type TestContext } from "node:test";
 import { z } from "zod";
 import { ProtectedCommandService } from "../../src/server/commands.js";
 import { SQLiteCeremonyStore } from "../../src/server/persistence/index.js";
-import { OperationRegistry } from "../../src/server/recipes/registry.js";
+import {
+  OperationRegistry,
+  type OperationResult,
+  type RegisteredOperation,
+} from "../../src/server/recipes/registry.js";
 import type { ActorContext } from "../../src/core/operation-contracts.js";
 
 const actor: ActorContext = {
@@ -42,12 +46,15 @@ type Stored = {
 /**
  * A run of two steps, `prepare` and then `verify`, which depends on it.
  * `handler` receives the number of the handler call across both steps and
- * decides how that call behaves. `evidence.valid` is what the provider says
- * when a step is verified.
+ * decides how that call behaves: it may throw, hang, or return the result
+ * the call reports (a complete, verified call when it returns nothing).
+ * `evidence.valid` is what the provider says when a step is verified.
+ * `replay` is what both operations are registered with.
  */
 async function fixture(
   t: TestContext,
-  handler: (call: number) => Promise<void> = async () => {},
+  handler: (call: number) => Promise<void | OperationResult> = async () => {},
+  replay: NonNullable<RegisteredOperation["replay"]> = "reconciliation",
 ) {
   const store = new SQLiteCeremonyStore(":memory:", {
     current: "test",
@@ -76,10 +83,15 @@ async function fixture(
       outputSchema: z.strictObject({ verified: z.boolean() }),
       classifications: {},
       fixtures: ["signed-local-provider"],
+      replay,
       handler: async () => {
         calls++;
-        await handler(calls);
-        return { state: "complete", outputs: { verified: true } };
+        return (
+          (await handler(calls)) ?? {
+            state: "complete",
+            outputs: { verified: true },
+          }
+        );
       },
       verify: async () => evidence.valid,
     });
@@ -810,4 +822,91 @@ test("finding 1, fixed: a revalidation that rewrites a step failed keeps the hol
   assert.equal(f.calls(), 3);
   stuck.release();
   await v1.catch(() => undefined);
+});
+
+// Finding 5: an `uncertain` step had no way out. A step recorded `uncertain`
+// refuses every new command id, and only the takeover and the cancel wrote
+// a reconciliation entry; a handler that threw (or returned `uncertain`)
+// was committed with none, so nothing would ever resolve the step. The
+// tests below assert the declared way out: an operation registered with
+// replay "read-only" may be run again by a new id, and every command
+// recorded `uncertain` has a pending reconciliation entry, which the run's
+// snapshot shows on the step as `reconciliation: { commandId, status }`.
+
+/** The reconciliation the snapshot shows on a step, if any. */
+const reconciliationOf = (step: object) =>
+  (step as { reconciliation?: unknown }).reconciliation;
+
+test('finding 5, fixed: a handler that throws, on an operation registered replay "reconciliation", leaves a pending reconciliation entry shown on the step, and a new id is refused', async (t) => {
+  const f = await fixture(t, async () => {
+    throw new Error("connection reset");
+  });
+  const first = await f.advance("prepare", 1, "first");
+  assert.equal(first.state, "uncertain");
+  assert.deepEqual(states(await f.records("command")), [
+    ["first", "uncertain"],
+  ]);
+  assert.deepEqual(
+    (await f.records("outbox")).map((o) => [o.id, o.task, o.status]),
+    [["reconciliation:first", "reconciliation-required", "pending"]],
+    "finding 5: a handler that threw left no reconciliation entry",
+  );
+  const prepare = await f.step("prepare");
+  assert.equal(prepare.state, "uncertain");
+  assert.deepEqual(
+    reconciliationOf(prepare),
+    { commandId: "first", status: "pending" },
+    "finding 5: the run does not show the pending reconciliation",
+  );
+  await assert.rejects(
+    f.advance("prepare", first.revision, "second"),
+    /denied/,
+  );
+  assert.equal(f.calls(), 1);
+});
+
+test('finding 5, fixed: a handler that returns uncertain, on an operation registered replay "reconciliation", leaves a pending reconciliation entry', async (t) => {
+  const f = await fixture(t, async () => ({ state: "uncertain", outputs: {} }));
+  const first = await f.advance("prepare", 1, "first");
+  assert.equal(first.state, "uncertain");
+  assert.equal((await f.step("prepare")).state, "uncertain");
+  assert.deepEqual(
+    (await f.records("outbox")).map((o) => [o.id, o.task, o.status]),
+    [["reconciliation:first", "reconciliation-required", "pending"]],
+    "finding 5: an uncertain result left no reconciliation entry",
+  );
+  await assert.rejects(
+    f.advance("prepare", first.revision, "second"),
+    /denied/,
+  );
+  assert.equal(f.calls(), 1);
+});
+
+test('finding 5, fixed: a handler that throws, on an operation registered replay "read-only", leaves a reconciliation entry, and a new id runs the step again', async (t) => {
+  const f = await fixture(
+    t,
+    async (call) => {
+      if (call === 1) throw new Error("connection reset");
+    },
+    "read-only",
+  );
+  const first = await f.advance("prepare", 1, "first");
+  assert.equal(first.state, "uncertain");
+  assert.deepEqual(
+    (await f.records("outbox")).map((o) => [o.id, o.task, o.status]),
+    [["reconciliation:first", "reconciliation-required", "pending"]],
+    "finding 5: a handler that threw left no reconciliation entry",
+  );
+  const second = await f.advance("prepare", first.revision, "second");
+  assert.deepEqual(
+    [second.state, second.verified],
+    ["complete", true],
+    "finding 5: a read-only step recorded uncertain refuses a new id",
+  );
+  assert.equal(f.calls(), 2);
+  const prepare = await f.step("prepare");
+  assert.deepEqual([prepare.state, prepare.verified], ["complete", true]);
+  // The id that threw still reports what it recorded, and is not run again.
+  assert.equal((await f.advance("prepare", 1, "first")).state, "uncertain");
+  assert.equal(f.calls(), 2);
 });
