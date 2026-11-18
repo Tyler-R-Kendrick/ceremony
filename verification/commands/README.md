@@ -34,16 +34,18 @@ TLC does not read `commands.ts`. `conformance.test.ts` is what ties the model to
 
 ## The rules
 
-| Rule                               | In plain words                                                                                                                                                                                   | Code as written                |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------ |
-| `OneCallPerCommand`                | The handler is called at most once for one command id.                                                                                                                                           | holds                          |
-| `EveryCallHasIntent`               | When the handler is called, the command and effect records are already stored.                                                                                                                   | holds                          |
-| `SupersededWorkerNeverCommits`     | A worker whose lease someone else has taken never records its result.                                                                                                                            | holds                          |
-| `NeverBlindRepeat`                 | The handler is not called for a step that is recorded complete, or while another command's call for the step has an unknown outcome (that command is still `running`, or is `uncertain`).        | holds (findings 1 and 4 fixed) |
-| `OneCallPerStep`                   | One call per step: `NeverBlindRepeat` on every path on which no revalidation has rewritten an `uncertain` step as `failed`. Since finding 4 was fixed no path does, so it is `NeverBlindRepeat`. | holds (finding 1 fixed)        |
-| `CompleteStaysVerified`            | A command recorded `complete` has its step recorded complete and verified, unless a revalidation rejected the step later.                                                                        | holds (finding 2 fixed)        |
-| No dead end (TLC's deadlock check) | Every state has a step out unless every command record is in a state `execute` never changes again and no call is in flight.                                                                     | holds (finding 3 fixed)        |
-| `UncertainStaysBlocked`            | While a command is recorded `uncertain`, its step is recorded `uncertain`, which is what keeps every new command out.                                                                            | holds (finding 4 fixed)        |
+| Rule                               | In plain words                                                                                                                                                                                              | Code as written                |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| `OneCallPerCommand`                | The handler is called at most once for one command id.                                                                                                                                                      | holds                          |
+| `EveryCallHasIntent`               | When the handler is called, the command and effect records are already stored.                                                                                                                              | holds                          |
+| `SupersededWorkerNeverCommits`     | A worker whose lease someone else has taken never records its result.                                                                                                                                       | holds                          |
+| `NeverBlindRepeat`                 | The handler is not called for a step that is recorded complete, or while another command's call for the step has an unknown outcome (that command is still `running`, or is `uncertain`).                   | holds (findings 1 and 4 fixed) |
+| `OneCallPerStep`                   | One call per step: `NeverBlindRepeat` on every path on which no revalidation has rewritten an `uncertain` step as `failed`. Since finding 4 was fixed no path does, so it is `NeverBlindRepeat`.            | holds (finding 1 fixed)        |
+| `CompleteStaysVerified`            | A command recorded `complete` has its step recorded complete and verified, unless a revalidation rejected the step later.                                                                                   | holds (finding 2 fixed)        |
+| No dead end (TLC's deadlock check) | Every state has a step out unless every command record is in a state `execute` never changes again and no call is in flight.                                                                                | holds (finding 3 fixed)        |
+| `UncertainStaysBlocked`            | While a command is recorded `uncertain`, its step is recorded `uncertain`, which is what keeps every new command out. Not asked of an operation registered with replay `read-only`.                         | holds (finding 4 fixed)        |
+| `UncertainIsReconciled`            | Every command recorded `uncertain` has a pending `reconciliation:<commandId>` outbox entry, including one whose handler threw or returned `uncertain`.                                                      | broken (finding 5)             |
+| `UncertainHasWayOut`               | Every step recorded `uncertain` has a declared way out: in an active run, with replay `read-only`, a new command id may run it again; otherwise the command named on it has a pending reconciliation entry. | broken (finding 5)             |
 
 ## The configs
 
@@ -57,6 +59,8 @@ All configs use `Commands.tla`.
 | `FindingDeadEnd.cfg`            | Finding 3, fixed: the code as written, the deadlock check.                                                                                                 | pass                                  |
 | `FindingUnblocked.cfg`          | Finding 4, fixed: the code as written, `UncertainStaysBlocked`.                                                                                            | pass                                  |
 | `FindingReopenedRepeat.cfg`     | Finding 4 carried on to the repeated handler call, fixed: the code as written.                                                                             | pass                                  |
+| `FindingNoWayOut.cfg`           | Finding 5: the code as written for an operation registered with replay `reconciliation`, every rule. Fails today with `UncertainIsReconciled`.             | pass                                  |
+| `FindingNoWayOutReadOnly.cfg`   | Finding 5: the code as written for an operation registered with replay `read-only`, every rule. Fails today with `UncertainIsReconciled`.                  | pass                                  |
 | `BrokenTakeoverReruns.cfg`      | Broken variant: the takeover starts a new worker.                                                                                                          | `OneCallPerCommand` broken            |
 | `BrokenHandlerBeforeIntent.cfg` | Broken variant: nothing is stored before the handler.                                                                                                      | `EveryCallHasIntent` broken           |
 | `BrokenNoAssertFence.cfg`       | Broken variant: the commit does not check its fence.                                                                                                       | `SupersededWorkerNeverCommits` broken |
@@ -126,6 +130,8 @@ A switch set to `FALSE` is the code as written. The `.cfg` files turn them on.
 | `ReconcileInAnyRun`     | Sketch. The takeover does not require an active run.                                              | 796                      |
 | `RevalidateReopens`     | Broken variant. Revalidation rewrites an `uncertain` or exhausted step as plain `failed`.         | 623 and 636 removed      |
 
+The constant `Replay` is not a switch: it is `RegisteredOperation.replay` of the step's operation (`src/server/recipes/registry.ts:65`), `"read-only"` or `"reconciliation"`. Every config sets it to `"reconciliation"` except `FindingNoWayOutReadOnly.cfg`.
+
 ## Findings
 
 Each path below is the shortest one TLC finds, told in the code's words. `conformance.test.ts` replays each one against the real service; the lease running out is done there by moving the claim's expiry, as `tests/command-crash-boundaries.test.ts` does.
@@ -167,6 +173,19 @@ Rule `UncertainStaysBlocked`, config `FindingUnblocked.cfg`; carried on to the r
 The same happened when the step became `uncertain` through a takeover, with its `reconciliation-required` entry still pending, and the same rewrite dropped `exhausted` from a step that had no attempt left.
 
 Now the last transaction leaves a step recorded `uncertain` as it is (621-624), and a step it rewrites `failed` keeps its `attempts` and its `exhausted` flag (625-639). A new id for the step is refused after the revalidation as before it. `BrokenRevalidateReopens.cfg` shows that this is what keeps the rule. No rule here checks the exhausted case; `conformance.test.ts` replays it on the real service.
+
+### Finding 5: an `uncertain` step had no way out
+
+Rules `UncertainIsReconciled` and `UncertainHasWayOut`, configs `FindingNoWayOut.cfg` (replay `reconciliation`) and `FindingNoWayOutReadOnly.cfg` (replay `read-only`). The path is 4 steps:
+
+1. `first` is admitted.
+2. The handler is called and throws, or returns `uncertain`. The catch makes the result `uncertain` (1022-1025).
+3. The commit records the command and the step `uncertain` (1086-1113) and writes no outbox entry.
+4. A new command id is refused (912) whatever the operation's `replay` says, and no `reconciliation-required` entry names the command.
+
+Only the takeover (861-870) and the cancel (520-529) store a `reconciliation:<commandId>` entry. A step made `uncertain` by its own handler therefore has no way out: it cannot be run again, and nothing asks for it to be reconciled. `RegisteredOperation.replay` (`src/server/recipes/registry.ts:65`) declares which way out an operation has, and `execute` does not read it. Both configs stop at the same 4 steps with `UncertainIsReconciled`; on that path `UncertainHasWayOut` is broken too, since the run is active and admission refuses a `read-only` step recorded `uncertain` (912).
+
+`conformance.test.ts` replays the path for both declarations, and asserts that the run's snapshot shows the pending reconciliation on the step as `reconciliation: { commandId, status }`.
 
 ## Broken variants
 

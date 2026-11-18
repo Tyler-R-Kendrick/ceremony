@@ -13,6 +13,8 @@ description: "Check a change to protected command execution and recovery (src/se
 
 **Where it stands.** All eight rules hold for the code as written at the sync commit, the deadlock check among them. Findings 1, 2, 3 and 4 in `verification/commands/README.md` are fixed: admission refuses a new command id while the command named on the step is `running`; the takeover leaves a step recorded complete and verified as it is; a cancel records the command in flight `uncertain`, with its effect, the step (unless verified) and a `reconciliation-required` entry; and a revalidation leaves a step recorded `uncertain` as it is and keeps `exhausted` on a step it rewrites `failed`. A passing check therefore means "nothing moved": every rule holds, the four findings stay fixed, and every broken variant is still caught. Do not change product code to make the check pass unless the user asked for that.
 
+Finding 5 is open: a step whose own handler threw or returned `uncertain` is committed `uncertain` with no `reconciliation-required` entry, and admission refuses a new command id whatever the operation's `replay` declares. The rows `FindingNoWayOut` and `FindingNoWayOutReadOnly` and the `finding 5` tests in `conformance.test.ts` expect it fixed, so `check.sh` reports a mismatch on them until it is.
+
 ## Does your change touch it
 
 Yes, if it changes any of these in `src/server/commands.ts`:

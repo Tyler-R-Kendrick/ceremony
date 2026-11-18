@@ -14,6 +14,9 @@ EXTENDS Naturals
 CONSTANTS
   Commands,          \* the commandIds callers send for the step
   MaxRevalidations,  \* how many times revalidate() may start (a bound)
+  Replay,            \* RegisteredOperation.replay of the step's operation
+                     \* (src/server/recipes/registry.ts): "read-only" or
+                     \* "reconciliation"
 
   \* Broken variants. FALSE is the code as written.
   TakeoverRerunsHandler, \* the takeover branch (808-882) admits a new worker
@@ -91,12 +94,16 @@ Results == {"complete", "waiting", "failed", "uncertain"}
 
 CmdStates == {"none", "running"} \cup Results
 
+\* The step states admission accepts a new command id from (908-917).
+AdmitFrom == {"pending", "waiting", "failed"}
+
 InFlight == {c \in Commands : worker[c] \in {"admitted", "ran"}}
 
 \* The command named on the step is still `running` (918-927).
 HolderRunning == holder # "none" /\ cmd[holder] = "running"
 
 TypeOK ==
+  /\ Replay \in {"read-only", "reconciliation"}
   /\ runStatus \in {"active", "cancelled", "complete"}
   /\ runRev \in Nat
   /\ node \in NodeStates
@@ -152,7 +159,7 @@ Admit(c) ==
   /\ worker[c] \notin {"admitted", "ran"}      \* only bites with HandlerBeforeIntent
   /\ runStatus = "active"                      \* 895-899, and the caller sends
                                                \* the revision it last read
-  /\ node \in {"pending", "waiting", "failed"} \* 908-917
+  /\ node \in AdmitFrom                         \* 908-917
   /\ AdmitIgnoresHolder \/ ~HolderRunning      \* 918-927
   /\ lease = "free"                            \* 944-948: tx.claim
   /\ lease' = c
@@ -170,15 +177,18 @@ Admit(c) ==
 (* the success criteria. The store is not touched. A handler call is a     *)
 (* blind repeat when the step is recorded complete, or when another        *)
 (* command's call for the step has an unknown outcome: its command is      *)
-(* still `running`, or `uncertain`.                                        *)
+(* still `running`, or `uncertain`. An operation registered with           *)
+(* replay "read-only" has no external effect to repeat, so its calls are   *)
+(* never blind.                                                            *)
 (***************************************************************************)
 CallHandler(c, r) ==
   /\ worker[c] = "admitted"
   /\ calls' = [calls EXCEPT ![c] = IF @ < 2 THEN @ + 1 ELSE @]  \* 1008
   /\ blind' = \/ blind
-              \/ node = "complete"
-              \/ \E d \in Commands \ {c} :
-                   calls[d] > 0 /\ cmd[d] \in {"running", "uncertain"}
+              \/ /\ Replay # "read-only"
+                 /\ \/ node = "complete"
+                    \/ \E d \in Commands \ {c} :
+                         calls[d] > 0 /\ cmd[d] \in {"running", "uncertain"}
   /\ worker' = [worker EXCEPT ![c] = "ran"]
   /\ result' = [result EXCEPT ![c] = r]
   /\ UNCHANGED << runStatus, runRev, node, holder, cmd, outbox, lease, expRev,
@@ -412,9 +422,30 @@ CompleteStaysVerified ==
   \A c \in Commands : (cmd[c] = "complete" /\ c \notin rejected) => node = "complete"
 
 \* While a command is recorded `uncertain`, its step is recorded
-\* `uncertain`, which is what keeps every new command out (912).
+\* `uncertain`, which is what keeps every new command out (912). An
+\* operation registered with replay "read-only" may be run again instead,
+\* so the rule is about every other operation.
 UncertainStaysBlocked ==
-  \A c \in Commands : cmd[c] = "uncertain" => node = "uncertain"
+  \/ Replay = "read-only"
+  \/ \A c \in Commands : cmd[c] = "uncertain" => node = "uncertain"
+
+\* Every command recorded `uncertain` has a pending reconciliation entry,
+\* `reconciliation:<commandId>` with task "reconciliation-required", in the
+\* outbox. This includes a command whose handler threw or returned
+\* `uncertain` and whose result was committed (1022-1025, 1086-1113).
+UncertainIsReconciled ==
+  \A c \in Commands : cmd[c] = "uncertain" => c \in outbox
+
+\* Every step recorded `uncertain` has a declared way to be resolved: in an
+\* active run, an operation registered with replay "read-only" may be run
+\* again by a new command id; any other operation, and any step of a run
+\* that can no longer run, has a pending reconciliation entry for the
+\* command named on the step.
+UncertainHasWayOut ==
+  node = "uncertain" =>
+    IF Replay = "read-only" /\ runStatus = "active"
+    THEN "uncertain" \in AdmitFrom
+    ELSE holder \in outbox
 
 (***************************************************************************)
 (* Used only by Lifecycle.cfg, to keep the drawn chart small. Revisions    *)
