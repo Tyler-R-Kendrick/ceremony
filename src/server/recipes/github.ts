@@ -340,6 +340,12 @@ export class AsyncGitHubChildren {
         outputSchema: z.object({ [operation.kind]: z.string() }).strict(),
         classifications: {},
         fixtures: ["tests/github-children.test.ts"],
+        // Running a step again cannot duplicate an effect. The handlers' GitHub
+        // calls are reads, except verify-access's installation-token request,
+        // which mints another short-lived token and changes nothing on GitHub.
+        // The one-time manifest conversion runs in the callback, never in a
+        // handler. The verifier only reads.
+        replay: "read-only",
         handler: operation.handler,
         verify: async (context, result) => {
           if (result.state !== "complete") return false;
