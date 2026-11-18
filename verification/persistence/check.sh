@@ -13,10 +13,16 @@ trap 'rm -rf "$out"' EXIT
 # config | expected | what it is
 #   expected is "holds", or the name of the rule that must break
 table='
-Fence|holds|rules 1-3 on the code as written
+Fence|holds|rules 1-3 and 5 on the code as written
 RevisionNoDelete|holds|rule 4 for a key that is never deleted
 Chart|holds|the small model behind chart.mmd
 FindingRevisionReused|holds|rule 4 on the code as written, records deleted and created again (F1)
+FindingHeartbeatWithoutRowLock|holds|rule 5 without the row lock: the heartbeat UPDATE keeps to its own lease
+FindingClaimReturnsExpired|holds|rule 6 on the code as written: a slow claim returns no expired fence
+FindingRestoreReusesGeneration|holds|rule 7 on the code as written: a restore reuses no generation an old fence names
+BrokenHeartbeatAnyGeneration|HeartbeatExtendsOnlyOwnLease|broken variant, index.ts:373-376
+BrokenClaimReturnsExpired|ClaimNeverReturnsExpiredFence|broken variant, index.ts:362-368
+BrokenRestoreKeepsGeneration|RestoredStoreRefusesOldFences|broken variant, index.ts:570-573
 BrokenNoGenerationCheck|StaleFenceNeverCommits|broken variant, index.ts:217
 BrokenNoRowLock|StaleFenceNeverCommits|broken variant, index.ts:195
 BrokenNoGenerationBump|StaleFenceNeverCommits|broken variant, index.ts:364
@@ -55,12 +61,12 @@ ROW
   fi
   if [ "$got" = "$expected" ]; then
     case $expected in
-      holds) printf 'ok    %-24s holds: %s\n' "$config" "$what" ;;
-      *) printf 'ok    %-24s breaks %s, as recorded: %s\n' "$config" "$expected" "$what" ;;
+      holds) printf 'ok    %-30s holds: %s\n' "$config" "$what" ;;
+      *) printf 'ok    %-30s breaks %s, as recorded: %s\n' "$config" "$expected" "$what" ;;
     esac
   else
     status=1
-    printf 'FAIL  %-24s expected %s, got %s: %s\n' "$config" "$expected" "$got" "$what"
+    printf 'FAIL  %-30s expected %s, got %s: %s\n' "$config" "$expected" "$got" "$what"
     printf '      see it with: verification/tlc.sh persistence Fence %s\n' "$config"
     if [ "$got" = error ]; then
       grep -v '^Picked up' "$log" | tail -n 15 | sed 's/^/      | /'
