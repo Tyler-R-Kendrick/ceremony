@@ -32,8 +32,8 @@ check() {
 check GitHubHandoff pass "the rules that hold today hold" ok
 check NoDeadEndOneAtATime pass "NoDeadEnd holds without the findings' triggers" ok
 check DeadEndGitHubSilent pass "an unanswered GitHub call in the app step leaves it re-runnable" ok
-check DeadEndReplayedReturn AppReadyNeverStranded "finding 1 is still in the code" FINDING
-check DeadEndExpiry ExpiredHandoffNeverStranded "finding 2 is still in the code" FINDING
+check DeadEndReplayedReturn pass "a replayed return leaves the app step re-runnable" ok
+check DeadEndExpiry pass "finding 2 is fixed: the app step runs again and a new registration is offered" ok
 check DeadEndLaterStep pass "finding 3 is fixed: the install and token steps run again" ok
 check DeadEndWrongAccount WrongAccountNeverStranded "finding 4 is still in the code" FINDING
 check BrokenAdmit ConvertedAtMostOnce "the removed check is caught" ok
