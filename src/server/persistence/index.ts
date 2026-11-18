@@ -1,4 +1,3 @@
-import { randomInt } from "node:crypto";
 import { chmodSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { setTimeout as delay } from "node:timers/promises";
@@ -108,14 +107,26 @@ const backupRetired = z
   .max(50000);
 /**
  * A claim generation is the store's lease base plus a count of the claims and
- * cancels of its key, which stays below `leaseSpan`. The base is a multiple
- * of `leaseSpan`: 0 for a store that was never restored, and for a restored
- * store a value above the base of the store its backup came from, so no
- * generation the restored store hands out equals one a fence from before
- * the restore names.
+ * cancels of its key, which stays below `leaseSpan`: a claim that would reach
+ * it is refused. The base is the store's lease epoch times `leaseSpan`. A
+ * store that was never restored has epoch 0. A restored store has as epoch
+ * the second of the database clock that its restore ran in, counted from
+ * `leaseOrigin`, and the restore waits until that second is above the epoch
+ * of the store its backup came from.
+ *
+ * So every generation a store hands out lies in its own epoch's span. A
+ * restored store hands out no generation of the store its backup came from,
+ * before or after the backup, and two restores that ran in different seconds
+ * of the clock, of one backup or of two, hand out no generation in common.
+ * Two restores in the same second can. The largest generation is
+ * 2^53 - 1, so every generation is a safe integer.
  */
-const leaseSpan = 2 ** 32;
-const maxLeaseEpoch = 2 ** 21 - 2;
+const leaseSpan = 2 ** 22;
+const maxLeaseEpoch = 2 ** 31 - 1;
+/** 2025-01-01T00:00:00Z, in seconds since 1970. */
+const leaseOrigin = 1_735_689_600;
+/** How long a restore waits for the clock to pass the source's epoch. */
+const epochWaitMs = 3_000;
 const backupGenerationBase = z
   .number()
   .int()
@@ -201,6 +212,12 @@ const migration = `CREATE TABLE IF NOT EXISTS ceremony_records (
 `;
 /** The store's lease base: the one row restoreEncryptedBackup writes, or 0. */
 const leaseBase = "(SELECT COALESCE(MAX(base),0) FROM ceremony_lease_base)";
+/** The key's claim generation has used up the span of the store's epoch. */
+export class LeaseGenerationsExhausted extends Error {
+  constructor() {
+    super("The lease generations of this key are used up on this store");
+  }
+}
 function parameters(key: RecordKey): string[] {
   if (
     !recordKinds.includes(key.kind) ||
@@ -389,11 +406,22 @@ function transaction(
       // runs from the clock when the row is written, not from `time`, and
       // claim never returns a lease that has already run out. `time` only
       // decides whether the lease on the row has run out.
+      // The generation stays below the end of the epoch's span ($7).
       const rows = await q(
-        `INSERT INTO ceremony_claims(tenant,kind,id,generation,worker,expires) VALUES($1,$2,$3,${leaseBase}+1,$4,${clock}+$5) ON CONFLICT(tenant,kind,id) DO UPDATE SET generation=ceremony_claims.generation+1,worker=excluded.worker,expires=${clock}+$5 WHERE ceremony_claims.expires<=$6 RETURNING generation`,
-        [...parameters(key), worker, durationMs, time],
+        `INSERT INTO ceremony_claims(tenant,kind,id,generation,worker,expires) VALUES($1,$2,$3,${leaseBase}+1,$4,${clock}+$5) ON CONFLICT(tenant,kind,id) DO UPDATE SET generation=ceremony_claims.generation+1,worker=excluded.worker,expires=${clock}+$5 WHERE ceremony_claims.expires<=$6 AND ceremony_claims.generation+1<${leaseBase}+$7 RETURNING generation`,
+        [...parameters(key), worker, durationMs, time, leaseSpan],
       );
-      if (!rows.length) throw new PersistenceConflict();
+      if (!rows.length) {
+        const row = (
+          await q(
+            `SELECT generation, ${leaseBase} AS base FROM ceremony_claims WHERE tenant=$1 AND kind=$2 AND id=$3`,
+            parameters(key),
+          )
+        )[0];
+        if (row && Number(row.generation) + 1 >= Number(row.base) + leaseSpan)
+          throw new LeaseGenerationsExhausted();
+        throw new PersistenceConflict();
+      }
       return { ...key, generation: Number(rows[0]!.generation), worker };
     },
     async heartbeat(fence, durationMs) {
@@ -414,9 +442,11 @@ function transaction(
     },
     assertFence,
     async cancel(key) {
+      // At the end of the epoch's span the generation stays: expires 0 is
+      // enough for assertFence to refuse every fence, and no claim follows.
       await q(
-        `INSERT INTO ceremony_claims(tenant,kind,id,generation,worker,expires) VALUES($1,$2,$3,${leaseBase}+1,'cancelled',0) ON CONFLICT(tenant,kind,id) DO UPDATE SET generation=ceremony_claims.generation+1,worker='cancelled',expires=0`,
-        parameters(key),
+        `INSERT INTO ceremony_claims(tenant,kind,id,generation,worker,expires) VALUES($1,$2,$3,${leaseBase}+1,'cancelled',0) ON CONFLICT(tenant,kind,id) DO UPDATE SET generation=CASE WHEN ceremony_claims.generation+1<${leaseBase}+$4 THEN ceremony_claims.generation+1 ELSE ceremony_claims.generation END,worker='cancelled',expires=0`,
+        [...parameters(key), leaseSpan],
       );
     },
   };
@@ -610,15 +640,28 @@ export class PostgresCeremonyStore implements AsyncCeremonyStore {
         "Encrypted backup is invalid or unavailable with configured keys",
       );
     }
-    // Above the base of the store the backup came from, so every generation
-    // that store handed out, before or after the backup, is below this
-    // store's; the random step keeps two restores of one backup apart.
-    const epoch =
-      (backup.schemaVersion === 3 ? backup.generationBase / leaseSpan : 0) +
-      1 +
-      randomInt(1024);
+    const sourceEpoch =
+      backup.schemaVersion === 3 ? backup.generationBase / leaseSpan : 0;
     await this.maintenance(async (client) => {
-      if (epoch > maxLeaseEpoch) throw new Error();
+      // The epoch is the second of the database clock the restore runs in,
+      // once that second is above the source's epoch (see leaseSpan).
+      const clockEpoch = async () =>
+        Number(
+          (
+            await client.query(
+              "SELECT floor(extract(epoch from clock_timestamp()))::bigint - $1::bigint AS epoch",
+              [leaseOrigin],
+            )
+          ).rows[0].epoch,
+        );
+      let epoch = await clockEpoch();
+      for (
+        const until = Date.now() + epochWaitMs;
+        epoch <= sourceEpoch && Date.now() < until;
+        epoch = await clockEpoch()
+      )
+        await delay(50);
+      if (epoch <= sourceEpoch || epoch > maxLeaseEpoch) throw new Error();
       const generationBase = epoch * leaseSpan;
       const existing = await client.query(
         "SELECT 1 FROM ceremony_records UNION ALL SELECT 1 FROM ceremony_claims UNION ALL SELECT 1 FROM ceremony_retired UNION ALL SELECT 1 FROM ceremony_lease_base LIMIT 1",
