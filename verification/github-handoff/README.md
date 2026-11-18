@@ -17,9 +17,10 @@ or created twice, a cancelled connection that still stores an app or a token,
 a token for an installation nobody checked, or a connection that can neither
 finish nor be repaired.
 
-**Result at the sync commit.** The first three parts hold. The last part does
-not: the code has four kinds of dead end, listed under [Findings](#findings).
-Each was replayed against the real code.
+**Result at the sync commit.** All four parts hold. The code had four kinds
+of dead end, listed under [Findings](#findings); each was replayed against
+the real code and each is fixed. `GitHubHandoff.cfg` checks `NoDeadEnd`
+itself.
 
 ## Run it
 
@@ -30,7 +31,7 @@ verification/github-handoff/check.sh
 From the repo root, about 20 seconds, Java 11 or later. It runs every
 configuration below through `verification/tlc.sh` (TLC 1.7.4, checksum
 pinned) and compares each result with the result recorded here. Exit 0 means
-every result is as recorded, including the findings that still fail.
+every result is as recorded.
 
 One configuration alone: `verification/tlc.sh github-handoff GitHubHandoff
 DeadEndGitHubSilent` (the last word is the `.cfg` name; leave it out for
@@ -38,18 +39,26 @@ DeadEndGitHubSilent` (the last word is the `.cfg` name; leave it out for
 
 | Configuration | What it checks | Recorded result |
 | --- | --- | --- |
-| `GitHubHandoff.cfg` | The code as written; two returns, GitHub may fail anywhere, processes may die, wrong account possible. Rules: `TypeOK`, `ConvertedAtMostOnce`, `CancelledStaysCancelled`, `InstallationCheckedBeforeToken`, `OnlyKnownDeadEnds`, `TimersNeverRescue` | No error. 51,946 states, depth 37, 4 s |
+| `GitHubHandoff.cfg` | The code as written; two returns, GitHub may fail anywhere, processes may die, wrong account possible. Rules: `TypeOK`, `ConvertedAtMostOnce`, `CancelledStaysCancelled`, `InstallationCheckedBeforeToken`, `RefusedReturnLeavesRun`, `AppReadyNeverStranded`, `ExpiredHandoffNeverStranded`, `LaterStepsNeverStranded`, `NoDeadEnd`, `RestartWithoutWaiting`, `TimersNeverRescue`, `NothingStoredAfterCancel` | No error. 170,218 states, depth 48, 8 s |
 | `NoDeadEndOneAtATime.cfg` | The code as written with none of the findings' triggers: one request at a time, GitHub fails only while a return is handled, right account, no process dies. Rule: `NoDeadEnd` | No error. 338 states |
-| `DeadEndGitHubSilent.cfg` | The code as written; `AppReadyNeverStranded` | Violated: finding 1 |
-| `DeadEndReplayedReturn.cfg` | The code as written; `AppReadyNeverStranded` | Violated: finding 1 |
-| `DeadEndExpiry.cfg` | The code as written; `ExpiredHandoffNeverStranded` | Violated: finding 2 |
-| `DeadEndLaterStep.cfg` | The code as written; `LaterStepsNeverStranded` | Violated: finding 3 |
-| `DeadEndWrongAccount.cfg` | The code as written; `WrongAccountNeverStranded` | Violated: finding 4 |
+| `DeadEndGitHubSilent.cfg` | The code as written; `AppReadyNeverStranded` | No error: `prepare-app` is replay `read-only`, so an `uncertain` app step runs again |
+| `DeadEndReplayedReturn.cfg` | The code as written; `AppReadyNeverStranded`, `RefusedReturnLeavesRun` | No error: the replayed return is refused and the route does not advance the run (`github-runtime.ts:1327`); the first return alone moves it on. Should the app step become `uncertain` another way, `prepare-app` is replay `read-only` and runs again |
+| `DeadEndExpiry.cfg` | The code as written; `ExpiredHandoffNeverStranded`, `ExpiryWrittenByTheStep` | No error: the step that finds the hand-off expired writes phase `uncertain` (or a new hour) even when the page was served after it read the record, and "Start a new registration" is offered |
+| `DeadEndLaterStep.cfg` | The code as written; `LaterStepsNeverStranded` | No error: `authorize-installation` and `verify-access` are replay `read-only`, so an `uncertain` step runs again |
+| `DeadEndWrongAccount.cfg` | The code as written; `WrongAccountNeverStranded` | No error: an app stored under another account fails the owner check, and "Start a new registration" replaces it, recording the orphaned app (`github.ts:822-878`) |
+| `RestartAtOnce.cfg` | The code as written, widest surroundings; `RestartWithoutWaiting` | No error: a failed return ends its claim (`github.ts:769`) |
+| `CancelStoresNothing.cfg` | The code as written, widest surroundings; `NothingStoredAfterCancel` | No error: every write of an app or an artifact reads the run's record in its transaction (`github.ts:203-214`) |
 | `BrokenAdmit.cfg` | `github.ts:663` without the revision; `ConvertedAtMostOnce` | Violated, as it must be |
 | `BrokenFence.cfg` | `github.ts:689` removed; `CancelledStaysCancelled` | Violated, as it must be |
-| `BrokenSave.cfg` | `github.ts:289-290` removed; `CancelledStaysCancelled` | Violated, as it must be |
+| `BrokenSave.cfg` | `github.ts:316-317` removed, with the run check at `319`; `CancelledStaysCancelled` | Violated, as it must be |
 | `BrokenInstallCheck.cfg` | `github.ts:724` removed; `InstallationCheckedBeforeToken` | Violated, as it must be |
-| `Chart.cfg` | For the chart only: one return, one request at a time | `NoDeadEnd` violated: finding 1 |
+| `BrokenReplay.cfg` | `github.ts:348` removed; `LaterStepsNeverStranded`. Not in `check.sh`; run it alone | Violated, as it must be |
+| `BrokenRefusal.cfg` | `github-runtime.ts:1327` removed; `RefusedReturnLeavesRun` | Violated, as it must be |
+| `BrokenExpiryRetry.cfg` | `github.ts:428-433` (at the fix commit) removed; `ExpiryWrittenByTheStep` | Violated, as it must be |
+| `BrokenRestart.cfg` | `github.ts:822-828` reduced to phase `uncertain` and no app; `WrongAccountNeverStranded` | Violated, as it must be |
+| `BrokenRelease.cfg` | `github.ts:769` removed; `RestartWithoutWaiting` | Violated, as it must be |
+| `BrokenRunCheck.cfg` | `github.ts:203-214` removed; `NothingStoredAfterCancel` | Violated, as it must be |
+| `Chart.cfg` | For the chart only: one return, one request at a time | No error |
 
 ## The rules
 
@@ -58,16 +67,20 @@ DeadEndGitHubSilent` (the last word is the `.cfg` name; leave it out for
 | `ConvertedAtMostOnce` | For one nonce, `POST /app-manifests/{code}/conversions` is sent at most once. |
 | `CancelledStaysCancelled` | After `cancel()` (`github.ts:843-887`) has committed, the run's record stays `cancelled`, a cancelled setup record keeps its phase and app, and no app, installation or connection artifact is written. |
 | `InstallationCheckedBeforeToken` | The installation artifact, and so the installation a token is minted for, is one that `checkInstallation` (`github.ts:888-920`) accepted. |
-| `NoDeadEnd` | While the run is active and not connected, some request, return or step other than Cancel can still change something. It is the conjunction of the four `...NeverStranded` rules and `OnlyKnownDeadEnds`. |
-| `OnlyKnownDeadEnds` | There is no dead end other than the four kinds under Findings. This is what the normal configuration checks in place of `NoDeadEnd`; it fails as soon as a new kind appears. |
-| `TimersNeverRescue` | Once in a dead end, no timer running out makes anything possible again. It justifies that `NoDeadEnd` counts only one timer as a way forward: the 60-second claim that must lapse before "Start a new registration" goes through (`github.ts:777-781`). |
+| `RefusedReturnLeavesRun` | A return that `callback()` refuses (`GitHubCallbackRefused`: wrong or consumed state, admission lost to another return, hand-off already past its installation return) does not make the engine run a step. The route answers 409 and the run stays as it was. |
+| `ExpiryWrittenByTheStep` | When `prepare()` finds the registration hand-off's hour over (`github.ts:409-428`), the step that found it moves the hand-off on, even when the record moved since `prepare()` read it: step `prepare-app` never settles `uncertain` with the hand-off still an expired `registration`. An action property. |
+| `NoDeadEnd` | While the run is active and not connected, some request, return or step other than Cancel can still change something. The four `...NeverStranded` rules are its parts for the four findings. |
+| `RestartWithoutWaiting` | Once a return that wrote `uncertain` has ended, it leaves no claim on the setup key: "Start a new registration" goes through at once, not after the 60-second claim lapses. |
+| `NothingStoredAfterCancel` | Once the run's cancel (`commands.ts`, the first of the two cancel transactions) has committed, no app is written into the setup record and no app, installation or connection artifact is written. An action property. |
+| `TimersNeverRescue` | Once in a dead end, no timer running out makes anything possible again. It justifies that `NoDeadEnd` counts only one timer as a way forward: the 60-second claim of a return whose process died, which must lapse before "Start a new registration" goes through (`github.ts:849-853`). |
 
 `NoDeadEnd` asks that some step is possible, not that "connected" can still
 be reached. A loop of steps that never ends would not be caught.
 
 ## Findings
 
-All four are dead ends: step state and hand-off phase no longer fit, the
+All four are fixed. The paths below are those of the code before each fix.
+All four were dead ends: step state and hand-off phase no longer fit, the
 engine never runs an `uncertain` step again (`commands.ts:799-805`), and the
 recovery page is the only way out of `uncertain`, for step `prepare-app` only
 (`github-runtime.ts:1073-1086`). Each list is TLC's shortest path, in the
@@ -107,7 +120,11 @@ No failure at all, only a second request while the first is converting
 5. The engine runs `prepare-app` meanwhile. One way: the same return arrives
    again, is refused (`github.ts:638`), and the route then advances the run
    (`github-runtime.ts:1323-1324`). `prepare()` sees `converting` and returns
-   `uncertain` (`github.ts:423-429`).
+   `uncertain` (`github.ts:423-429`). The route no longer does this: a
+   refused return ends in `GitHubCallbackRefused` and the route does not
+   advance the run (`github-runtime.ts:1324-1328`; rule
+   `RefusedReturnLeavesRun`). The connection page or the assistant can still
+   run the step meanwhile, which the model keeps.
 6. The first `callback()` stores the app and writes `app-ready`
    (`github.ts:668-696`). Its own `advance` is refused.
 
@@ -141,6 +158,16 @@ own expiry check just before the hour ends (`github.ts:533`) and calls
 GitHub; the hour ends; `prepare()` reads; `human()` writes `handoffIssued`;
 `prepare()` writes and conflicts.
 
+Fixed: `prepare()` catches `PersistenceConflict` on its expiry write and
+starts again from its reads, at most twice (`github.ts:428-433` at the fix
+commit), as the creation transaction does. Reading again it finds
+`handoffIssued` and writes phase `uncertain`, nonce `consumed`, so "Start a
+new registration" is offered. `DeadEndExpiry.cfg` checks
+`ExpiryWrittenByTheStep` with `ExpiredHandoffNeverStranded`, and
+`BrokenExpiryRetry.cfg` shows the rule failing without the retry. The test
+"a hand-off that expires while its page is served is moved on by the step
+that finds it" in `tests/github-children.test.ts` replays the order above.
+
 ### 3. One unanswered GitHub call strands the install step or the token step
 
 State: step `authorize-installation` or `verify-access` in state `uncertain`.
@@ -169,6 +196,23 @@ the page does not offer it (`github.ts:754`), and `recover()` takes only an
 app that passes `verifyApp`. The model assumes the person has no other app
 to enter.
 
+Fixed: the hand-off page names the account the app must be created under,
+for a user as for an organization (`github.ts:610-616`,
+`github-runtime.ts:1380`). `restartRegistration()` accepts the phase
+`uncertain` or `converting` with no app or with an app whose owner is not the
+chosen account, which `verifyApp` rejects every time (`restartable`,
+`github.ts:822-828`). It drops that app and keeps its id, slug and owner,
+never its private key, in the setup record's `orphaned` list
+(`github.ts:855-873`), and the recovery page offers it
+(`github.ts:810-815`). The restart's own claim (`github.ts:849-853`) fails
+while a return still holds a live claim, so a `converting` left by a return
+whose process died is replaced once its claim lapses. In the model this is
+`RestartPhase` and `RestartApp` (constant `RestartReplacesForeignApp`);
+`BrokenRestart.cfg` shows `WrongAccountNeverStranded` failing without it. The
+test "an app created under another GitHub account is replaced by a new
+registration" in `tests/github-children.test.ts` drives this through the
+runtime's routes.
+
 ### What Cancel does afterwards
 
 Replayed for findings 1 and 2: after Cancel, `cancel()` leaves the setup
@@ -187,15 +231,31 @@ in-memory store and a fake GitHub: findings 1 (both routes), 2, 3 and 4 end
 in the states above, and every exit named above is refused. The replays are
 not in the repo.
 
-### Seen on the way, not a broken rule
+### Two notes, now rules
 
-- For up to 60 seconds after a failed return, "Start a new registration" is
-  refused: the return never releases its claim (`github.ts:655-659`) and
-  the restart claims the same key (`github.ts:777-781`).
-- Between the run's cancel (`commands.ts:428-442`) and the hand-off's cancel
-  (`github.ts:843-887`) a request that already passed `authorize` can still
-  store an artifact. `CancelledStaysCancelled` speaks about the time after
-  the second transaction.
+- For up to 60 seconds after a failed return, "Start a new registration" was
+  refused: the return never released its claim and the restart claims the
+  same key. Fixed: the catch block of `callback()` ends the return's claim in
+  the transaction that writes `uncertain` (`github.ts:769`). Rule
+  `RestartWithoutWaiting`, `RestartAtOnce.cfg`; `BrokenRelease.cfg` shows it
+  failing without the release (constant `ReturnReleasesClaim`). Test "Start a
+  new registration goes through as soon as a return fails".
+- Between the run's cancel (`commands.ts:443-473`) and the hand-off's cancel
+  (`github.ts:927-971`) a request that already passed `authorize` could still
+  store an app or an artifact. Fixed: every write of an app or an artifact
+  reads the run's record in its own transaction and refuses a cancelled run
+  (`assertRunActive`, `github.ts:203-214`; called at `319`, `734`, `786`,
+  `916`). On PostgreSQL the read locks the run's record, so a cancel that
+  commits later waits for the write. Rule `NothingStoredAfterCancel`,
+  `CancelStoresNothing.cfg`; `BrokenRunCheck.cfg` shows it failing without
+  the check (constant `StoreChecksRun`). The model has one constant for the
+  four call sites; each call site has its own test, which holds one GitHub
+  call open while the run's cancel commits: `734` in "nothing is stored once
+  the run's cancel has committed" (`tests/github-children.test.ts`); `319`
+  in "a verified app is not saved ..." and "a verified connection is not
+  saved ...", `786` in "an installation return stores nothing ...", and
+  `916` in "a recovered app is not stored ..." (all four in
+  `tests/github-run-cancel.test.ts`).
 
 ## Broken variants
 
@@ -206,8 +266,14 @@ shortest.
 | --- | --- | --- | --- |
 | `BrokenAdmit.cfg` | `AdmitComparesRevision` | `github.ts:663` | Two deliveries of one return both pass `read()`. The first claims the fence, writes `converting` and converts the code. Its 60-second claim lapses. The second claims the fence, its put is no longer compared with the revision it read, and it converts the code again. 11 steps |
 | `BrokenFence.cfg` | `AppReadyAssertsFence` | `github.ts:689` | A return has stored the app. The person cancels; `cancel()` marks both records `cancelled` and ends the fence. The return's last transaction writes `app-ready` over `cancelled`. 10 steps |
-| `BrokenSave.cfg` | `SaveChecksCancelled` | `github.ts:289-290` | `prepare()` has read the stored app. The person cancels and `cancel()` commits. `saveArtifact` writes the app artifact afterwards. 11 steps |
+| `BrokenSave.cfg` | `SaveChecksCancelled`, and `StoreChecksRun`, which refuses the same writes since the hand-off is cancelled only after the run | `github.ts:316-317`, `319` | `prepare()` has read the stored app. The person cancels and `cancel()` commits. `saveArtifact` writes the app artifact afterwards. 11 steps |
 | `BrokenInstallCheck.cfg` | `ReturnChecksInstallation` | `github.ts:724` | A return carries an installation id GitHub would reject; it is recorded as `installed` with an installation artifact. 13 steps |
+| `BrokenReplay.cfg` | `RerunUncertain = {}` | `github.ts:348` | The app is created, confirmed and stored, and the app step completes. The engine runs `authorize-installation`; GitHub does not answer `verifyApp`, the step is `uncertain`, and the engine never runs it again. 12 steps |
+| `BrokenRefusal.cfg` | `RefusalLeavesRun` | `github-runtime.ts:1327` | The engine prepares the hand-off. A return whose state is not the current nonce arrives and is refused; the route advances the run and the engine starts the app step. 4 steps |
+| `BrokenRestart.cfg` | `RestartReplacesForeignApp` | `github.ts:822-828` | You create the app under another account; the return stores it, `verifyApp` rejects its owner and the catch block writes `uncertain`; the app step runs again and fails again; "Start a new registration" refuses because an app is stored. 11 steps |
+| `BrokenRelease.cfg` | `ReturnReleasesClaim` | `github.ts:769` | A return is admitted and GitHub does not answer the conversion; the catch block writes `uncertain` and the return ends with its claim still live. 8 steps |
+| `BrokenRunCheck.cfg` | `StoreChecksRun` | `github.ts:203-214` | A return is admitted; you cancel and the run's cancel commits; the conversion answers and the app is stored in the setup record before the hand-off's cancel. 9 steps |
+| `BrokenExpiryRetry.cfg` | `ExpiryRetriesOnConflict` | `github.ts:428-433` (at the fix commit) | The engine prepares the hand-off and runs the app step again; `prepare()` reads `registration`, page not shown. The person opens the page and `human()` writes `handoffIssued`. The hour ends. `prepare()` writes with the revision it read, gets `PersistenceConflict`, and the step settles `uncertain` with the hand-off still an expired `registration`. 8 steps |
 
 In the `BrokenFence` and `BrokenSave` paths the cancel must land between an
 `authorize` call (`github.ts:687`, `285`) and the transaction after it. The
@@ -225,7 +291,7 @@ is a separate action.
 | `HandoffPrepared` | `github.ts:430-474` |
 | `AppConfirmed` | `github.ts:393-401`, `284-295`, engine verify `344-372`; step state written at `commands.ts:919-967` |
 | `AppCheckUnanswered` | `github.ts:394` or `352` throws (`230-238`, `257-264`); `commands.ts:891-894` |
-| `HandoffLapsed` | `github.ts:403-422` |
+| `HandoffLapsed` | `github.ts:403-422`; at the fix commit `409-436`, with the retry on `PersistenceConflict` at `428-433` (`ExpiryRetriesOnConflict`, the field `eng.tries` counts `admissionAttempt`) |
 | `StepStillWaiting`, `StepMarkedUnclear` | `github.ts:423-429` |
 | `AppStepRefused` | `github.ts:390-391`, `433-434`, `289-290` |
 | `InstallHandoffPrepared` | `github.ts:476-529` |
@@ -237,25 +303,28 @@ is a separate action.
 | `PageRenders` | `github.ts:546-581`; `github-runtime.ts:1374-1385` |
 | `PageFails` | `github.ts:548-559`; `github-runtime.ts:1348-1364` |
 | `ReturnArrives` | `github-runtime.ts:1320-1322`; `github.ts:631-642` |
-| `ReturnAdmitted`, `ReturnRefused` | `github.ts:643-666` |
-| `ConversionSaved` | `github.ts:668-685` |
-| `ConversionDropped` | `github.ts:678`, `697-703` |
-| `ConversionFails` | `github.ts:668-675`, `697-712` |
-| `AppVerified` | `github.ts:686-696` |
-| `AppVerifyFails` | `github.ts:686-687`, `697-712` |
+| `ReturnAdmitted`, `ReturnRefused` | `github.ts:643-666` (at the fix commit `663-681`; a lost admission throws `GitHubCallbackRefused`, `678-680`) |
+| `RefusalAnswered` | `github-runtime.ts:1324-1328`: no `advance` after `GitHubCallbackRefused`; with `RefusalLeavesRun = FALSE`, `advance` (`github-runtime.ts:1391-1405`) |
+| `DuplicateReturnRefused` | `github.ts:638-647` and `729-730` (at the fix commit) throw `GitHubCallbackRefused`; then `RefusalAnswered`. In `Next` only, not in `Acts` |
+| `ConversionSaved` | `github.ts:722-741`; with the run cancelled the run check (`734`) throws and the catch block (`753-771`) runs |
+| `ConversionDropped` | `github.ts:733`, `753-759` |
+| `ConversionFails` | `github.ts:722-730`, `753-771` |
+| `CatchWrites` | `github.ts:753-771`: `uncertain` under the fence, and the return's claim ended (`769`) |
+| `AppVerified` | `github.ts:742-752` |
+| `AppVerifyFails` | `github.ts:742`, `753-771` |
 | `InstallReturnArrives` | `github-runtime.ts:741-754`; `github.ts:70-99`, `631-642`, `716-723` |
-| `InstallReturnRecorded` | `github.ts:724-748` |
+| `InstallReturnRecorded` | `github.ts:785-808`, run check `786` |
 | `InstallReturnRefused` | `github.ts:724` (`888-920`), `726-731` |
 | `RecoveryStarts` | `github-runtime.ts:1073-1136`; `github.ts:798-807` |
-| `RecoveryStoresApp` | `github-runtime.ts:1139-1188`; `github.ts:808-839` |
+| `RecoveryStoresApp` | `github-runtime.ts:1139-1188`; `github.ts:881-923`, run check `916` |
 | `RecoveryFails` | `github.ts:827-830`, `834-838` |
 | `RecoveryReleasesStep` | `github-runtime.ts:1190-1272` |
-| `RegistrationRestarted` | `github-runtime.ts:1192-1272` with `github.ts:758-795` |
+| `RegistrationRestarted` | `github-runtime.ts:1192-1272` with `github.ts:822-878` (`restartable`, `RestartPhase`, `RestartApp`); the run claim at `github-runtime.ts:1218-1222` waits for the engine's (`commands.ts:964-968`) |
 | `YouCancel` | `commands.ts:419-444` |
 | `CancelReachesHandoff` | `github-runtime.ts:756-776`; `github.ts:843-887` |
 | `HandoffExpires` | `expires` set at `github.ts:417`, `453`, `789`; read at `405`, `533`, `640` |
 | `InstallHandoffExpires` | `expires` set at `github.ts:505`; read at `501`, `533`, `640` |
-| `ClaimLapses` | `github.ts:655-659`; `persistence/index.ts:184-193`, `276-287` |
+| `ClaimLapses` | `github.ts:707-711`; `persistence/index.ts:399-456` |
 | `ReturnDies`, `RecoveryDies` | The process dies between two awaited calls |
 | `Done` | Nothing; lets TLC end in a finished state |
 
@@ -264,13 +333,13 @@ is a separate action.
 | `run` | Run record `status` (`commands.ts:437-441`, `932-936`) |
 | `step` | Node records of `prepare-app`, `authorize-installation`, `verify-access` (`commands.ts:955-967`). `open` stands for every state the engine may run |
 | `eng` | The command in flight (`commands.ts:822-869`) and what `prepare()` read (`github.ts:381-392`) |
-| `setup`, `issued`, `app` | `State.phase`, `handoffIssued`, `app` of the record `github-setup:{scope}` (`github.ts:27-46`, `175-181`) |
+| `setup`, `issued`, `app` | `State.phase`, `handoffIssued`, `app` of the record `github-setup:{scope}` (`github.ts:27-49`, `175-181`). The `orphaned` list a restart writes is not modelled |
 | `expired`, `instExpired` | `State.expires` compared with the clock |
 | `claim` | Row of `ceremony_claims` for the setup key (`persistence/index.ts:142-145`) |
 | `local` | The record `github:{runId}` (`github.ts:168-174`). `shared` means it carries `sharedSetup`, so `read()` returns the setup record (`github.ts:194-209`) |
 | `appArt`, `instArt`, `token` | Artifact records (`github.ts:47-54`, `182-193`) |
-| `ret`, `page`, `rec` | Where a `callback()`, a `human()` and a recovery request stand between their transactions. `...Stale` means the record moved since the request read it, so its compare-and-set fails (`persistence/index.ts:223-243`) |
-| `converted`, `created`, `haveRight`, `frozen`, `deadSeen` | Bookkeeping for the rules; not in the code |
+| `ret`, `page`, `rec` | Where a `callback()`, a `human()` and a recovery request stand between their transactions. `...Stale` means the record moved since the request read it, so its compare-and-set fails (`persistence/index.ts:223-243`). `ret[c].old` is bookkeeping: the return was admitted for a nonce a restart has replaced, so its conversion does not count for `ConvertedAtMostOnce` |
+| `converted`, `created`, `haveRight`, `frozen`, `deadSeen`, `refusedMoved` | Bookkeeping for the rules; not in the code |
 
 ## Bounds
 
@@ -320,13 +389,13 @@ is a separate action.
 `chart.mmd` is the flow as the person connecting meets it, drawn by the
 `/statechart` skill from `GitHubHandoff.tla` with `Chart.cfg` and
 `view.mjs`. It hides nothing; "you cancel" is one arrow from the parent
-state. `Chart.cfg` takes one request at a time, so the chart shows finding 1
-by its first route and not findings 2 to 4.
+state. `Chart.cfg` takes one request at a time and the right account, so
+it shows none of the findings.
 
 ## Sync
 
 The model describes these files at commit
-`2b14e0720188516fc3e3934f51cf2a4359fedab3`:
+`2eed4a05901ef745f53e9fc9a615dcb892b033bb`:
 
 - `src/server/recipes/github.ts`: all of `AsyncGitHubChildren`
 - `src/server/github-runtime.ts`: `childOptions.authorize`, `humanReturn`,

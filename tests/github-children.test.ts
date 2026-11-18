@@ -9,8 +9,11 @@ import {
 } from "../src/server/recipes/github.js";
 import {
   OperationRegistry,
+  replayRerunsUncertain,
   type OperationContext,
 } from "../src/server/recipes/registry.js";
+import { ProtectedCommandService } from "../src/server/commands.js";
+import { createGitHubRuntime } from "../src/server/github-runtime.js";
 import {
   SQLiteCeremonyStore,
   PostgresCeremonyStore,
@@ -31,14 +34,22 @@ async function fixture(t: TestContext, configured = false) {
     accountType: "User",
     lostConversion: false,
     wrongAccount: false,
+    /** The account the app is created under: the one signed in on GitHub. */
+    appOwner: "alice",
     suspended: false,
     extraPermission: false,
     revoked: false,
+    /** Paths GitHub does not answer: the connection closes with no response. */
+    silent: new Set<string>(),
   };
   const server = createServer(async (req, res) => {
     res.setHeader("content-type", "application/json");
     try {
       const path = new URL(req.url!, "http://fixture").pathname;
+      if (behavior.silent.has(path)) {
+        req.socket.destroy();
+        return;
+      }
       if (path === "/users/alice") {
         res.end(JSON.stringify({ login: "alice", type: behavior.accountType }));
         return;
@@ -50,7 +61,9 @@ async function fixture(t: TestContext, configured = false) {
           req.socket.destroy();
           return;
         }
-        res.end(JSON.stringify(app));
+        res.end(
+          JSON.stringify({ ...app, owner: { login: behavior.appOwner } }),
+        );
         return;
       }
       if (path !== "/installation/repositories")
@@ -62,6 +75,7 @@ async function fixture(t: TestContext, configured = false) {
         res.end(
           JSON.stringify({
             ...app,
+            owner: { login: behavior.appOwner },
             pem: undefined,
             permissions: { contents: "read" },
           }),
@@ -758,4 +772,581 @@ test("AC-33: cancellation while a one-shot conversion is in flight fences its la
   await assert.rejects(f.github.prepare(f.context), /cancelled/);
   assert.equal(f.counters.conversion, 1);
   assert.equal(f.counters.token, 0);
+});
+
+// One GitHub call that gets no answer while the engine runs a step records
+// the step `uncertain`. Each of the three steps only reads from GitHub or
+// re-finds what it stored, so a new command id runs it again once GitHub
+// answers, and the run goes on to completion without a second registration.
+for (const [nodeId, silentPath] of [
+  ["app", "/app"],
+  ["installation", "/app"],
+  ["access", "/app/installations/7"],
+  ["access", "/installation/repositories"],
+] as const)
+  test(`one unanswered GitHub call (${silentPath}) in step ${nodeId} leaves the step re-runnable`, async (t) => {
+    const f = await fixture(t);
+    const commands = new ProtectedCommandService(
+      f.store,
+      f.registry,
+      async (actor, run) => actor.subjectId === run.subjectId,
+    );
+    const actor = f.context.actor;
+    const run = await commands.createRun(
+      actor,
+      {
+        provider: "github",
+        profile: "github-app",
+        target: f.context.target,
+        origin: f.context.origin,
+        environment: f.context.environment,
+        configurationVersion: f.context.configurationVersion,
+      },
+      [
+        {
+          id: "app",
+          operationId: "github.prepare-app",
+          operationVersion: "1.0.0",
+          dependsOn: [],
+          bindings: {},
+        },
+        {
+          id: "installation",
+          operationId: "github.authorize-installation",
+          operationVersion: "1.0.0",
+          dependsOn: ["app"],
+          bindings: { app: { from: "output", node: "app", name: "app" } },
+        },
+        {
+          id: "access",
+          operationId: "github.verify-access",
+          operationVersion: "1.0.0",
+          dependsOn: ["installation"],
+          bindings: {
+            installation: {
+              from: "output",
+              node: "installation",
+              name: "installation",
+            },
+          },
+        },
+      ],
+      {},
+    );
+    const selected = { ...f.context, runId: run.id };
+    let attempt = 0;
+    const advance = async (node: string) =>
+      commands.advance(
+        actor,
+        run.id,
+        node,
+        (await commands.snapshot(actor, run.id)).revision,
+        `step:${node}:${attempt++}`,
+      );
+    const state = async (node: string) =>
+      (await commands.snapshot(actor, run.id)).nodes.find((n) => n.id === node)!
+        .state;
+    const reach = async (node: string) => {
+      if (node === nodeId) f.behavior.silent.add(silentPath);
+      await advance(node).catch(() => undefined);
+      if (node === nodeId) {
+        assert.equal(await state(node), "uncertain");
+        f.behavior.silent.clear();
+        const again = await advance(node);
+        assert.equal(again.state, "complete");
+      }
+      assert.equal(await state(node), "complete");
+    };
+
+    assert.equal((await advance("app")).state, "awaiting-human");
+    await f.callback("code=one-use", selected);
+    await reach("app");
+    assert.equal((await advance("installation")).state, "awaiting-human");
+    await f.callback("installation_id=7", selected);
+    await reach("installation");
+    await reach("access");
+    assert.equal((await commands.snapshot(actor, run.id)).status, "complete");
+    assert.equal(f.counters.conversion, 1);
+  });
+
+test("the three GitHub steps run again after an uncertain call", async (t) => {
+  const f = await fixture(t);
+  for (const id of [
+    "github.prepare-app",
+    "github.authorize-installation",
+    "github.verify-access",
+  ])
+    assert.equal(
+      replayRerunsUncertain(f.registry.require(id, "1.0.0")),
+      true,
+      id,
+    );
+});
+
+// The same GitHub return delivered twice while the first is converting: the
+// second is refused because the one-time code is already consumed. A refused
+// return proves nothing about the hand-off, so it must leave the run as it
+// was; the first return alone stores the app and moves the run on.
+test("the same return twice: the refused duplicate does not advance the run", async (t) => {
+  const f = await fixture(t);
+  const actor = f.context.actor;
+  const runtime = createGitHubRuntime({
+    store: f.store,
+    identity: { authenticate: async () => actor },
+    origin: f.options.origin,
+    environment: f.options.environment,
+    configurationVersion: f.options.configurationVersion,
+    expectedAccount: "alice",
+    allowTarget: async (_, target) => target === "alice",
+    authorize: async () => true,
+    github: { fetch: f.options.fetch },
+  });
+  await runtime.selectTarget!(actor, "alice");
+  const run = await runtime.connect(actor, "github");
+  const app = run.nodes.find(
+    (node) => node.operationId === "github.prepare-app",
+  )!;
+  assert.equal(
+    (
+      await runtime.commands.advance(
+        actor,
+        run.id,
+        app.id,
+        run.revision,
+        "prepare-twice",
+      )
+    ).state,
+    "awaiting-human",
+  );
+  const route = (path: string) =>
+    new Request(
+      `${f.options.origin}/api/v1/teaching/github/${encodeURIComponent(run.id)}/${path}`,
+    );
+  const page = await (
+    await runtime.human!(actor, run.id, route("human"))
+  ).text();
+  const action = /action="([^"]+)"/.exec(page)?.[1]?.replaceAll("&amp;", "&");
+  assert.ok(action);
+  const state = new URL(action).searchParams.get("state");
+  assert.ok(state);
+  const callback = `callback?state=${encodeURIComponent(state)}&code=twice`;
+
+  const paused = f.pauseConversion();
+  const first = runtime.human!(actor, run.id, route(callback));
+  try {
+    await paused.waiting;
+    const before = await runtime.commands.snapshot(actor, run.id);
+    const duplicate = await runtime.human!(actor, run.id, route(callback));
+    assert.equal(duplicate.status, 409);
+    const after = await runtime.commands.snapshot(actor, run.id);
+    assert.equal(
+      after.nodes.find((node) => node.id === app.id)!.state,
+      before.nodes.find((node) => node.id === app.id)!.state,
+      "the refused return changed the app step",
+    );
+    assert.equal(
+      after.revision,
+      before.revision,
+      "the refused return advanced the run",
+    );
+  } finally {
+    paused.release();
+  }
+  assert.equal((await first).status, 303);
+  const settled = await runtime.commands.snapshot(actor, run.id);
+  assert.equal(
+    settled.nodes.find((node) => node.id === app.id)!.state,
+    "complete",
+  );
+  assert.equal(f.counters.conversion, 1);
+});
+
+test("the same return twice at once: the losing return does not advance the run", async (t) => {
+  const f = await fixture(t);
+  const actor = f.context.actor;
+  const runtime = createGitHubRuntime({
+    store: f.store,
+    identity: { authenticate: async () => actor },
+    origin: f.options.origin,
+    environment: f.options.environment,
+    configurationVersion: f.options.configurationVersion,
+    expectedAccount: "alice",
+    allowTarget: async (_, target) => target === "alice",
+    authorize: async () => true,
+    github: { fetch: f.options.fetch },
+  });
+  await runtime.selectTarget!(actor, "alice");
+  const run = await runtime.connect(actor, "github");
+  const app = run.nodes.find(
+    (node) => node.operationId === "github.prepare-app",
+  )!;
+  assert.equal(
+    (
+      await runtime.commands.advance(
+        actor,
+        run.id,
+        app.id,
+        run.revision,
+        "prepare-race",
+      )
+    ).state,
+    "awaiting-human",
+  );
+  const route = (path: string) =>
+    new Request(
+      `${f.options.origin}/api/v1/teaching/github/${encodeURIComponent(run.id)}/${path}`,
+    );
+  const page = await (
+    await runtime.human!(actor, run.id, route("human"))
+  ).text();
+  const action = /action="([^"]+)"/.exec(page)?.[1]?.replaceAll("&amp;", "&");
+  assert.ok(action);
+  const state = new URL(action).searchParams.get("state");
+  assert.ok(state);
+  const callback = `callback?state=${encodeURIComponent(state)}&code=race`;
+
+  const paused = f.pauseConversion();
+  const before = await runtime.commands.snapshot(actor, run.id);
+  const deliveries = [
+    runtime.human!(actor, run.id, route(callback)),
+    runtime.human!(actor, run.id, route(callback)),
+  ];
+  try {
+    await paused.waiting;
+    const refused = await Promise.race(deliveries);
+    assert.equal(refused.status, 409);
+    const after = await runtime.commands.snapshot(actor, run.id);
+    assert.equal(
+      after.nodes.find((node) => node.id === app.id)!.state,
+      "awaiting-human",
+      "the losing return changed the app step",
+    );
+    assert.equal(
+      after.revision,
+      before.revision,
+      "the losing return advanced the run",
+    );
+  } finally {
+    paused.release();
+  }
+  assert.deepEqual(
+    (await Promise.all(deliveries)).map((response) => response.status).sort(),
+    [303, 409],
+  );
+  const settled = await runtime.commands.snapshot(actor, run.id);
+  assert.equal(
+    settled.nodes.find((node) => node.id === app.id)!.state,
+    "complete",
+  );
+  assert.equal(f.counters.conversion, 1);
+});
+
+// The hour of a registration hand-off ends while its page is being served:
+// human() has passed its own expiry check and waits for GitHub, prepare()
+// reads the expired record, then human() marks the page issued before
+// prepare() writes. prepare() must still move the hand-off on from what is
+// stored now (the page was issued, so phase "uncertain", nonce consumed),
+// not leave it an expired "registration" that only a later run may fix.
+test("a hand-off that expires while its page is served is moved on by the step that finds it", async (t) => {
+  const f = await fixture(t);
+  await f.github.prepare(f.context);
+  const setupKey = await f.store.transaction(async (tx) => {
+    const local = await tx.get<{ sharedSetup: string }>({
+      tenant: "tenant",
+      kind: "handoff",
+      id: `github:${f.context.runId}`,
+    });
+    return {
+      tenant: "tenant",
+      kind: "handoff" as const,
+      id: local!.value.sharedSetup,
+    };
+  });
+
+  // Hold human()'s call to GitHub, after its expiry check.
+  let accountAsked!: () => void;
+  let answerAccount!: () => void;
+  const asked = new Promise<void>((resolve) => (accountAsked = resolve));
+  const answer = new Promise<void>((resolve) => (answerAccount = resolve));
+  const fetchGitHub = f.options.fetch;
+  f.options.fetch = (async (input, init) => {
+    if (new URL(String(input)).pathname === "/users/alice") {
+      accountAsked();
+      await answer;
+    }
+    return fetchGitHub(input, init);
+  }) as typeof fetch;
+  const page = f.github.human(f.context);
+  await asked;
+
+  // The hour ends.
+  await f.store.transaction(async (tx) => {
+    const state = await tx.get<Record<string, unknown>>(setupKey);
+    await tx.put(setupKey, { ...state!.value, expires: 0 }, state!.revision);
+  });
+
+  // prepare() reads the expired record; before its next transaction the
+  // page's own transaction (handoffIssued) commits.
+  let readExpired = false;
+  let pageServed: Promise<unknown> | undefined;
+  const transaction = f.store.transaction.bind(f.store);
+  f.store.transaction = (async (work) => {
+    if (readExpired && !pageServed) {
+      answerAccount();
+      pageServed = page;
+      await page;
+    }
+    return transaction((tx) =>
+      work(
+        Object.assign(Object.create(tx) as typeof tx, {
+          get: async <T>(key: typeof setupKey) => {
+            const record = await tx.get<T>(key);
+            const value = record?.value as
+              { expires?: number; handoffIssued?: boolean } | undefined;
+            if (
+              key.id === setupKey.id &&
+              value?.expires === 0 &&
+              !value.handoffIssued
+            )
+              readExpired = true;
+            return record;
+          },
+        }),
+      ),
+    );
+  }) as typeof f.store.transaction;
+
+  let result;
+  try {
+    result = await f.github.prepare(f.context);
+  } finally {
+    f.store.transaction = transaction;
+    answerAccount();
+  }
+  assert.ok(pageServed, "the page was not served between read and write");
+  await page;
+  assert.equal(result.state, "uncertain");
+  const setup = await f.store.transaction((tx) =>
+    tx.get<Record<string, unknown>>(setupKey),
+  );
+  assert.equal(setup!.value.handoffIssued, true);
+  assert.equal(setup!.value.phase, "uncertain");
+  assert.equal(setup!.value.nonce, "consumed");
+  assert.equal(await f.github.registrationRestartAvailable(f.context), true);
+  assert.equal(f.counters.conversion, 0);
+});
+
+// A "Connect GitHub" run driven through the runtime's routes, as the person's
+// browser drives it: the hand-off page, the return from GitHub, the recovery
+// page and its "Start a new registration" form.
+async function connection(f: Awaited<ReturnType<typeof fixture>>) {
+  const actor = f.context.actor;
+  const runtime = createGitHubRuntime({
+    store: f.store,
+    identity: { authenticate: async () => actor },
+    origin: f.options.origin,
+    environment: f.options.environment,
+    configurationVersion: f.options.configurationVersion,
+    expectedAccount: "alice",
+    allowTarget: async (_, target) => target === "alice",
+    authorize: async () => true,
+    github: { fetch: f.options.fetch },
+  });
+  await runtime.selectTarget!(actor, "alice");
+  const run = await runtime.connect(actor, "github");
+  const appNode = run.nodes.find(
+    (node) => node.operationId === "github.prepare-app",
+  )!;
+  assert.equal(
+    (
+      await runtime.commands.advance(
+        actor,
+        run.id,
+        appNode.id,
+        run.revision,
+        "prepare",
+      )
+    ).state,
+    "awaiting-human",
+  );
+  const open = (path: string, init?: RequestInit) =>
+    runtime.human!(
+      actor,
+      run.id,
+      new Request(
+        `${f.options.origin}/api/v1/teaching/github/${encodeURIComponent(run.id)}/${path}`,
+        init,
+      ),
+    );
+  return {
+    runtime,
+    actor,
+    run,
+    /** The hand-off page and the one-time state its form carries. */
+    async handoff() {
+      const page = await (await open("human")).text();
+      const action = /action="([^"]+)"/
+        .exec(page)?.[1]
+        ?.replaceAll("&amp;", "&");
+      assert.ok(action, "no hand-off form");
+      const state = new URL(action).searchParams.get("state");
+      assert.ok(state);
+      return { page, action, state };
+    },
+    /** GitHub sends the person back with a manifest code. */
+    giveBack(state: string, code: string): Promise<unknown> {
+      return open(
+        `callback?state=${encodeURIComponent(state)}&code=${code}`,
+      ).catch((error: unknown) => error);
+    },
+    async appState() {
+      return (await runtime.commands.snapshot(actor, run.id)).nodes.find(
+        (node) => node.id === appNode.id,
+      )!.state;
+    },
+    async setup() {
+      return f.store.transaction(async (tx) => {
+        const local = await tx.get<{ sharedSetup: string }>({
+          tenant: actor.tenantId,
+          kind: "handoff",
+          id: `github:${run.id}`,
+        });
+        return (await tx.get<Record<string, unknown>>({
+          tenant: actor.tenantId,
+          kind: "handoff",
+          id: local!.value.sharedSetup,
+        }))!.value;
+      });
+    },
+    /** The recovery page and its "Start a new registration" form. */
+    async restart() {
+      const page = await (await open("recovery")).text();
+      const offered = page.includes("Start a new registration");
+      const ticket = /ticket:"([0-9a-f-]{36})"/.exec(page)?.[1];
+      assert.ok(ticket, "no recovery ticket");
+      const answer: unknown = await open("recovery", {
+        method: "POST",
+        headers: {
+          origin: f.options.origin,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ ticket, restart: true }),
+      }).catch((error: unknown) => error);
+      return { offered, answer };
+    },
+  };
+}
+
+/** The text a person reads on a page: no markup, no hidden fields, no script. */
+function visibleText(page: string) {
+  return page
+    .replace(/<script[\s\S]*?<\/script>/g, " ")
+    .replace(/<input[^>]*>/g, " ")
+    .replace(/<[^>]+>/g, " ");
+}
+
+// For a personal account the manifest form posts to
+// https://github.com/settings/apps/new, which creates the app under whichever
+// account the browser is signed in to. The hand-off names the account the
+// app must be created under, for a user as for an organization. An app that
+// was created under another account fails the owner check every time, so it
+// cannot finish the run; "Start a new registration" replaces it and keeps a
+// record of the app left behind on GitHub.
+test("an app created under another GitHub account is replaced by a new registration", async (t) => {
+  const f = await fixture(t);
+  const c = await connection(f);
+  const first = await c.handoff();
+  assert.equal(new URL(first.action).pathname, "/settings/apps/new");
+  assert.match(
+    visibleText(first.page),
+    /\balice\b/,
+    "the hand-off does not name the account to create the app under",
+  );
+
+  f.behavior.appOwner = "mallory";
+  await c.giveBack(first.state, "other-account");
+  assert.equal(await c.appState(), "uncertain");
+  assert.equal(f.counters.conversion, 1);
+
+  const { offered, answer } = await c.restart();
+  assert.ok(offered, "Start a new registration is not offered");
+  assert.ok(
+    answer instanceof Response && answer.ok,
+    `Start a new registration was refused: ${String(answer)}`,
+  );
+  assert.equal(await c.appState(), "awaiting-human");
+  const restarted = await c.setup();
+  assert.equal(restarted.phase, "registration");
+  assert.equal(restarted.app, undefined, "the other account's app is kept");
+  assert.match(
+    JSON.stringify(restarted),
+    new RegExp(f.app.slug),
+    "the app left behind on GitHub is not recorded",
+  );
+
+  f.behavior.appOwner = "alice";
+  const second = await c.handoff();
+  assert.notEqual(second.state, first.state);
+  const back = await c.giveBack(second.state, "right-account");
+  assert.ok(back instanceof Response && back.status === 303);
+  assert.equal(await c.appState(), "complete");
+  assert.equal(f.counters.conversion, 2);
+});
+
+// A return that fails once admitted writes phase "uncertain", and the
+// recovery page offers "Start a new registration". The return held a
+// 60-second claim on the setup record; it must not still hold it when it
+// ends, or the restart the page offers is refused until the claim lapses.
+test("Start a new registration goes through as soon as a return fails", async (t) => {
+  const f = await fixture(t);
+  const c = await connection(f);
+  const first = await c.handoff();
+  f.behavior.lostConversion = true;
+  const back = await c.giveBack(first.state, "lost");
+  assert.ok(back instanceof Response && back.status === 409);
+  f.behavior.lostConversion = false;
+  assert.equal(await c.appState(), "uncertain");
+  assert.equal((await c.setup()).phase, "uncertain");
+
+  const { offered, answer } = await c.restart();
+  assert.ok(offered, "Start a new registration is not offered");
+  assert.ok(
+    answer instanceof Response && answer.ok,
+    `Start a new registration was refused: ${String(answer)}`,
+  );
+  assert.equal(await c.appState(), "awaiting-human");
+  assert.equal((await c.setup()).phase, "registration");
+  const second = await c.handoff();
+  assert.notEqual(second.state, first.state);
+  assert.equal(f.counters.conversion, 1);
+});
+
+// Cancel is two transactions: the run's (commands.ts cancel), then the
+// hand-off's (github.ts cancel()). A return that was converting when the
+// run's cancel committed stores nothing afterwards, before or after the
+// second.
+test("nothing is stored once the run's cancel has committed", async (t) => {
+  const f = await fixture(t);
+  const c = await connection(f);
+  const { state } = await c.handoff();
+  const paused = f.pauseConversion();
+  const back = c.giveBack(state, "in-flight");
+  try {
+    await paused.waiting;
+    const run = await c.runtime.commands.snapshot(c.actor, c.run.id);
+    await c.runtime.commands.cancel(c.actor, c.run.id, run.revision);
+  } finally {
+    paused.release();
+  }
+  await back;
+  assert.equal(f.counters.conversion, 1);
+  assert.equal(
+    (await c.setup()).app,
+    undefined,
+    "the app was stored after the run's cancel",
+  );
+  await c.runtime.cancel!(c.actor, c.run.id);
+  const after = await c.setup();
+  assert.equal(after.phase, "cancelled");
+  assert.equal(after.app, undefined, "the app was stored after cancel");
 });

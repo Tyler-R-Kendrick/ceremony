@@ -7,24 +7,18 @@ stateDiagram-v2
     lg1: Install the app
     lg2: Connected
     lg3: Cancelled
-    lg4: Stuck
-    lg5: Breaks NoDeadEnd
-    lg6: Path to the NoDeadEnd bug
   }
   class lg0 blue
   class lg1 purple
   class lg2 teal
   class lg3 tan
-  class lg4 orange
-  class lg5 breaks
-  class lg6 bugPath
   state "Connecting GitHub" as s0 {
     s1: Not started
     s2: Waiting for you to create the app on GitHub
     s3: Ceremony is unsure whether your app exists
     s4: Ceremony is fetching your new app from GitHub
     s5: App ready
-    s6: Stuck: only Cancel is left
+    s6: App ready, but the app step did not finish
     s7: Waiting for you to install the app on GitHub
     s8: App installed
     [*] --> s1
@@ -32,35 +26,25 @@ stateDiagram-v2
   s9: Cancelled
   s10: Connected: token stored
   [*] --> s0
-  s1 --> s1: Ceremony starts the app step
   s1 --> s2: Ceremony prepares the GitHub hand-off
-  s2 --> s2: you open the hand-off page or the page sends you to GitHub
   s2 --> s3: the hand-off expires [after you opened the GitHub page]
   s2 --> s4: you create the app on GitHub and GitHub sends you back
-  s4 --> s4: Ceremony uses up the one-time return link or GitHub hands over the app and Ceremony stores it
   s4 --> s3: GitHub does not answer
   s3 --> s2: you start a new registration [when Ceremony holds no app]
   s4 --> s5: GitHub confirms the app
-  s5 --> s5: Ceremony starts the app step
   s5 --> s6: GitHub does not answer when Ceremony checks the app
   s3 --> s5: Ceremony confirms the app with GitHub [when it already holds the app] or you enter the app's ID and private key on the recovery page
+  s6 --> s5: Ceremony runs the app step again
   s5 --> s7: Ceremony prepares the install hand-off
   s7 --> s8: you install the app and GitHub sends you back
   s8 --> s10: Ceremony checks the installation and stores a token
   s0 --> s9: you cancel
-  classDef breaks fill:#ffecee,stroke:#e72e3b,stroke-width:2.5px,color:#cd2834
   class s1 blue
-  class s1 bugPath
   class s2 blue
-  class s2 bugPath
   class s3 blue
   class s4 blue
-  class s4 bugPath
   class s5 purple
-  class s5 bugPath
-  class s6 orange
-  class s6 breaks
-  class s6 bugPath
+  class s6 purple
   class s7 purple
   class s8 purple
   class s9 tan

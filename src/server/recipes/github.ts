@@ -24,6 +24,8 @@ const appSchema = z.object({
   owner: z.object({ login: z.string().min(1).max(100) }),
 });
 type App = z.infer<typeof appSchema>;
+/** An app created for a hand-off and left on GitHub when the hand-off started again. */
+type Orphan = { id: number; slug: string; owner: { login: string } };
 type State = {
   scope: string;
   phase:
@@ -43,6 +45,7 @@ type State = {
   subscribers?: string[];
   handoffIssued?: boolean;
   restartable?: boolean;
+  orphaned?: Orphan[];
 };
 type Artifact = {
   scope: string;
@@ -191,6 +194,31 @@ export class AsyncGitHubChildren {
         .digest("hex")}`,
     };
   }
+  /**
+   * Refuses to store anything for a run whose cancel has committed. Read in
+   * the transaction that stores, so a cancel that commits first is seen, and
+   * one that commits later waits for this transaction (the read locks the
+   * run's record on PostgreSQL; SQLite runs one transaction at a time).
+   */
+  private async assertRunActive(
+    tx: AsyncTransaction,
+    context: OperationContext,
+  ) {
+    const run = await tx.get<{ status?: string }>({
+      tenant: context.actor.tenantId,
+      kind: "run",
+      id: context.runId,
+    });
+    if (run?.value.status === "cancelled")
+      throw new Error("GitHub run cancelled");
+  }
+  /**
+   * The app is not owned by the chosen account. verifyApp rejects it every
+   * time, so it can never finish this hand-off.
+   */
+  private ownedElsewhere(context: OperationContext, app: App) {
+    return app.owner.login.toLowerCase() !== context.target.toLowerCase();
+  }
   private async read(context: OperationContext) {
     await this.options.authorize(context);
     const record = await this.store.transaction(async (tx) => {
@@ -288,6 +316,7 @@ export class AsyncGitHubChildren {
       const state = await tx.get<State>(this.key(context));
       if (state?.value.phase === "cancelled")
         throw new Error("GitHub run cancelled");
+      await this.assertRunActive(tx, context);
       const old = await tx.get(key);
       await tx.put(key, value, old?.revision ?? null);
     });
@@ -340,6 +369,12 @@ export class AsyncGitHubChildren {
         outputSchema: z.object({ [operation.kind]: z.string() }).strict(),
         classifications: {},
         fixtures: ["tests/github-children.test.ts"],
+        // Running a step again cannot duplicate an effect. The handlers' GitHub
+        // calls are reads, except verify-access's installation-token request,
+        // which mints another short-lived token and changes nothing on GitHub.
+        // The one-time manifest conversion runs in the callback, never in a
+        // handler. The verifier only reads.
+        replay: "read-only",
         handler: operation.handler,
         verify: async (context, result) => {
           if (result.state !== "complete") return false;
@@ -404,20 +439,28 @@ export class AsyncGitHubChildren {
       previous?.value.phase === "registration" &&
       previous.value.expires <= (await this.store.transaction((tx) => tx.now()))
     ) {
-      await this.store.transaction(async (tx) => {
-        const local = await tx.get<State>(this.key(context));
-        const key = local?.value.sharedSetup
-          ? this.setupKey(context)
-          : this.key(context);
-        const next: State = previous.value.handoffIssued
-          ? { ...previous.value, phase: "uncertain", nonce: "consumed" }
-          : {
-              ...previous.value,
-              nonce: randomBytes(32).toString("base64url"),
-              expires: (await tx.now()) + 3600000,
-            };
-        await tx.put(key, next, previous.revision);
-      });
+      try {
+        await this.store.transaction(async (tx) => {
+          const local = await tx.get<State>(this.key(context));
+          const key = local?.value.sharedSetup
+            ? this.setupKey(context)
+            : this.key(context);
+          const next: State = previous.value.handoffIssued
+            ? { ...previous.value, phase: "uncertain", nonce: "consumed" }
+            : {
+                ...previous.value,
+                nonce: randomBytes(32).toString("base64url"),
+                expires: (await tx.now()) + 3600000,
+              };
+          await tx.put(key, next, previous.revision);
+        });
+      } catch (error) {
+        // The record moved since it was read (the page was served, or another
+        // step wrote first): read it again and decide from what is stored now.
+        if (error instanceof PersistenceConflict && admissionAttempt < 2)
+          return this.prepare(context, admissionAttempt + 1);
+        throw error;
+      }
       return this.prepare(context, admissionAttempt);
     }
     if (previous)
@@ -565,6 +608,11 @@ export class AsyncGitHubChildren {
       });
       return {
         method: "POST" as const,
+        // GitHub creates the app under the account the browser is signed in
+        // to (for a user) or under the organization in the URL, and the app
+        // must belong to this account: the page names it.
+        account: account.login,
+        accountType: account.type,
         url: `https://github.com${account.type === "Organization" ? `/organizations/${encodeURIComponent(context.target)}` : ""}/settings/apps/new?state=${encodeURIComponent(state.nonce)}`,
         manifest: {
           name: `Ceremony connection ${createHash("sha256").update(state.nonce).digest("hex").slice(0, 12)}`,
@@ -636,9 +684,10 @@ export class AsyncGitHubChildren {
       url.pathname !==
         `/api/v1/teaching/github/${encodeURIComponent(context.runId)}/callback` ||
       url.searchParams.get("state") !== state.nonce ||
-      url.searchParams.getAll("state").length !== 1 ||
-      state.expires <= Date.now()
+      url.searchParams.getAll("state").length !== 1
     )
+      throw new GitHubCallbackRefused();
+    if (state.expires <= Date.now())
       throw new Error("GitHub callback unavailable");
     if (state.phase === "registration") {
       const local = await this.store.transaction((tx) =>
@@ -651,19 +700,25 @@ export class AsyncGitHubChildren {
         .string()
         .regex(/^[a-zA-Z0-9_-]{1,200}$/)
         .parse(url.searchParams.get("code"));
-      const admitted = await this.store.transaction(async (tx) => {
-        const fence = await tx.claim(
-          callbackKey,
-          `callback-${randomBytes(16).toString("hex")}`,
-          60000,
-        );
-        const revision = await tx.put(
-          callbackKey,
-          { ...state, phase: "converting", nonce: "consumed" },
-          record.revision,
-        );
-        return { fence, revision };
-      });
+      // Losing this transaction to another return of the same hand-off is a
+      // refusal: the other return holds the one-time code.
+      const admitted = await this.store
+        .transaction(async (tx) => {
+          const fence = await tx.claim(
+            callbackKey,
+            `callback-${randomBytes(16).toString("hex")}`,
+            60000,
+          );
+          const revision = await tx.put(
+            callbackKey,
+            { ...state, phase: "converting", nonce: "consumed" },
+            record.revision,
+          );
+          return { fence, revision };
+        })
+        .catch(() => {
+          throw new GitHubCallbackRefused();
+        });
       try {
         const app = appSchema.parse(
           await this.api(
@@ -676,6 +731,7 @@ export class AsyncGitHubChildren {
         // Retain the one-shot conversion result before another external request.
         await this.store.transaction(async (tx) => {
           await tx.assertFence(admitted.fence);
+          await this.assertRunActive(tx, context);
           const current = (await tx.get<State>(callbackKey))!;
           return tx.put(
             callbackKey,
@@ -708,13 +764,16 @@ export class AsyncGitHubChildren {
               { ...current.value, phase: "uncertain", nonce: "consumed" },
               current.revision,
             );
+          // This return has ended: its claim goes with it, so "Start a new
+          // registration" does not wait for the claim to lapse.
+          await tx.cancel(callbackKey);
         });
         throw new Error("GitHub registration requires reconciliation");
       }
       return;
     }
     if (state.phase !== "installation" || !state.app)
-      throw new Error("GitHub callback already consumed");
+      throw new GitHubCallbackRefused("GitHub callback already consumed");
     const app = state.app;
     const installation = z.coerce
       .number()
@@ -724,6 +783,7 @@ export class AsyncGitHubChildren {
     await this.checkInstallation(context, state.app, installation);
     await this.options.authorize(context);
     await this.store.transaction(async (tx) => {
+      await this.assertRunActive(tx, context);
       await tx.put(
         this.key(context),
         { ...state, phase: "installed", nonce: "consumed", installation },
@@ -751,7 +811,20 @@ export class AsyncGitHubChildren {
     context: OperationContext,
   ): Promise<boolean> {
     const { value } = await this.read(context);
-    return value.phase === "uncertain" && !value.app && !value.installation;
+    return this.restartable(context, value);
+  }
+  /**
+   * A new registration may replace the hand-off when its outcome is unknown
+   * ("uncertain", or "converting" left by a return that ended without
+   * finishing) and it holds no app that could still finish it: none, or one
+   * owned by another account than the chosen one.
+   */
+  private restartable(context: OperationContext, value: State) {
+    return (
+      ["uncertain", "converting"].includes(value.phase) &&
+      (!value.app || this.ownedElsewhere(context, value.app)) &&
+      !value.installation
+    );
   }
 
   /** Native, explicitly confirmed recovery only; never an automatic retry. */
@@ -769,20 +842,30 @@ export class AsyncGitHubChildren {
     if (
       !current ||
       current.value.scope !== this.scope(context) ||
-      current.value.phase !== "uncertain" ||
-      current.value.app ||
-      current.value.installation
+      !this.restartable(context, current.value)
     )
       throw new Error("GitHub registration restart unavailable");
+    // A return still converting holds a live claim, and this claim fails.
     const fence = await tx.claim(
       key,
       `restart-${randomBytes(16).toString("hex")}`,
       30000,
     );
+    const { app: left, ...rest } = current.value;
     await tx.put(
       key,
       {
-        ...current.value,
+        ...rest,
+        // The app of another account stays on GitHub; its identity is kept
+        // so it can be found and deleted there. Its private key is not.
+        ...(left
+          ? {
+              orphaned: [
+                ...(current.value.orphaned ?? []),
+                { id: left.id, slug: left.slug, owner: left.owner },
+              ],
+            }
+          : {}),
         phase: "registration",
         handoffIssued: false,
         nonce: randomBytes(32).toString("base64url"),
@@ -830,6 +913,7 @@ export class AsyncGitHubChildren {
     await this.verifyApp(context, app);
     await this.options.authorize(context);
     await this.store.transaction(async (tx) => {
+      await this.assertRunActive(tx, context);
       await tx.cancel(recoveryKey);
       await tx.put(
         recoveryKey,
@@ -974,5 +1058,17 @@ export class AsyncGitHubChildren {
       expires: Date.parse(token.expires_at),
     });
     return this.result("connection", id);
+  }
+}
+
+/**
+ * A return that this hand-off cannot act on: its state is not the current
+ * one-time state, the hand-off already took a return, or another return was
+ * admitted first. Nothing was written for it.
+ */
+export class GitHubCallbackRefused extends Error {
+  constructor(message = "GitHub callback unavailable") {
+    super(message);
+    this.name = "GitHubCallbackRefused";
   }
 }
