@@ -415,6 +415,7 @@ export class ProtectedCommandService {
                 },
               }
             : {}),
+          ...(await reconciliationOf(tx, actor, state?.value.command)),
         });
       }
       return {
@@ -908,8 +909,11 @@ export class ProtectedCommandService {
       const ownState = await tx.get<NodeRecord>(
         key(actor, "node", `${run.id}:${node.id}`),
       );
+      // An `uncertain` step is run again only for an operation registered
+      // replay "read-only"; any other waits for its reconciliation entry.
       if (
-        ownState?.value.state === "uncertain" ||
+        (ownState?.value.state === "uncertain" &&
+          operation.replay !== "read-only") ||
         ownState?.value.state === "complete" ||
         ownState?.value.verified ||
         ownState?.value.exhausted
@@ -1111,6 +1115,10 @@ export class ProtectedCommandService {
         { commandId: command.commandId, status: result.state, verified },
         effect!.revision,
       );
+      // A handler that threw or returned `uncertain` may have had its
+      // effect: the command gets a reconciliation entry, as on a takeover.
+      if (result.state === "uncertain")
+        await queueReconciliation(tx, actor, run, command.commandId);
       let complete = true;
       for (const planned of run.nodes) {
         const done = await tx.get<NodeRecord>(
@@ -1208,6 +1216,48 @@ export class ProtectedCommandService {
       };
     });
   }
+}
+
+/**
+ * Stores the `reconciliation-required` entry for a command recorded
+ * `uncertain`, unless it already has one.
+ */
+async function queueReconciliation(
+  tx: AsyncTransaction,
+  actor: ActorContext,
+  run: RunRecord,
+  commandId: string,
+) {
+  const entry = key(actor, "outbox", `reconciliation:${commandId}`);
+  if (await tx.get(entry)) return;
+  await tx.put(
+    entry,
+    {
+      task: "reconciliation-required",
+      runId: run.id,
+      subjectId: run.subjectId,
+      status: "pending",
+    },
+    null,
+  );
+}
+
+/**
+ * The `reconciliation-required` entry of the command named on a step, as a
+ * run's snapshot shows it on that step: `{ reconciliation: { commandId,
+ * status } }`, or nothing when the command has no entry.
+ */
+async function reconciliationOf(
+  tx: AsyncTransaction,
+  actor: ActorContext,
+  commandId: string | undefined,
+): Promise<{ reconciliation?: { commandId: string; status: string } }> {
+  if (!commandId) return {};
+  const entry = await tx.get<{ task: string; status: string }>(
+    key(actor, "outbox", `reconciliation:${commandId}`),
+  );
+  if (entry?.value.task !== "reconciliation-required") return {};
+  return { reconciliation: { commandId, status: entry.value.status } };
 }
 
 /** Delivery handlers must use the stable ID to deduplicate/reconcile their own external effect. */
