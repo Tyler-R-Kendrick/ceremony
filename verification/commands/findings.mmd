@@ -3,30 +3,26 @@ title: "One command for one step of a run"
 ---
 stateDiagram-v2
   state "Legend" as legend {
-    lg0: Breaks NeverBlindRepeat or NoDeadlock or UncertainStaysBlocked
-    lg1: Path to the NeverBlindRepeat or NoDeadlock or UncertainStaysBlocked bug
+    lg0: Breaks NeverBlindRepeat or UncertainStaysBlocked
+    lg1: Path to the NeverBlindRepeat or UncertainStaysBlocked bug
   }
   class lg0 breaks
   class lg1 bugPath
   s0: first: Not sent / second: Not sent / step not started
   s1: first: Admitted: intent saved, handler not called / second: Not sent / step not started
-  s2: first: On record as running, no worker left / second: Not sent / step not started
-  s3: first: Result in hand, not recorded, handler was called / second: Not sent / step not started
-  s4: first: Stuck: on record as running, run cancelled / second: Not sent / step not started
-  s5: first: Recorded uncertain by its worker / second: Not sent / step uncertain
-  s6: first: Uncertain, but the step is open again / second: Not sent / step failed, open to a new command
-  s7: first: Uncertain, but the step is open again / second: Admitted: intent saved, handler not called / step failed, open to a new command
-  s8: first: Uncertain, but the step is open again / second: Result in hand, not recorded, handler was called / step failed, open to a new command
+  s2: first: Result in hand, not recorded, handler was called / second: Not sent / step not started
+  s3: first: Recorded uncertain by its worker / second: Not sent / step uncertain
+  s4: first: Uncertain, but the step is open again / second: Not sent / step failed, open to a new command
+  s5: first: Uncertain, but the step is open again / second: Admitted: intent saved, handler not called / step failed, open to a new command
+  s6: first: Uncertain, but the step is open again / second: Result in hand, not recorded, handler was called / step failed, open to a new command
   [*] --> s0
   s0 --> s1: a caller sends the command (first)
-  s1 --> s2: the worker dies (first)
-  s1 --> s3: the handler is called and returns (first)
-  s2 --> s4: the run is cancelled
-  s3 --> s5: the result is recorded as uncertain (first)
-  s5 --> s5: revalidation takes the lease
-  s5 --> s6: revalidation rejects an earlier step
-  s6 --> s7: a caller sends the command (second)
-  s7 --> s8: the handler is called and returns (second)
+  s1 --> s2: the handler is called and returns (first)
+  s2 --> s3: the result is recorded as uncertain (first)
+  s3 --> s3: revalidation takes the lease
+  s3 --> s4: revalidation rejects an earlier step
+  s4 --> s5: a caller sends the command (second)
+  s5 --> s6: the handler is called and returns (second)
   classDef breaks fill:#ffecee,stroke:#e72e3b,stroke-width:2.5px,color:#cd2834
   class s0 bugPath
   class s1 bugPath
@@ -37,6 +33,3 @@ stateDiagram-v2
   class s5 bugPath
   class s6 breaks
   class s6 bugPath
-  class s7 bugPath
-  class s8 breaks
-  class s8 bugPath

@@ -8,51 +8,47 @@ stateDiagram-v2
     lg2: recovery
     lg3: recorded
     lg4: Breaks UncertainStaysBlocked
-    lg5: Breaks NoDeadlock in some cases
-    lg6: Path to the NoDeadlock or UncertainStaysBlocked bug
+    lg5: Path to the UncertainStaysBlocked bug
   }
   class lg0 tan
   class lg1 blue
   class lg2 orange
   class lg3 purple
   class lg4 breaks
-  class lg5 mayBreak
-  class lg6 bugPath
+  class lg5 bugPath
   s0: Not sent
   s1: Admitted: intent saved, handler not called
   s2: Result in hand, not recorded
   s3: On record as running, no worker left
   s4: Worker still going, its lease gone
-  s5: Recorded complete
-  s6: Recorded failed
-  s7: Stuck: on record as running, run cancelled
-  s8: Marked uncertain, reconciliation queued
-  s9: Recorded uncertain by its worker
-  s10: Recorded waiting for a person or a check
-  s11: Recorded complete, step rejected later
-  s12: Uncertain, but the step is open again
+  s5: Marked uncertain, reconciliation queued
+  s6: Recorded complete
+  s7: Recorded failed
+  s8: Recorded uncertain by its worker
+  s9: Recorded waiting for a person or a check
+  s10: Recorded complete, step rejected later
+  s11: Uncertain, but the step is open again
   [*] --> s0
   s0 --> s1: a caller sends the command
   s1 --> s2: the handler is called and returns or the call is stopped before the handler
   s1 --> s3: the worker dies
-  s1 --> s4: the lease runs out or the run is cancelled
+  s1 --> s4: the lease runs out
+  s1 --> s5: the run is cancelled: marked uncertain
   s2 --> s3: the worker dies
-  s2 --> s4: the lease runs out or the run is cancelled
-  s2 --> s5: the result is recorded as complete
-  s2 --> s6: the result is recorded as failed
-  s3 --> s7: the run is cancelled
-  s2 --> s9: the result is recorded as uncertain
-  s2 --> s10: the result is recorded as waiting
+  s2 --> s4: the lease runs out
+  s2 --> s6: the result is recorded as complete
+  s2 --> s5: the run is cancelled: marked uncertain
+  s2 --> s7: the result is recorded as failed
+  s3 --> s5: the run is cancelled: marked uncertain or the same id is sent again: marked uncertain
+  s2 --> s8: the result is recorded as uncertain
+  s2 --> s9: the result is recorded as waiting
+  s4 --> s5: the run is cancelled: marked uncertain or the same id is sent again: marked uncertain
   s4 --> s3: the worker dies or the late result is refused
-  s4 --> s8: the same id is sent again: marked uncertain
-  s4 --> s7: the worker ends without recording [run cancelled]
-  s3 --> s8: the same id is sent again: marked uncertain
-  s9 --> s9: revalidation takes the lease
-  s5 --> s11: revalidation rejects this step or an earlier one
-  s8 --> s12: revalidation rejects an earlier step
-  s9 --> s12: revalidation rejects an earlier step
+  s8 --> s8: revalidation takes the lease
+  s6 --> s10: revalidation rejects this step or an earlier one
+  s5 --> s11: revalidation rejects an earlier step
+  s8 --> s11: revalidation rejects an earlier step
   classDef breaks fill:#ffecee,stroke:#e72e3b,stroke-width:2.5px,color:#cd2834
-  classDef mayBreak fill:#fff3e6,stroke:#e8730c,stroke-width:2.5px,color:#b85a06
   class s0 tan
   class s0 bugPath
   class s1 blue
@@ -61,17 +57,13 @@ stateDiagram-v2
   class s2 bugPath
   class s3 orange
   class s4 blue
-  class s4 bugPath
   class s5 purple
   class s6 purple
-  class s7 orange
-  class s7 mayBreak
-  class s7 bugPath
+  class s7 purple
   class s8 purple
+  class s8 bugPath
   class s9 purple
-  class s9 bugPath
   class s10 purple
   class s11 purple
-  class s12 purple
-  class s12 breaks
-  class s12 bugPath
+  class s11 breaks
+  class s11 bugPath

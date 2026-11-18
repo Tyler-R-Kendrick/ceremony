@@ -126,7 +126,9 @@ export const step = (action, from, to) => {
     case "LeaseExpires":
       return "the lease runs out";
     case "CancelRun":
-      return "the run is cancelled";
+      return c !== undefined && to.cmd[c] === "uncertain"
+        ? `the run is cancelled: marked uncertain${who}`
+        : "the run is cancelled";
     case "RevalidateStart":
       return "revalidation takes the lease";
     case "RevalidateFinish":
