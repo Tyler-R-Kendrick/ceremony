@@ -47,7 +47,7 @@ Yes, if it changes any of these:
 To see what changed since the model was last confirmed, compare the covered files with the sync commit at the end of this skill:
 
 ```sh
-git diff 3002fea875a02a062d48531546b82585fd33215d -- src/server/persistence
+git diff 3f4434bdce66cb55f200b43a265dc577ec2b4f54 -- src/server/persistence
 ```
 
 Changes only to sealing, key validation, list paging, record kinds or error text do not touch the model. Of backup and restore the model has only what they do to claim rows and the lease base (rule 7); what they do to records and retired revisions is outside it (see Not covered). Decide this from the map in the README, not from a commit message.
@@ -88,7 +88,7 @@ Decide with the code, not with the model.
 Other changes in the output:
 
 - **A `Broken*` config now holds.** The check it takes out no longer carries the rule. Either the code got a second defence, or the model lost the path. Find out which before you touch the config. Do not delete a broken variant to get a clean run.
-- **A `Finding*` config of rule 5, 6 or 7 breaks.** One of findings F2, F3 and F4 in the README is back. Check the line its switch names (`HeartbeatMatchesFence`: the heartbeat UPDATE; `ClaimLeaseFromUpsert`: the lease `claim`'s upsert writes; `RestoreBumpsGeneration`: the lease base of a restore; `RestoreEpochFromClock`: the epoch a restore takes from the clock) against the code. Its `Broken*.cfg` shows the path TLC finds without it.
+- **A `Finding*` config of rule 5, 6 or 7 breaks.** One of findings F2, F3 and F4 in the README is back. Check the line its switch names (`HeartbeatMatchesFence`: the heartbeat UPDATE; `ClaimLeaseFromUpsert`: the lease `claim`'s upsert writes; `ClaimLeaseAfterUpsert`: the UPDATE that sets the lease from the clock once the upsert holds the row; `RestoreBumpsGeneration`: the lease base of a restore; `RestoreEpochFromClock`: the epoch a restore takes from the clock) against the code. Its `Broken*.cfg` shows the path TLC finds without it.
 - **`FindingRevisionReused` breaks.** A record created again can take a revision its key had before: finding F1 is back. Check `create` and the end of `delete` in `index.ts` against `KeepRetired` in `Fence.tla`. `BrokenNoRetiredRevision.cfg` shows the path TLC finds without the retired revision.
 - **`error`** in a `FAIL` line means TLC could not run the config: a syntax error in `Fence.tla`, a constant missing from a `.cfg`, or Java missing. The lines under it are TLC's message.
 
@@ -97,7 +97,7 @@ Other changes in the output:
 Write the update from the code, before you run the check, and do not shape it by what passes.
 
 - **A check, a clause or the order of statements changed.** Change the action that stands for it in `Fence.tla` (the README map tells you which). Keep each model step equal to one statement, or to statements that no other transaction can come between. If a row lock no longer covers a stretch of a transaction, split the action there.
-- **A check was removed or replaced.** Keep its switch only if a broken variant still means something. Each switch (`CheckGeneration`, `CheckExpiry`, `LockFenceRow`, `ClaimOnlyExpired`, `ClaimBumpsGeneration`, `CheckRevision`, `KeepRetired`, `HeartbeatMatchesFence`, `ClaimLeaseFromUpsert`, `RestoreBumpsGeneration`, `RestoreEpochFromClock`) names its line in a comment at the top of `Fence.tla`. Update the line, or remove the switch together with its `Broken*.cfg`, its row in `check.sh`, its block in `replay.mts` and its row in the README.
+- **A check was removed or replaced.** Keep its switch only if a broken variant still means something. Each switch (`CheckGeneration`, `CheckExpiry`, `LockFenceRow`, `ClaimOnlyExpired`, `ClaimBumpsGeneration`, `CheckRevision`, `KeepRetired`, `HeartbeatMatchesFence`, `ClaimLeaseFromUpsert`, `ClaimLeaseAfterUpsert`, `RestoreBumpsGeneration`, `RestoreEpochFromClock`) names its line in a comment at the top of `Fence.tla`. Update the line, or remove the switch together with its `Broken*.cfg`, its row in `check.sh`, its block in `replay.mts` and its row in the README.
 - **A new check carries a rule.** Add a switch for it, a `Broken*.cfg` that turns it off, the row in `check.sh` with the rule it must break, a block in `replay.mts` that takes the same text out of a copy of `index.ts`, and the row in the README. A rule that no broken variant can break proves nothing.
 - **A new store method or caller shape.** Add an action, name it in `Next` as its own disjunct so that traces show it, give it a label in `view.mjs`, and add it to the README map with file:line.
 - **The promise itself changed on purpose.** Change a rule only then, and write in the README the old wording, the new wording, and the evidence in the change (tests, doc comment, `docs/architecture.md`).
@@ -113,8 +113,8 @@ Then run `verification/persistence/check.sh` and `node --no-warnings --import ts
 | --- | --- | --- |
 | `Fence.cfg` | `StaleFenceNeverCommits`, `LiveLeaseNeverTakenOver`, `ExpiredFenceNeverPasses`, `HeartbeatExtendsOnlyOwnLease` | `src/server/persistence/index.ts`: `now`, `fenceRow`, `assertFence`, `claim`, `heartbeat`, `cancel`, the `lock` suffix, `SQLiteCeremonyStore.transaction`, `PostgresCeremonyStore.transaction`, `PersistenceConflict`, `Fence`, the `ceremony_claims` table |
 | `RevisionNoDelete.cfg`, `FindingRevisionReused.cfg` | `StaleRevisionNeverWrites` | `src/server/persistence/index.ts`: `get`, `list`, `put`, `retired`, `create`, `delete`, `rotateRecords`, the `ceremony_records` and `ceremony_retired` tables. As writers with no lease: `rotateTenant` and `retainWithoutDemonstration` in `src/server/persistence/maintenance.ts`; `collect`, `complete` and `purgeExpired` in `src/server/persistence/collections.ts` |
-| `FindingHeartbeatWithoutRowLock.cfg`, `FindingClaimReturnsExpired.cfg`, `FindingRestoreReusesGeneration.cfg` | `HeartbeatExtendsOnlyOwnLease`, `ClaimNeverReturnsExpiredFence`, `RestoredStoreRefusesOldFences` | `heartbeat` (`index.ts:427-442`), `claim` (`:399-426`), `cancel` (`:444-451`), the lease base (`:108-129`, `:211-214`), the claim rows and lease base of `encryptedBackup` and `restoreEncryptedBackup` (`:559-695`). Findings F2, F3, F4, closed. |
-| `Broken*.cfg` | One rule each, expected to break | The line each switch names: `index.ts:241`, `:258`, `:260`, `:355`, `:411`; `:264-315` and `:371-376` (`BrokenNoRetiredRevision.cfg`); `:432-441` (`BrokenHeartbeatAnyGeneration.cfg`), `:410-413` (`BrokenClaimReturnsExpired.cfg`), `:643-681` (`BrokenRestoreKeepsGeneration.cfg`), `:648-665` (`BrokenRestoreEpochNotFromClock.cfg`) |
+| `FindingHeartbeatWithoutRowLock.cfg`, `FindingClaimReturnsExpired.cfg`, `FindingRestoreReusesGeneration.cfg` | `HeartbeatExtendsOnlyOwnLease`, `ClaimNeverReturnsExpiredFence`, `RestoredStoreRefusesOldFences` | `heartbeat` (`index.ts:441-456`), `claim` (`:399-440`), `cancel` (`:458-465`), the lease base (`:108-129`, `:211-214`), the claim rows and lease base of `encryptedBackup` and `restoreEncryptedBackup` (`:573-709`). Findings F2, F3, F4, closed. |
+| `Broken*.cfg` | One rule each, expected to break | The line each switch names: `index.ts:241`, `:258`, `:260`, `:355`, `:414`; `:264-315` and `:371-376` (`BrokenNoRetiredRevision.cfg`); `:446-455` (`BrokenHeartbeatAnyGeneration.cfg`), `:413-416` and `:428-438` (`BrokenClaimReturnsExpired.cfg`), `:428-438` (`BrokenClaimLeaseNotAfterUpsert.cfg`), `:657-695` (`BrokenRestoreKeepsGeneration.cfg`), `:662-679` (`BrokenRestoreEpochNotFromClock.cfg`) |
 | `Chart.cfg` | All four | The same code, as a small model for `chart.mmd` |
 | `replay.mts` | Not a model check. Replays the recorded paths against the real stores. | `SQLiteCeremonyStore`, `PostgresCeremonyStore`, and the text of the first five lines above. The paths of rules 5, 6 and 7 are not yet blocks of it; `tests/persistence-revision.test.ts` runs them. |
 
@@ -124,7 +124,7 @@ Not covered: what a worker does between transactions; what `encryptedBackup` and
 
 ## Sync commit
 
-`3002fea875a02a062d48531546b82585fd33215d`
+`3f4434bdce66cb55f200b43a265dc577ec2b4f54`
 
 At this commit the model was confirmed, line by line, to describe the covered code, `check.sh` gave the recorded results, and `replay.mts` printed `same` on every line. The covered files last changed in that commit.
 

@@ -20,14 +20,15 @@ FindingRevisionReused|holds|rule 4 on the code as written, records deleted and c
 FindingHeartbeatWithoutRowLock|holds|rule 5 without the row lock: the heartbeat UPDATE keeps to its own lease
 FindingClaimReturnsExpired|holds|rule 6 on the code as written: a slow claim returns no expired fence
 FindingRestoreReusesGeneration|holds|rule 7 on the code as written: a restore reuses no generation an old fence names
-BrokenHeartbeatAnyGeneration|HeartbeatExtendsOnlyOwnLease|broken variant, index.ts:432-441
-BrokenClaimReturnsExpired|ClaimNeverReturnsExpiredFence|broken variant, index.ts:410-413
-BrokenRestoreKeepsGeneration|RestoredStoreRefusesOldFences|broken variant, index.ts:643-681
-BrokenRestoreEpochNotFromClock|RestoredStoreRefusesOldFences|broken variant, index.ts:648-665
+BrokenHeartbeatAnyGeneration|HeartbeatExtendsOnlyOwnLease|broken variant, index.ts:446-455
+BrokenClaimReturnsExpired|ClaimNeverReturnsExpiredFence|broken variant, index.ts:413-416 and :428-438
+BrokenClaimLeaseNotAfterUpsert|ClaimNeverReturnsExpiredFence|broken variant, index.ts:428-438
+BrokenRestoreKeepsGeneration|RestoredStoreRefusesOldFences|broken variant, index.ts:657-695
+BrokenRestoreEpochNotFromClock|RestoredStoreRefusesOldFences|broken variant, index.ts:662-679
 BrokenNoGenerationCheck|StaleFenceNeverCommits|broken variant, index.ts:258
 BrokenNoRowLock|StaleFenceNeverCommits|broken variant, index.ts:241
-BrokenNoGenerationBump|StaleFenceNeverCommits|broken variant, index.ts:411
-BrokenClaimLiveLease|LiveLeaseNeverTakenOver|broken variant, index.ts:411
+BrokenNoGenerationBump|StaleFenceNeverCommits|broken variant, index.ts:414
+BrokenClaimLiveLease|LiveLeaseNeverTakenOver|broken variant, index.ts:414
 BrokenNoExpiryCheck|ExpiredFenceNeverPasses|broken variant, index.ts:260
 BrokenNoRevisionCheck|StaleRevisionNeverWrites|broken variant, index.ts:355
 BrokenNoRetiredRevision|StaleRevisionNeverWrites|broken variant, index.ts:371-376 and :264-315 (F1)

@@ -151,7 +151,7 @@ try {
 
   // BrokenNoGenerationCheck.cfg, index.ts:258: the old holder's fenced write
   // commits on the newer lease. Its heartbeat no longer does: the heartbeat
-  // UPDATE names the generation itself (index.ts:432-441).
+  // UPDATE names the generation itself (index.ts:446-455).
   {
     const store = sqlite(
       await variant(
@@ -181,7 +181,7 @@ try {
     await store.close();
   }
 
-  // BrokenNoGenerationBump.cfg, index.ts:411
+  // BrokenNoGenerationBump.cfg, index.ts:414
   {
     const store = sqlite(
       await variant(
@@ -208,7 +208,7 @@ try {
     await store.close();
   }
 
-  // BrokenClaimLiveLease.cfg, index.ts:411
+  // BrokenClaimLiveLease.cfg, index.ts:414
   {
     const store = sqlite(
       await variant(
