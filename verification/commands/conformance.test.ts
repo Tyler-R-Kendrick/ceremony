@@ -322,7 +322,15 @@ test("Commit: refused after the run is cancelled", async (t) => {
   await f.commands.cancel(actor, f.run.id, 1);
   stuck.release();
   await assert.rejects(first);
-  assert.equal((await f.step("prepare")).state, "pending");
+  // The worker's result is not recorded. What the step and the command read
+  // after a cancel is the subject of the finding 3 tests in Part 2.
+  const prepare = await f.step("prepare");
+  assert.notEqual(prepare.state, "complete");
+  assert.equal(prepare.verified, false);
+  assert.deepEqual(
+    (await f.records("command")).filter((c) => c.state === "complete"),
+    [],
+  );
 });
 
 test("Takeover: the same id after the lease runs out is marked uncertain with a reconciliation task, and the handler is not called again", async (t) => {
@@ -499,7 +507,40 @@ test("finding 2, fixed: the first id's takeover does not overwrite a step anothe
   await first.catch(() => undefined);
 });
 
-test("finding 3: a command in flight when its run is cancelled stays `running` for ever, with no reconciliation task", async (t) => {
+/** What finding 3 requires once a command in flight met a cancel. */
+async function settledUncertain(f: Awaited<ReturnType<typeof fixture>>) {
+  // Every replay of the id returns `uncertain`, never `running`.
+  for (let replay = 0; replay < 2; replay++) {
+    const again = await f.advance("prepare", 1, "first");
+    assert.deepEqual(
+      [again.state, again.verified],
+      ["uncertain", false],
+      "finding 3: the command stays `running` after its run is cancelled",
+    );
+  }
+  assert.deepEqual(states(await f.records("command")), [
+    ["first", "uncertain"],
+  ]);
+  assert.deepEqual(
+    (await f.records("effect")).map((e) => [e.commandId, e.status]),
+    [["first", "uncertain"]],
+  );
+  assert.deepEqual(
+    (await f.records("outbox")).map((o) => [o.id, o.task, o.status]),
+    [["reconciliation:first", "reconciliation-required", "pending"]],
+  );
+  const prepare = await f.step("prepare");
+  assert.deepEqual([prepare.state, prepare.verified], ["uncertain", false]);
+  assert.equal((await f.snapshot()).status, "cancelled");
+  // Nothing is run again: the handler was called once, and a new id is
+  // refused.
+  await assert.rejects(
+    f.advance("prepare", (await f.snapshot()).revision, "second"),
+  );
+  assert.equal(f.calls(), 1);
+}
+
+test("finding 3, fixed: a command whose worker returns after its run is cancelled ends on record as uncertain, with a reconciliation task", async (t) => {
   const stuck = hanging();
   const f = await fixture(t, () => stuck.wait);
 
@@ -511,14 +552,25 @@ test("finding 3: a command in flight when its run is cancelled stays `running` f
   stuck.release();
   await assert.rejects(first);
 
-  // The same id sent again, with the lease long gone, changes nothing.
-  f.leaseRunsOut();
-  assert.equal((await f.advance("prepare", 1, "first")).state, "running");
-  assert.deepEqual(
-    (await f.records("effect")).map((e) => e.status),
-    ["intent-persisted"],
-  );
-  assert.deepEqual(await f.records("outbox"), []);
+  await settledUncertain(f);
+});
+
+test("finding 3, fixed: a command whose worker never returns after its run is cancelled ends on record as uncertain, with a reconciliation task", async (t) => {
+  const stuck = hanging();
+  const f = await fixture(t, () => stuck.wait);
+
+  // Admit, CallHandler, CancelRun; the worker is still in the provider call.
+  const first = f.advance("prepare", 1, "first");
+  first.catch(() => undefined);
+  await until(() => f.calls() === 1);
+  await f.commands.cancel(actor, f.run.id, 1);
+
+  await settledUncertain(f);
+
+  // The worker comes back late: its result is refused and changes nothing.
+  stuck.release();
+  await assert.rejects(first);
+  await settledUncertain(f);
 });
 
 test("finding 3, second path closed with finding 1: a second command id cannot complete the run while the first is running, so the first id's takeover still records uncertain", async (t) => {

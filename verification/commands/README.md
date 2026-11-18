@@ -16,7 +16,7 @@ verification/commands/check.sh
 
 It takes about 15 seconds. It needs Java 11 or later and the repo's `node_modules`. The first run downloads TLC 1.7.4 (pinned and checksummed in `verification/tlc.sh`).
 
-The script runs every `.cfg` file in this folder and the conformance test, and compares each result with what is expected today. It exits 0 only when every row matches. Today that means: the rules that hold still hold, findings 1 and 2 stay fixed, findings 3 and 4 are still present, and every broken variant is still caught.
+The script runs every `.cfg` file in this folder and the conformance test, and compares each result with what is expected today. It exits 0 only when every row matches. Today that means: the rules that hold still hold, findings 1, 2 and 3 stay fixed, finding 4 is still present, and every broken variant is still caught.
 
 To see the steps of one row, run that config alone:
 
@@ -54,7 +54,7 @@ All configs use `Commands.tla`.
 | `Holds.cfg`                     | The code as written, the four rules that hold.                                                                                                                                                                    | pass                                  |
 | `FindingBlindRepeat.cfg`        | Finding 1, fixed: the code as written, `OneCallPerStep`, which is `NeverBlindRepeat` on the paths where finding 4 has not happened.                                                                               | pass                                  |
 | `FindingOverwritten.cfg`        | Finding 2, fixed: the code as written, `CompleteStaysVerified`.                                                                                                                                                   | pass                                  |
-| `FindingDeadEnd.cfg`            | The code as written, the deadlock check.                                                                                                                                                                          | deadlock                              |
+| `FindingDeadEnd.cfg`            | Finding 3, fixed: the code as written, the deadlock check.                                                                                                                                                        | pass                                  |
 | `FindingUnblocked.cfg`          | The code as written, `UncertainStaysBlocked`.                                                                                                                                                                     | broken                                |
 | `FindingReopenedRepeat.cfg`     | Finding 4 carried on to the repeated handler call, with the code as written.                                                                                                                                      | broken                                |
 | `BrokenTakeoverReruns.cfg`      | Broken variant: the takeover starts a new worker.                                                                                                                                                                 | `OneCallPerCommand` broken            |
@@ -63,8 +63,8 @@ All configs use `Commands.tla`.
 | `BrokenAdmitIgnoresHolder.cfg`  | Broken variant: admission does not read the command named on the step.                                                                                                                                            | `OneCallPerStep` broken               |
 | `BrokenTakeoverIgnoresStep.cfg` | Broken variant: admission does not read the command named on the step, and the takeover writes the step without reading it.                                                                                       | `CompleteStaysVerified` broken        |
 | `Sketch.cfg`                    | The code plus the two sketched guards that remain, all eight rules.                                                                                                                                               | pass                                  |
-| `Commands.cfg`                  | The code as written, all eight rules at once. TLC stops at the first broken rule it finds, which is the dead end. It is the config to give `/statechart`, which reports every broken rule with its shortest path. | deadlock (first break found)          |
-| `Lifecycle.cfg`                 | One command id, with a view that keeps the state count under the chart budget. Used only to draw `chart.mmd`; findings 3 and 4 show in it.                                                                        | deadlock (first break found)          |
+| `Commands.cfg`                  | The code as written, all eight rules at once. TLC stops at the first broken rule it finds, which is `UncertainStaysBlocked` (finding 4). It is the config to give `/statechart`, which reports every broken rule with its shortest path. | `UncertainStaysBlocked` (first break) |
+| `Lifecycle.cfg`                 | One command id, with a view that keeps the state count under the chart budget. Used only to draw `chart.mmd`; findings 3 and 4 show in it.                                                                        | `UncertainStaysBlocked` (first break) |
 
 ## The model and the code
 
