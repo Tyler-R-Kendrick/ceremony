@@ -10,13 +10,69 @@
 
 export type Actor = "machine" | "human";
 
-/** Phantom carrier for a fact's value type. */
-export interface ValueType<V> {
-  readonly phantom?: (value: V) => V;
+/**
+ * The part of a Standard Schema (https://standardschema.dev) the kernel
+ * reads. A zod, valibot or arktype schema is one.
+ */
+export interface StandardSchema<Output = unknown> {
+  readonly "~standard": {
+    readonly version: 1;
+    readonly vendor: string;
+    readonly validate: (
+      value: unknown,
+    ) => StandardResult<Output> | Promise<StandardResult<Output>>;
+  };
 }
 
-export function of<V>(): ValueType<V> {
-  return {};
+export type StandardResult<Output> =
+  | { readonly value: Output; readonly issues?: undefined }
+  | { readonly issues: readonly { readonly message: string }[] };
+
+/**
+ * A fact's value type and the validator that checks it. A value the
+ * validator rejects never reaches the vault.
+ */
+export interface ValueType<V> {
+  readonly phantom?: () => V;
+  readonly schema?: StandardSchema<V>;
+}
+
+export function of<V>(schema?: StandardSchema<V>): ValueType<V> {
+  return schema === undefined ? {} : { schema };
+}
+
+/** The value type carries a validator the kernel can call. */
+export function checked(value: ValueType<unknown> | undefined): boolean {
+  const schema = value?.schema as
+    { readonly "~standard"?: { readonly validate?: unknown } } | undefined;
+  return (
+    typeof schema === "object" &&
+    schema !== null &&
+    typeof schema["~standard"]?.validate === "function"
+  );
+}
+
+export type CheckedValue =
+  { readonly ok: true; readonly value: unknown } | { readonly ok: false };
+
+/**
+ * The value a fact's validator makes of `candidate`, or not ok when the
+ * validator refuses it or throws. A fact with no validator takes the value
+ * as given.
+ */
+export async function checkValue(
+  value: ValueType<unknown> | undefined,
+  candidate: unknown,
+): Promise<CheckedValue> {
+  if (!checked(value)) return { ok: true, value: candidate };
+  try {
+    const schema = value?.schema as StandardSchema;
+    const result = await schema["~standard"].validate(candidate);
+    if (result.issues !== undefined) return { ok: false };
+    return { ok: true, value: result.value };
+  } catch {
+    return { ok: false };
+  }
 }
 
 export interface FactDecl<V = unknown, Observable extends boolean = boolean> {
@@ -813,6 +869,24 @@ export function validate(decl: CeremonyDecl): {
         "given-observable",
         `fact ${name(f)}`,
         "host configuration must be observable, or the controller could neither find it nor notice it gone",
+      );
+    }
+  }
+  // A value a person supplies is checked before it is kept, so a fact a
+  // human step establishes has to say what a valid value is.
+  for (let f = 0; f < compiled.factNames.length; f += 1) {
+    const asks = compiled.operators.find(
+      (op) => op.human && (op.establishes & (1 << f)) !== 0,
+    );
+    if (
+      asks !== undefined &&
+      !checked((decl.facts[name(f)] as FactDecl).value)
+    ) {
+      push(
+        "error",
+        "value-unchecked",
+        `fact ${name(f)}`,
+        `operator ${asks.id} takes this value from a person, and the fact declares no validator (value: of(schema))`,
       );
     }
   }

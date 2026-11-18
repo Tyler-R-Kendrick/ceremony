@@ -226,7 +226,21 @@ const mutations: readonly {
 
 function mutated(mutate: (typeof mutations)[number]["mutate"]): CeremonyDecl {
   const { compiled: _compiled, warnings: _warnings, ...decl } = ceremony;
-  const copy = structuredClone(decl) as unknown as Parameters<typeof mutate>[0];
+  // A validator is code, which structuredClone cannot copy: copy everything
+  // else and give each copied fact the same value type.
+  const facts = Object.fromEntries(
+    Object.entries(decl.facts).map(([name, { value: _value, ...rest }]) => [
+      name,
+      rest,
+    ]),
+  );
+  const copy = structuredClone({ ...decl, facts }) as unknown as Parameters<
+    typeof mutate
+  >[0];
+  for (const [name, declared] of Object.entries(copy.facts)) {
+    declared.value = (decl.facts as Record<string, { value: unknown }>)[name]
+      ?.value;
+  }
   mutate(copy);
   return copy as unknown as CeremonyDecl;
 }

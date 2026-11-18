@@ -9,6 +9,7 @@
  */
 import {
   bits,
+  checkValue,
   type Ceremony,
   type Compiled,
   type CompiledOperator,
@@ -385,6 +386,22 @@ export async function advance<F extends Facts, O extends Operators>(
     await deps.vault.delete(stageKey(op, opened));
   };
 
+  /**
+   * A value as the vault may keep it: present, and accepted by the fact's
+   * validator, which may also normalise it. Holding a fact means holding a
+   * value, so a validator that makes nothing of it rejects it.
+   */
+  const valueOf = async (name: string, candidate: unknown) => {
+    if (candidate === undefined) return { ok: false } as const;
+    const seen = await checkValue(
+      ((ceremony.facts as Facts)[name] as FactDecl).value,
+      candidate,
+    );
+    return seen.ok && seen.value === undefined
+      ? ({ ok: false } as const)
+      : seen;
+  };
+
   /** `opened` is the journal position of the work's begin entry. */
   const settle = async (
     op: CompiledOperator,
@@ -395,11 +412,22 @@ export async function advance<F extends Facts, O extends Operators>(
     const index = op.outcomeIndex.get(outcome);
     let tag = index === undefined ? DEFECT_TAG : outcome;
     if (index !== undefined && op.outcomes[index]?.kind === "established") {
-      const established = bits(op.establishes).map(factName);
-      if (established.some((name) => values?.[name] === undefined)) {
-        tag = DEFECT_TAG;
-      } else {
-        await deps.vault.put(stageKey(op, opened), { outcome: tag, values });
+      // Every established value is present and passes its fact's validator,
+      // or the outcome is a defect and none of them is kept.
+      const kept: Record<string, unknown> = {};
+      for (const name of bits(op.establishes).map(factName)) {
+        const seen = await valueOf(name, values?.[name]);
+        if (!seen.ok) {
+          tag = DEFECT_TAG;
+          break;
+        }
+        kept[name] = seen.value;
+      }
+      if (tag !== DEFECT_TAG) {
+        await deps.vault.put(stageKey(op, opened), {
+          outcome: tag,
+          values: kept,
+        });
       }
     }
     await write({
@@ -447,12 +475,16 @@ export async function advance<F extends Facts, O extends Operators>(
       )[name];
       if (adapter === undefined) throw new Error(`no probe for "${name}"`);
       const seen = await adapter({ read: (other) => deps.vault.get(other) });
-      if (seen.held && seen.value === undefined) {
-        // Holding a fact means holding its value; this is a broken answer.
-        result = "error";
-      } else if (seen.held) {
-        await deps.vault.put(name, seen.value);
-        result = "held";
+      if (seen.held) {
+        // Holding a fact means holding a value its validator accepts; any
+        // other answer is broken and nothing of it is kept.
+        const value = await valueOf(name, seen.value);
+        if (value.ok) {
+          await deps.vault.put(name, value.value);
+          result = "held";
+        } else {
+          result = "error";
+        }
       } else {
         for (const f of bits(compiled.above[fact] as number)) {
           await deps.vault.delete(factName(f));

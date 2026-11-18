@@ -21,6 +21,7 @@ import {
   terminal,
   unsure,
 } from "../ceremony.js";
+import { z } from "zod";
 
 export interface GitHubTarget {
   readonly login: string;
@@ -42,6 +43,28 @@ export interface GitHubToken {
   readonly expiresAt: string;
 }
 
+const secretString = z.string().min(1);
+
+const targetSchema = z.object({
+  login: z.string().min(1),
+  kind: z.enum(["User", "Organization"]),
+});
+
+const credentialsSchema = z.object({
+  appId: z.number().int().positive(),
+  slug: z.string().min(1),
+  privateKey: z.string().min(1),
+});
+
+const installationSchema = z.object({
+  installationId: z.number().int().positive(),
+});
+
+const tokenSchema = z.object({
+  token: z.string().min(1),
+  expiresAt: z.iso.datetime({ offset: true }),
+});
+
 const github = {
   rateLimited: retry("GitHub asked the caller to slow down."),
   unavailable: retry("GitHub did not answer."),
@@ -53,12 +76,12 @@ export const githubApp = fragment({
   facts: {
     target: fact({
       description: "The GitHub account the connection is for has been chosen.",
-      value: of<GitHubTarget>(),
+      value: of<GitHubTarget>(targetSchema),
       observable: true,
     }),
     appConfig: fact({
       description: "The host configured an existing GitHub App.",
-      value: of<GitHubAppCredentials>(),
+      value: of<GitHubAppCredentials>(credentialsSchema),
       observable: true,
       discoverable: true,
       secret: true,
@@ -67,7 +90,7 @@ export const githubApp = fragment({
     manifestCode: fact({
       description:
         "GitHub returned the one-time code for an app the person just created.",
-      value: of<string>(),
+      value: of<string>(secretString),
       requires: ["target"],
       volatile: true,
       secret: true,
@@ -75,7 +98,7 @@ export const githubApp = fragment({
     app: fact({
       description:
         "Ceremony holds working credentials for a GitHub App owned by the target.",
-      value: of<GitHubAppCredentials>(),
+      value: of<GitHubAppCredentials>(credentialsSchema),
       requires: ["target"],
       volatile: true,
       observable: true,
@@ -207,7 +230,7 @@ export const githubInstallation = fragment({
     installation: fact({
       description:
         "The app is installed on the target, not suspended, with read access to contents.",
-      value: of<GitHubInstallation>(),
+      value: of<GitHubInstallation>(installationSchema),
       requires: ["app"],
       volatile: true,
       observable: true,
@@ -215,7 +238,7 @@ export const githubInstallation = fragment({
     }),
     token: fact({
       description: "Ceremony holds an unexpired installation access token.",
-      value: of<GitHubToken>(),
+      value: of<GitHubToken>(tokenSchema),
       requires: ["installation"],
       volatile: true,
       observable: true,
@@ -290,21 +313,21 @@ export const githubUser = fragment({
   facts: {
     userGrant: fact({
       description: "GitHub returned a one-time code for the person's consent.",
-      value: of<string>(),
+      value: of<string>(secretString),
       requires: ["app"],
       volatile: true,
       secret: true,
     }),
     userRefresh: fact({
       description: "Ceremony holds a refresh token for the person.",
-      value: of<string>(),
+      value: of<string>(secretString),
       volatile: true,
       secret: true,
     }),
     userToken: fact({
       description:
         "Ceremony holds an unexpired token that acts for the person.",
-      value: of<GitHubToken>(),
+      value: of<GitHubToken>(tokenSchema),
       volatile: true,
       observable: true,
       secret: true,
