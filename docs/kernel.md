@@ -195,8 +195,10 @@ What it found that stays a limit:
 - **A write that lands late.** In the model a lost reply's effect happens at
   once or never. A provider that applies a timed-out request after the retry
   can still leave two.
-- **Values come from the host.** The kernel checks that an establishing answer
-  carries a value for each fact, not what the value is.
+- **A value is only as strict as its schema.** Each fact declares a validator
+  (`value: of<T>(schema)`, any Standard Schema). An adapter result, a probe
+  result or a person's answer whose value fails it is a defect, and nothing
+  reaches the vault. What the schema leaves open, the kernel cannot see.
 - **Most layout rules are true by construction.** Gutters, clearance and
   "starts below" hold because the layout is built that way; the proof's real
   content is the breakpoint arithmetic. The rules are still worth proving: they
@@ -211,7 +213,8 @@ one it cannot), `discoverable-observable`, `goal-observable`,
 `given-observable`, `stale-precondition`, `consumed-detectable`, `single-use`
 (a single-use fact is an input to exactly one step), `ambiguous-invalidation`,
 `invalidates-required`, `operator-success`, `interface-required`,
-`interface-outcome`, `secret-exposure`, `interface-shows`, `goal`, `bounds`.
+`interface-outcome`, `secret-exposure`, `interface-shows`, `goal`, `bounds`,
+`value-unchecked` (a fact a person establishes declares a validator).
 Warning: `given-fact`.
 
 ## Interfaces: the calculus
