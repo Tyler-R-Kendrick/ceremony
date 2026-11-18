@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import fc from "fast-check";
+import { z } from "zod";
 import {
+  defineCeremony,
+  of,
   validate,
   type Ceremony,
   type CeremonyDecl,
@@ -21,6 +24,31 @@ export function unchecked(decl: CeremonyDecl): Ceremony {
   const { compiled } = validate(decl);
   assert.ok(compiled !== null);
   return { ...decl, compiled, warnings: [] };
+}
+
+/**
+ * The same ceremony with every value checked only as a string, for scripted
+ * worlds that make up their values. The rest of the declaration is unchanged.
+ */
+export function withStringValues(ceremony: Ceremony): Ceremony {
+  const facts: Record<string, FactDecl> = {};
+  for (const [name, declared] of Object.entries(ceremony.facts)) {
+    facts[name] = { ...declared, value: of<string>(z.string()) };
+  }
+  const decl: CeremonyDecl = {
+    id: ceremony.id,
+    title: ceremony.title,
+    facts,
+    operators: ceremony.operators,
+    goal: ceremony.goal,
+    ...(ceremony.probeAttempts === undefined
+      ? {}
+      : { probeAttempts: ceremony.probeAttempts }),
+    ...(ceremony.staleReports === undefined
+      ? {}
+      : { staleReports: ceremony.staleReports }),
+  };
+  return defineCeremony(decl as never) as unknown as Ceremony;
 }
 
 interface FactShape {
@@ -90,7 +118,7 @@ function build(
       discoverable: visible[index] === true && shape.discoverable,
       secret: false,
       given: false,
-      value: {},
+      value: of<string>(z.string()),
     };
   });
   const operatorDecls: Record<string, OperatorDecl> = {};

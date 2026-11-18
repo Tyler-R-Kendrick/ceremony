@@ -12,7 +12,7 @@ import {
   type JournalEntry,
 } from "../../src/kernel/index.js";
 import { githubAppAccess } from "../../src/kernel/flows/github-app.js";
-import { options, wellFormedDecl } from "./support.js";
+import { options, wellFormedDecl, withStringValues } from "./support.js";
 import { runAndCheck, tally, World } from "./world.js";
 
 const script = fc.array(fc.nat({ max: 1_000 }), {
@@ -31,7 +31,8 @@ test("the interpreter survives crashes, lost replies and removals on any well-fo
 });
 
 test("the interpreter survives the same on the GitHub App ceremony from any start", async () => {
-  const ceremony = githubAppAccess as unknown as Ceremony;
+  // The scripted world makes up string values; only the shape is under test.
+  const ceremony = withStringValues(githubAppAccess as unknown as Ceremony);
   const starts = [
     [],
     ["target"],
@@ -60,7 +61,7 @@ test("the scripted runs reached every kind of ending and disturbance", () => {
 
 test("a second writer on the same journal is refused", async () => {
   const world = new World(
-    githubAppAccess as unknown as Ceremony,
+    withStringValues(githubAppAccess as unknown as Ceremony),
     [5],
     ["target", "app", "installation"],
   );
