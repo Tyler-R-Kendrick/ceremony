@@ -410,20 +410,28 @@ export class AsyncGitHubChildren {
       previous?.value.phase === "registration" &&
       previous.value.expires <= (await this.store.transaction((tx) => tx.now()))
     ) {
-      await this.store.transaction(async (tx) => {
-        const local = await tx.get<State>(this.key(context));
-        const key = local?.value.sharedSetup
-          ? this.setupKey(context)
-          : this.key(context);
-        const next: State = previous.value.handoffIssued
-          ? { ...previous.value, phase: "uncertain", nonce: "consumed" }
-          : {
-              ...previous.value,
-              nonce: randomBytes(32).toString("base64url"),
-              expires: (await tx.now()) + 3600000,
-            };
-        await tx.put(key, next, previous.revision);
-      });
+      try {
+        await this.store.transaction(async (tx) => {
+          const local = await tx.get<State>(this.key(context));
+          const key = local?.value.sharedSetup
+            ? this.setupKey(context)
+            : this.key(context);
+          const next: State = previous.value.handoffIssued
+            ? { ...previous.value, phase: "uncertain", nonce: "consumed" }
+            : {
+                ...previous.value,
+                nonce: randomBytes(32).toString("base64url"),
+                expires: (await tx.now()) + 3600000,
+              };
+          await tx.put(key, next, previous.revision);
+        });
+      } catch (error) {
+        // The record moved since it was read (the page was served, or another
+        // step wrote first): read it again and decide from what is stored now.
+        if (error instanceof PersistenceConflict && admissionAttempt < 2)
+          return this.prepare(context, admissionAttempt + 1);
+        throw error;
+      }
       return this.prepare(context, admissionAttempt);
     }
     if (previous)
