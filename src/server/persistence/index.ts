@@ -402,10 +402,13 @@ function transaction(
         throw new Error("Invalid worker identity");
       const time = await now();
       // The upsert can run long after `time` was read: the update of an
-      // existing row waits while another transaction holds it. So the lease
-      // runs from the clock when the row is written, not from `time`, and
-      // claim never returns a lease that has already run out. `time` only
-      // decides whether the lease on the row has run out.
+      // existing row waits while another transaction holds it, and the
+      // insert of a new row waits while another transaction holds an
+      // uncommitted insert of it. `time` only decides whether the lease on
+      // the row has run out. On PostgreSQL an insert that waited and then
+      // goes ahead writes the expiry it computed before the wait, so once
+      // the upsert holds the row the lease is set again from the clock, and
+      // claim never returns a lease that has already run out.
       // The generation stays below the end of the epoch's span ($7).
       const rows = await q(
         `INSERT INTO ceremony_claims(tenant,kind,id,generation,worker,expires) VALUES($1,$2,$3,${leaseBase}+1,$4,${clock}+$5) ON CONFLICT(tenant,kind,id) DO UPDATE SET generation=ceremony_claims.generation+1,worker=excluded.worker,expires=${clock}+$5 WHERE ceremony_claims.expires<=$6 AND ceremony_claims.generation+1<${leaseBase}+$7 RETURNING generation`,
@@ -422,7 +425,18 @@ function transaction(
           throw new LeaseGenerationsExhausted();
         throw new PersistenceConflict();
       }
-      return { ...key, generation: Number(rows[0]!.generation), worker };
+      const generation = Number(rows[0]!.generation);
+      // This transaction holds the row it wrote until it ends.
+      if (
+        !(
+          await q(
+            `UPDATE ceremony_claims SET expires=${clock}+$4 WHERE tenant=$1 AND kind=$2 AND id=$3 AND generation=$5 AND worker=$6 RETURNING generation`,
+            [...parameters(key), durationMs, generation, worker],
+          )
+        ).length
+      )
+        throw new PersistenceConflict();
+      return { ...key, generation, worker };
     },
     async heartbeat(fence, durationMs) {
       duration(durationMs);
