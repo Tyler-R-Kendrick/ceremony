@@ -955,3 +955,83 @@ test("the same return twice: the refused duplicate does not advance the run", as
   );
   assert.equal(f.counters.conversion, 1);
 });
+
+test("the same return twice at once: the losing return does not advance the run", async (t) => {
+  const f = await fixture(t);
+  const actor = f.context.actor;
+  const runtime = createGitHubRuntime({
+    store: f.store,
+    identity: { authenticate: async () => actor },
+    origin: f.options.origin,
+    environment: f.options.environment,
+    configurationVersion: f.options.configurationVersion,
+    expectedAccount: "alice",
+    allowTarget: async (_, target) => target === "alice",
+    authorize: async () => true,
+    github: { fetch: f.options.fetch },
+  });
+  await runtime.selectTarget!(actor, "alice");
+  const run = await runtime.connect(actor, "github");
+  const app = run.nodes.find(
+    (node) => node.operationId === "github.prepare-app",
+  )!;
+  assert.equal(
+    (
+      await runtime.commands.advance(
+        actor,
+        run.id,
+        app.id,
+        run.revision,
+        "prepare-race",
+      )
+    ).state,
+    "awaiting-human",
+  );
+  const route = (path: string) =>
+    new Request(
+      `${f.options.origin}/api/v1/teaching/github/${encodeURIComponent(run.id)}/${path}`,
+    );
+  const page = await (
+    await runtime.human!(actor, run.id, route("human"))
+  ).text();
+  const action = /action="([^"]+)"/.exec(page)?.[1]?.replaceAll("&amp;", "&");
+  assert.ok(action);
+  const state = new URL(action).searchParams.get("state");
+  assert.ok(state);
+  const callback = `callback?state=${encodeURIComponent(state)}&code=race`;
+
+  const paused = f.pauseConversion();
+  const before = await runtime.commands.snapshot(actor, run.id);
+  const deliveries = [
+    runtime.human!(actor, run.id, route(callback)),
+    runtime.human!(actor, run.id, route(callback)),
+  ];
+  try {
+    await paused.waiting;
+    const refused = await Promise.race(deliveries);
+    assert.equal(refused.status, 409);
+    const after = await runtime.commands.snapshot(actor, run.id);
+    assert.equal(
+      after.nodes.find((node) => node.id === app.id)!.state,
+      "awaiting-human",
+      "the losing return changed the app step",
+    );
+    assert.equal(
+      after.revision,
+      before.revision,
+      "the losing return advanced the run",
+    );
+  } finally {
+    paused.release();
+  }
+  assert.deepEqual(
+    (await Promise.all(deliveries)).map((response) => response.status).sort(),
+    [303, 409],
+  );
+  const settled = await runtime.commands.snapshot(actor, run.id);
+  assert.equal(
+    settled.nodes.find((node) => node.id === app.id)!.state,
+    "complete",
+  );
+  assert.equal(f.counters.conversion, 1);
+});
