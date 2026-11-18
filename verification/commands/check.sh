@@ -13,15 +13,17 @@ tlc="$here/../tlc.sh"
 # A result is "pass", the name of the rule TLC found broken, or "Deadlock".
 rows='
 Holds:pass:code as written, rules that hold
-Sketch:pass:code plus the three sketched guards, every rule
-FindingBlindRepeat:NeverBlindRepeat:finding 1, code as written
-FindingOverwritten:CompleteStaysVerified:finding 2, code as written
+Sketch:pass:code plus the two sketched guards, every rule
+FindingBlindRepeat:pass:finding 1, fixed
+FindingOverwritten:pass:finding 2, fixed
 FindingDeadEnd:Deadlock:finding 3, code as written
 FindingUnblocked:UncertainStaysBlocked:finding 4, code as written
 FindingReopenedRepeat:NeverBlindRepeat:finding 4 with finding 1 guarded
 BrokenTakeoverReruns:OneCallPerCommand:broken variant, must be caught
 BrokenHandlerBeforeIntent:EveryCallHasIntent:broken variant, must be caught
 BrokenNoAssertFence:SupersededWorkerNeverCommits:broken variant, must be caught
+BrokenAdmitIgnoresHolder:OneCallPerStep:broken variant, must be caught
+BrokenTakeoverIgnoresStep:CompleteStaysVerified:broken variant, must be caught
 Commands:Deadlock:code as written, every rule at once, first break found
 Lifecycle:Deadlock:the chart config, first break found
 '
@@ -92,7 +94,7 @@ if [ "$got" = FAIL ]; then
 fi
 
 if [ "$status" -eq 0 ]; then
-  echo "All rows match. The four findings are still present in the code."
+  echo "All rows match. Findings 1 and 2 are fixed; findings 3 and 4 are still present in the code."
 else
   echo "At least one row does not match. For the steps of a model row, run:"
   echo "  verification/tlc.sh $area Commands <CONFIG>"

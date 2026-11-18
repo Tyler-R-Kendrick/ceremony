@@ -62,7 +62,8 @@ export type RunRecord = RunContext & {
   scope?: { nodeId: string; connectorId: string };
 };
 type NodeRecord = {
-  state: OperationResult["state"];
+  /** Absent while the step's first command is in flight. */
+  state?: OperationResult["state"];
   verified: boolean;
   outputs: Record<string, unknown>;
   diagnosticCode?: "verification-rejected";
@@ -72,6 +73,11 @@ type NodeRecord = {
   retryAt?: number;
   /** A step with an outcome that failed and may not be attempted again. */
   exhausted?: boolean;
+  /**
+   * The id of the last command admitted for the step. While that command's
+   * record is `running`, admission refuses every other command id.
+   */
+  command?: string;
 };
 const contextFields = [
   "provider",
@@ -178,7 +184,12 @@ export async function pendingProviderStep(
       })
     )
       return undefined;
-    return { node, ...(state ? { state: state.value } : {}) };
+    return {
+      node,
+      ...(state?.value.state !== undefined
+        ? { state: { ...state.value, state: state.value.state } }
+        : {}),
+    };
   }
   return undefined;
 }
@@ -529,10 +540,16 @@ export class ProtectedCommandService {
         if (!invalid.has(node.id)) continue;
         const nodeKey = key(actor, "node", `${runId}:${node.id}`);
         const prior = await tx.get<NodeRecord>(nodeKey);
-        if (prior)
+        // A step whose first command is still in flight has nothing to reject.
+        if (prior?.value.state !== undefined)
           await tx.put(
             nodeKey,
-            { state: "failed", verified: false, outputs: {} },
+            {
+              state: "failed",
+              verified: false,
+              outputs: {},
+              ...(prior.value.command ? { command: prior.value.command } : {}),
+            },
             prior.revision,
           );
       }
@@ -709,6 +726,9 @@ export class ProtectedCommandService {
             if (!effect) throw new AuthorizationError("denied");
             const nodeKey = key(actor, "node", `${run.id}:${command.nodeId}`);
             const previous = await tx.get<NodeRecord>(nodeKey);
+            // A step recorded complete and verified keeps that record: the
+            // command and its effect are uncertain, the step is not.
+            const keepsStep = previous?.value.verified === true;
             await tx.put(
               key(actor, "command", command.commandId),
               { ...prior.value, state: "uncertain" },
@@ -719,33 +739,40 @@ export class ProtectedCommandService {
               { ...effect.value, status: "uncertain", verified: false },
               effect.revision,
             );
-            await tx.put(
-              nodeKey,
-              { state: "uncertain", verified: false, outputs: {} },
-              previous?.revision ?? null,
-            );
+            if (!keepsStep)
+              await tx.put(
+                nodeKey,
+                {
+                  state: "uncertain",
+                  verified: false,
+                  outputs: {},
+                  command: command.commandId,
+                },
+                previous?.revision ?? null,
+              );
             const revision = await tx.put(
               key(actor, "run", run.id),
               run,
               saved.revision,
             );
-            await appendSemanticTransition(
-              tx,
-              actor,
-              run.id,
-              {
-                nodeId: command.nodeId,
-                operationId: command.operationId,
-                operationVersion: command.operationVersion,
-                actorKind: "system",
-                kind: "transition",
-                beforeState: previous?.value.state ?? "pending",
-                afterState: "uncertain",
-                publicBindings: {},
-                verification: "pending",
-              },
-              {},
-            );
+            if (!keepsStep)
+              await appendSemanticTransition(
+                tx,
+                actor,
+                run.id,
+                {
+                  nodeId: command.nodeId,
+                  operationId: command.operationId,
+                  operationVersion: command.operationVersion,
+                  actorKind: "system",
+                  kind: "transition",
+                  beforeState: previous?.value.state ?? "pending",
+                  afterState: "uncertain",
+                  publicBindings: {},
+                  verification: "pending",
+                },
+                {},
+              );
             await tx.put(
               key(actor, "outbox", `reconciliation:${command.commandId}`),
               {
@@ -803,6 +830,16 @@ export class ProtectedCommandService {
         ownState?.value.exhausted
       )
         throw new AuthorizationError("denied");
+      // One call per step: while the command admitted last for the step is
+      // still `running`, its call's outcome is unknown, so no other id may
+      // call the handler, whether or not that command's lease is still live.
+      if (ownState?.value.command) {
+        const holder = await tx.get<CommandRecord>(
+          key(actor, "command", ownState.value.command),
+        );
+        if (holder?.value.state === "running")
+          throw new AuthorizationError("denied");
+      }
       // A declared retry is spaced: an attempt before its time is a conflict
       // the caller resolves by reading the run again, not a new effect.
       if (
@@ -833,6 +870,15 @@ export class ProtectedCommandService {
         nodeId: node.id,
       };
       await tx.put(key(actor, "command", command.commandId), record, null);
+      // The step names the command in flight, in the same transaction that
+      // stores the command, so a second id reads it before its own claim.
+      await tx.put(
+        key(actor, "node", `${run.id}:${node.id}`),
+        ownState
+          ? { ...ownState.value, command: command.commandId }
+          : { verified: false, outputs: {}, command: command.commandId },
+        ownState?.revision ?? null,
+      );
       await tx.put(
         key(actor, "effect", effectId),
         { commandId: command.commandId, intent, status: "intent-persisted" },
@@ -962,6 +1008,7 @@ export class ProtectedCommandService {
             ? { diagnosticCode: "verification-rejected" as const }
             : {}),
           ...attempts,
+          command: command.commandId,
         },
         prior?.revision ?? null,
       );

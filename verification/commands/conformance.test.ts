@@ -5,9 +5,11 @@
 // fails, the code no longer does what the model says it does.
 //
 // Part 2 replays each counterexample of the model against the real code,
-// one call for each step of the path. Those tests pass while the finding is
-// still present. When a fix lands, its test fails: that is the signal to
-// update the model (see README.md in this folder).
+// one call for each step of the path. A finding that is still present has a
+// test that passes while it is present; when a fix lands, that test fails,
+// which is the signal to update the model (see README.md in this folder). A
+// finding that is fixed has a test that asserts the correct behaviour on the
+// same path.
 //
 // Run from the repo root:
 //   node --no-experimental-webstorage --import tsx --test verification/commands/conformance.test.ts
@@ -395,11 +397,13 @@ test("Revalidate: refused for a cancelled run and while a worker's lease is live
 });
 
 // ---------------------------------------------------------------------------
-// Part 2: the findings, replayed. Each passes while its finding is present.
+// Part 2: the findings, replayed. A test named "fixed" asserts the correct
+// behaviour; every other test passes while its finding is present.
 // ---------------------------------------------------------------------------
 
-test("finding 1 and 2: a second command id repeats the handler over an unrecorded call, then the first id's takeover overwrites the verified step", async (t) => {
+test("finding 1, fixed: once a command is admitted for a step, a second id is refused after its lease runs out, and the handler is not called again", async (t) => {
   const stuck = hanging();
+  // Only the first handler call hangs, so a repeated call returns.
   const f = await fixture(t, (call) =>
     call === 1 ? stuck.wait : Promise.resolve(),
   );
@@ -409,37 +413,85 @@ test("finding 1 and 2: a second command id repeats the handler over an unrecorde
   first.catch(() => undefined);
   await until(() => f.calls() === 1);
 
-  // LeaseExpires, Admit, CallHandler, Commit (second).
+  // LeaseExpires, then a second id for the same step at the current revision.
   f.leaseRunsOut();
-  const second = await f.advance("prepare", 1, "second");
-  assert.equal(second.state, "complete");
+  const current = (await f.snapshot()).revision;
+  await assert.rejects(f.advance("prepare", current, "second"));
   assert.equal(
     f.calls(),
-    2,
+    1,
     "finding 1: the handler ran twice for one step, the first call unrecorded",
   );
-  assert.deepEqual(states(await f.records("command")), [
-    ["first", "running"],
-    ["second", "complete"],
-  ]);
+  assert.deepEqual(states(await f.records("command")), [["first", "running"]]);
+  assert.deepEqual(
+    (await f.records("effect")).map((e) => [e.commandId, e.status]),
+    [["first", "intent-persisted"]],
+  );
 
-  // Takeover (first): the same id is sent again.
+  // Takeover (first): the first id is resolved as uncertain, and a new id is
+  // still refused.
   const replay = await f.advance("prepare", 1, "first");
   assert.equal(replay.state, "uncertain");
+  await assert.rejects(
+    f.advance("prepare", replay.revision, "second"),
+    /denied/,
+  );
+  assert.equal(f.calls(), 1);
+
+  stuck.release();
+  await assert.rejects(first);
+  assert.equal(f.calls(), 1);
+});
+
+test("finding 1, fixed: a second id is refused after a revalidation has taken and released the first command's lease", async (t) => {
+  const stuck = hanging();
+  // Only the first handler call hangs, so a repeated call returns.
+  const f = await fixture(t, (call) =>
+    call === 1 ? stuck.wait : Promise.resolve(),
+  );
+
+  const first = f.advance("prepare", 1, "first");
+  first.catch(() => undefined);
+  await until(() => f.calls() === 1);
+
+  // LeaseExpires, RevalidateStart, RevalidateFinish("nothing").
+  f.leaseRunsOut();
+  const revalidated = await f.commands.revalidate(actor, f.run.id);
+  await assert.rejects(f.advance("prepare", revalidated.revision, "second"));
+  assert.equal(f.calls(), 1);
+  assert.deepEqual(states(await f.records("command")), [["first", "running"]]);
+
+  stuck.release();
+  await first.catch(() => undefined);
+});
+
+test("finding 2, fixed: the first id's takeover does not overwrite a step another command recorded complete", async (t) => {
+  const stuck = hanging();
+  const f = await fixture(t, (call) => (call === 1 ? stuck.wait : Promise.resolve()));
+
+  // Admit, CallHandler (first): the worker does not return from the provider.
+  const first = f.advance("prepare", 1, "first");
+  first.catch(() => undefined);
+  await until(() => f.calls() === 1);
+
+  // LeaseExpires. The step is then recorded complete and verified, as the
+  // commit of another command writes it.
+  f.leaseRunsOut();
+  await f.putStep("prepare", { state: "complete", verified: true });
+
+  // Takeover (first): the same id is sent again.
+  await f.advance("prepare", 1, "first");
   const prepare = await f.step("prepare");
   assert.deepEqual(
     [prepare.state, prepare.verified],
-    ["uncertain", false],
+    ["complete", true],
     "finding 2: the verified step was overwritten",
   );
-  const again = await f.advance("prepare", 1, "second");
-  assert.deepEqual([again.state, again.verified], ["complete", true]);
-  // Nothing moves the run on: the next step and any new id are refused.
-  await assert.rejects(f.advance("verify", replay.revision, "next"), /denied/);
-  await assert.rejects(
-    f.advance("prepare", replay.revision, "third"),
-    /denied/,
-  );
+  assert.equal(f.calls(), 1);
+
+  // The run moves on: the next step is admitted at the current revision.
+  const next = await f.advance("verify", (await f.snapshot()).revision, "next");
+  assert.deepEqual([next.state, next.verified], ["complete", true]);
 
   stuck.release();
   await first.catch(() => undefined);
@@ -467,7 +519,7 @@ test("finding 3: a command in flight when its run is cancelled stays `running` f
   assert.deepEqual(await f.records("outbox"), []);
 });
 
-test("finding 3: the same dead end when a second command id completes the run", async (t) => {
+test("finding 3, second path closed with finding 1: a second command id cannot complete the run while the first is running, so the first id's takeover still records uncertain", async (t) => {
   const stuck = hanging();
   let held = false;
   const f = await fixture(t, (call) => {
@@ -478,17 +530,24 @@ test("finding 3: the same dead end when a second command id completes the run", 
     }
     return Promise.resolve();
   });
-  await f.advance("prepare", 1, "prepare");
+  const prepared = await f.advance("prepare", 1, "prepare");
 
-  const first = f.advance("verify", 2, "first");
+  const first = f.advance("verify", prepared.revision, "first");
   first.catch(() => undefined);
   await until(() => f.calls() === 2);
   f.leaseRunsOut();
-  assert.equal((await f.advance("verify", 2, "second")).state, "complete");
-  assert.equal((await f.snapshot()).status, "complete");
+  await assert.rejects(
+    f.advance("verify", (await f.snapshot()).revision, "second"),
+  );
+  assert.equal(f.calls(), 2);
+  assert.equal((await f.snapshot()).status, "active");
 
-  assert.equal((await f.advance("verify", 2, "first")).state, "running");
-  assert.deepEqual(await f.records("outbox"), []);
+  const replay = await f.advance("verify", prepared.revision, "first");
+  assert.equal(replay.state, "uncertain");
+  assert.deepEqual(
+    (await f.records("outbox")).map((o) => [o.id, o.task, o.status]),
+    [["reconciliation:first", "reconciliation-required", "pending"]],
+  );
 
   stuck.release();
   await first.catch(() => undefined);
