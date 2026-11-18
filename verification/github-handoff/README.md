@@ -248,8 +248,14 @@ not in the repo.
   `916`). On PostgreSQL the read locks the run's record, so a cancel that
   commits later waits for the write. Rule `NothingStoredAfterCancel`,
   `CancelStoresNothing.cfg`; `BrokenRunCheck.cfg` shows it failing without
-  the check (constant `StoreChecksRun`). Test "nothing is stored once the
-  run's cancel has committed".
+  the check (constant `StoreChecksRun`). The model has one constant for the
+  four call sites; each call site has its own test, which holds one GitHub
+  call open while the run's cancel commits: `734` in "nothing is stored once
+  the run's cancel has committed" (`tests/github-children.test.ts`); `319`
+  in "a verified app is not saved ..." and "a verified connection is not
+  saved ...", `786` in "an installation return stores nothing ...", and
+  `916` in "a recovered app is not stored ..." (all four in
+  `tests/github-run-cancel.test.ts`).
 
 ## Broken variants
 
