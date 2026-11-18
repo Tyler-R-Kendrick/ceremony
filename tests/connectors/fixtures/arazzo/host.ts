@@ -119,8 +119,13 @@ export function storeRegistry(options: StoreRegistryOptions): {
         ]),
       ),
       fixtures: ["loopback-store-fixture"],
-      // Every fixture operation only reads, so repeating one is safe.
-      replay: "read-only",
+      // store.prepare and store.finish only read. store.verify has an
+      // external effect (the provider issues an account and a token); it
+      // sends an idempotency key, one per step, so a declared retry of a
+      // failed attempt is not a second effect. An uncertain store.verify call
+      // is resolved only by reconciliation, never by a new command id.
+      replay:
+        shape.id === "store.verify" ? "upstream-idempotency-key" : "read-only",
       handler: async (
         context: OperationContext,
         inputs: Record<string, unknown>,
@@ -128,7 +133,12 @@ export function storeRegistry(options: StoreRegistryOptions): {
         calls.push(shape.id);
         const response = await send(`${options.origin}${shape.path}`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            ...(shape.id === "store.verify"
+              ? { "idempotency-key": `${context.runId}:${context.nodeId}` }
+              : {}),
+          },
           body: JSON.stringify({ node: context.nodeId, inputs }),
           redirect: "error",
         });
@@ -191,7 +201,7 @@ export function storeCatalog(
               "$response.body#/token": "token",
               "$response.body#/owner": "owner",
             },
-            replay: "read-only" as const,
+            replay: "upstream-idempotency-key" as const,
           },
         ],
       },
