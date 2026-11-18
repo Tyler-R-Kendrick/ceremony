@@ -17,16 +17,16 @@ Sketch:pass:code plus the two sketched guards, every rule
 FindingBlindRepeat:pass:finding 1, fixed
 FindingOverwritten:pass:finding 2, fixed
 FindingDeadEnd:pass:finding 3, fixed
-FindingUnblocked:UncertainStaysBlocked:finding 4, code as written
-FindingReopenedRepeat:NeverBlindRepeat:finding 4 with finding 1 guarded
+FindingUnblocked:pass:finding 4, fixed
+FindingReopenedRepeat:pass:finding 4 carried to the repeated call, fixed
 BrokenTakeoverReruns:OneCallPerCommand:broken variant, must be caught
 BrokenHandlerBeforeIntent:EveryCallHasIntent:broken variant, must be caught
 BrokenNoAssertFence:SupersededWorkerNeverCommits:broken variant, must be caught
 BrokenAdmitIgnoresHolder:OneCallPerStep:broken variant, must be caught
 BrokenTakeoverIgnoresStep:CompleteStaysVerified:broken variant, must be caught
 BrokenCancelLeavesRunning:Deadlock:broken variant, must be caught
-Commands:UncertainStaysBlocked:code as written, every rule at once, first break found
-Lifecycle:UncertainStaysBlocked:the chart config, first break found
+Commands:pass:code as written, every rule at once
+Lifecycle:pass:the chart config
 '
 
 out=$(mktemp -d)
@@ -95,7 +95,7 @@ if [ "$got" = FAIL ]; then
 fi
 
 if [ "$status" -eq 0 ]; then
-  echo "All rows match. Findings 1, 2 and 3 are fixed; finding 4 is still present in the code."
+  echo "All rows match. Findings 1, 2, 3 and 4 are fixed."
 else
   echo "At least one row does not match. For the steps of a model row, run:"
   echo "  verification/tlc.sh $area Commands <CONFIG>"
