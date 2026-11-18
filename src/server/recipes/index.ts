@@ -19,7 +19,11 @@ import type {
   AsyncCeremonyStore,
   AsyncTransaction,
 } from "../persistence/index.js";
-import { OperationRegistry, type RegisteredOperation } from "./registry.js";
+import {
+  OperationRegistry,
+  replayAllowsRetry,
+  type RegisteredOperation,
+} from "./registry.js";
 import {
   assignConnectors,
   spansConnectors,
@@ -163,7 +167,8 @@ export async function validateRecipe(
     outcome: RecipeOutcome,
     id: string,
   ) {
-    if (outcome.retry && !operation.replay) fail("retry-not-replay-safe", id);
+    if (outcome.retry && !replayAllowsRetry(operation))
+      fail("retry-not-replay-safe", id);
     for (const code of checkOutcomeConditions(outcome)) fail(code, id);
     for (const binding of Object.values(outcome.values)) {
       if (binding.from === "literal") continue;

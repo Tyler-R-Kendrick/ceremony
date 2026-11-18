@@ -14,6 +14,8 @@ import {
 import { AuthorizationError, requireCapability } from "./identity.js";
 import {
   OperationRegistry,
+  replayAllowsRetry,
+  replayRerunsUncertain,
   type OperationContext,
   type OperationResult,
   type RegisteredOperation,
@@ -78,7 +80,16 @@ type NodeRecord = {
    * record is `running`, admission refuses every other command id.
    */
   command?: string;
+  /**
+   * Commands recorded `uncertain` on a read-only step before the command
+   * named on it was admitted. Their reconciliation entries are resolved
+   * when the step is recorded verified.
+   */
+  reconciling?: string[];
 };
+/** A step record's `reconciling` field, to carry into a rewrite of it. */
+const keepReconciling = (record: NodeRecord | undefined) =>
+  record?.reconciling ? { reconciling: record.reconciling } : {};
 const contextFields = [
   "provider",
   "profile",
@@ -327,8 +338,9 @@ export class ProtectedCommandService {
         )
           throw new AuthorizationError("denied");
       }
-      // A retry repeats the handler: only the host's replay evidence allows it.
-      if (node.outcome?.retry && !operation.replay)
+      // A retry repeats the handler: only an operation that reads, or one the
+      // provider deduplicates by an idempotency key, may declare one.
+      if (node.outcome?.retry && !replayAllowsRetry(operation))
         throw new AuthorizationError("denied");
       commandEnvelopeSchema.parse({
         commandId: "validate",
@@ -497,6 +509,7 @@ export class ProtectedCommandService {
           verified: false,
           outputs: {},
           command: commandId,
+          ...keepReconciling(previous.value),
         },
         previous.revision,
       );
@@ -635,6 +648,7 @@ export class ProtectedCommandService {
                 : {}),
               ...(prior.value.exhausted ? { exhausted: true } : {}),
               ...(prior.value.command ? { command: prior.value.command } : {}),
+              ...keepReconciling(prior.value),
             },
             prior.revision,
           );
@@ -833,6 +847,7 @@ export class ProtectedCommandService {
                   verified: false,
                   outputs: {},
                   command: command.commandId,
+                  ...keepReconciling(previous?.value),
                 },
                 previous?.revision ?? null,
               );
@@ -910,10 +925,11 @@ export class ProtectedCommandService {
         key(actor, "node", `${run.id}:${node.id}`),
       );
       // An `uncertain` step is run again only for an operation registered
-      // replay "read-only"; any other waits for its reconciliation entry.
+      // replay "read-only"; any other, and one with no declared replay,
+      // waits for its reconciliation entry.
+      const rerun = ownState?.value.state === "uncertain";
       if (
-        (ownState?.value.state === "uncertain" &&
-          operation.replay !== "read-only") ||
+        (rerun && !replayRerunsUncertain(operation)) ||
         ownState?.value.state === "complete" ||
         ownState?.value.verified ||
         ownState?.value.exhausted
@@ -961,10 +977,23 @@ export class ProtectedCommandService {
       await tx.put(key(actor, "command", command.commandId), record, null);
       // The step names the command in flight, in the same transaction that
       // stores the command, so a second id reads it before its own claim.
+      // A read-only step run again keeps the commands recorded uncertain
+      // on it, whose reconciliation entries its completion resolves.
       await tx.put(
         key(actor, "node", `${run.id}:${node.id}`),
         ownState
-          ? { ...ownState.value, command: command.commandId }
+          ? {
+              ...ownState.value,
+              command: command.commandId,
+              ...(rerun && ownState.value.command
+                ? {
+                    reconciling: [
+                      ...(ownState.value.reconciling ?? []),
+                      ownState.value.command,
+                    ],
+                  }
+                : {}),
+            }
           : { verified: false, outputs: {}, command: command.commandId },
         ownState?.revision ?? null,
       );
@@ -1098,9 +1127,17 @@ export class ProtectedCommandService {
             : {}),
           ...attempts,
           command: command.commandId,
+          ...(prior?.value.reconciling && !verified
+            ? { reconciling: prior.value.reconciling }
+            : {}),
         },
         prior?.revision ?? null,
       );
+      // A verified result resolves the reconciliation entries of the
+      // commands recorded uncertain on the step before it.
+      if (verified)
+        for (const earlier of prior?.value.reconciling ?? [])
+          await resolveReconciliation(tx, actor, earlier);
       const record = await tx.get<CommandRecord>(
         key(actor, "command", command.commandId),
       );
@@ -1240,6 +1277,18 @@ async function queueReconciliation(
     },
     null,
   );
+}
+
+/** Marks a command's `reconciliation-required` entry resolved. */
+async function resolveReconciliation(
+  tx: AsyncTransaction,
+  actor: ActorContext,
+  commandId: string,
+) {
+  const entry = key(actor, "outbox", `reconciliation:${commandId}`);
+  const stored = await tx.get<Record<string, unknown>>(entry);
+  if (stored?.value.task !== "reconciliation-required") return;
+  await tx.put(entry, { ...stored.value, status: "resolved" }, stored.revision);
 }
 
 /**
