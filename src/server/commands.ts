@@ -615,14 +615,24 @@ export class ProtectedCommandService {
         if (!invalid.has(node.id)) continue;
         const nodeKey = key(actor, "node", `${runId}:${node.id}`);
         const prior = await tx.get<NodeRecord>(nodeKey);
-        // A step whose first command is still in flight has nothing to reject.
-        if (prior?.value.state !== undefined)
+        // A step whose first command is still in flight has nothing to
+        // reject. An `uncertain` step stays uncertain until it is reconciled:
+        // its effect may have happened, so it is never reopened here.
+        if (
+          prior?.value.state !== undefined &&
+          prior.value.state !== "uncertain"
+        )
           await tx.put(
             nodeKey,
             {
               state: "failed",
               verified: false,
               outputs: {},
+              // An exhausted step keeps its attempts and stays exhausted.
+              ...(prior.value.attempts !== undefined
+                ? { attempts: prior.value.attempts }
+                : {}),
+              ...(prior.value.exhausted ? { exhausted: true } : {}),
               ...(prior.value.command ? { command: prior.value.command } : {}),
             },
             prior.revision,
