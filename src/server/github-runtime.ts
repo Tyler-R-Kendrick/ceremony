@@ -1377,7 +1377,7 @@ export function createGitHubRuntime(
       });
     const nonce = randomUUID();
     return new Response(
-      `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Continue with GitHub</title><main><h1>Continue at GitHub</h1><p>GitHub will ask you to confirm the app and its permissions. If you are not redirected, continue below.</p><form id="handoff" method="post" action="${escape(handoff.url)}"><input type="hidden" name="manifest" value="${escape(JSON.stringify(handoff.manifest))}"><button>Continue with GitHub</button></form></main><script nonce="${nonce}">document.getElementById('handoff').submit();</script></html>`,
+      `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Continue with GitHub</title><main><h1>Continue at GitHub</h1><p>${handoff.accountType === "Organization" ? `GitHub creates the app under the organization <strong>${escape(handoff.account)}</strong>.` : `GitHub creates the app under the account you are signed in to there. Sign in as <strong>${escape(handoff.account)}</strong> first: an app created under another account cannot be used.`}</p><p>GitHub will ask you to confirm the app and its permissions. If you are not redirected, continue below.</p><form id="handoff" method="post" action="${escape(handoff.url)}"><input type="hidden" name="manifest" value="${escape(JSON.stringify(handoff.manifest))}"><button>Continue with GitHub</button></form></main><script nonce="${nonce}">document.getElementById('handoff').submit();</script></html>`,
       {
         headers: {
           "content-type": "text/html; charset=utf-8",
