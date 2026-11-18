@@ -6,7 +6,11 @@
 #    including TryAgainStartsClean. It must hold.
 # 2. TLC on each Finding*.cfg (an open finding fails today; a fixed one
 #    holds) and each Broken*.cfg (a check removed on purpose: it must fail).
-# 3. conformance.test.ts on the real CeremonyController.
+# 3. TLC on DurableSteps.tla, the database path: Durable*.cfg must hold and
+#    each BrokenDurable*.cfg must fail.
+# 4. conformance.test.ts on the real CeremonyController, and
+#    durable-conformance.test.ts and lease-renewal.test.ts on the durable
+#    controller over SQLite.
 #
 # Exit 0 when every result is the one listed below. Any other result prints
 # the TLC output for it and exits 1.
@@ -31,7 +35,23 @@ BrokenNoHumanExpiredGuard   breaks:EndScreensStayPut         broken on purpose
 BrokenNoEndExemption        breaks:EndScreensStayPut         broken on purpose
 BrokenNoCallbackGuard       breaks:EndScreensStayPut         broken on purpose
 BrokenNoRetryAfterCancel    breaks:EveryScreenOffersAWayOn   broken on purpose
+BrokenRetryKeepsOutcome     breaks:TryAgainStartsClean       broken on purpose
+Durable                     holds                            the durable controller as written
+DurableReload               holds                            the durable controller as written, a reload never moves a final step
+DurableLeaseHeld            holds                            the durable controller while every lease lasts
+BrokenDurableNoLease        breaks:OneWorkerAppliesAnswers   broken on purpose
+BrokenDurableCachedCopy     breaks:OneWorkerAppliesAnswers   broken on purpose
+BrokenDurableNoFence        breaks:OneWorkerAppliesAnswers   broken on purpose
+BrokenDurableNoBusyRefusal  breaks:OneWorkerAppliesAnswers   broken on purpose
 "
+
+# Durable*.cfg and BrokenDurable*.cfg are configs of DurableSteps.tla.
+spec() {
+  case $1 in
+    Durable* | BrokenDurable*) echo DurableSteps ;;
+    *) echo CeremonySteps ;;
+  esac
+}
 
 # TLC unpacks its standard modules into Java's temp folder and deletes them on
 # exit, so runs that share that folder break each other. Each run gets its own.
@@ -39,7 +59,7 @@ BrokenNoRetryAfterCancel    breaks:EveryScreenOffersAWayOn   broken on purpose
 run() {
   mkdir -p "$out/tmp-$1"
   JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djava.io.tmpdir=$out/tmp-$1 -Xmx512m -XX:TieredStopAtLevel=1 -XX:ParallelGCThreads=1" \
-    "$here/../tlc.sh" ceremony-steps CeremonySteps "$1" >"$out/$1.log" 2>&1
+    "$here/../tlc.sh" ceremony-steps "$(spec "$1")" "$1" >"$out/$1.log" 2>&1
 }
 
 result() {
@@ -85,6 +105,14 @@ else
   status=1
   printf '%s %-28s %s\n' "MISMATCH" "conformance.test.ts" "the real controller no longer matches the model"
   grep -E "^not ok|error:|expected|actual" "$out/conformance.log" | sed 's/^/    /'
+fi
+
+if (cd "$root" && node --import tsx --test verification/ceremony-steps/durable-conformance.test.ts verification/ceremony-steps/lease-renewal.test.ts) >"$out/durable.log" 2>&1; then
+  printf '%s %-28s %s\n' "ok      " "durable-conformance.test.ts" "the durable controller has the lease, reload, fence and renewal the model assumes; one worker applies answers"
+else
+  status=1
+  printf '%s %-28s %s\n' "MISMATCH" "durable-conformance.test.ts" "the durable controller does not keep the rules of the database path"
+  grep -E "^not ok|error:|expected|actual" "$out/durable.log" | sed 's/^/    /'
 fi
 
 if [ "$status" = 0 ]; then

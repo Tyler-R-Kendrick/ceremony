@@ -69,6 +69,22 @@ interface Instance {
   busy: boolean;
   lastRead: number;
 }
+/** How long a request's lease on `instance:<id>` lasts (storage.ts acquire). */
+const LEASE_MS = 60_000;
+/** How often a request renews that lease while an adapter call is in flight. */
+const LEASE_RENEWAL_MS = 20_000;
+/**
+ * The request's lease ran out while it waited on the adapter, so another
+ * request may have changed the ceremony since; its answer is not stored.
+ */
+class LeaseLost extends CeremonyError {
+  constructor() {
+    super(
+      "This ceremony changed in another request. Refresh the ceremony.",
+      409,
+    );
+  }
+}
 export interface InstanceStore {
   get(id: string): Instance | undefined;
   set(id: string, instance: Instance): void;
@@ -271,7 +287,12 @@ export class CeremonyController {
     return structuredClone(snapshot);
   }
   private instance(owner: string, id: string): Instance {
-    if (this.options.database && !this.store.get(id)?.busy) {
+    // With a database, a request reaches a busy copy only after the lease of
+    // the request that set `busy` ran out: that copy may be older than the
+    // stored snapshot, and it is not reloaded while its adapter call runs.
+    if (this.options.database && this.store.get(id)?.busy)
+      throw new CeremonyError("This ceremony is already executing", 409);
+    if (this.options.database) {
       const saved = this.options.database.get(
         `instance:${id}`,
         z.object({ owner: z.string(), snapshot: snapshotSchema }),
@@ -316,6 +337,7 @@ export class CeremonyController {
     instance: Instance,
     update: AdapterUpdate,
     dropOutcome = false,
+    lease?: string,
   ): void {
     const previous = instance.snapshot;
     if (
@@ -360,12 +382,27 @@ export class CeremonyController {
       ["redirect", "input"].includes(update.step)
     )
       instance.snapshot.actions.push("request-human");
-    this.persist(instance);
+    try {
+      this.persist(instance, lease);
+    } catch (error) {
+      instance.snapshot = previous;
+      throw error;
+    }
   }
-  private persist(instance: Instance): void {
+  /**
+   * With `lease`, the snapshot is stored only while that lease on
+   * `instance:<id>` is still held and has not run out: an adapter answer
+   * that lands after the lease ran out is not stored.
+   */
+  private persist(instance: Instance, lease?: string): void {
     const database = this.options.database;
     if (!database) return;
     database.transaction(() => {
+      if (
+        lease !== undefined &&
+        !database.holds(`instance:${instance.snapshot.id}`, lease)
+      )
+        throw new LeaseLost();
       database.put(`instance:${instance.snapshot.id}`, {
         owner: instance.owner,
         snapshot: instance.snapshot,
@@ -409,7 +446,7 @@ export class CeremonyController {
   async read(owner: string, id: string): Promise<CeremonySnapshot> {
     const lease = this.options.database?.acquire(`instance:${id}`);
     try {
-      return await this.readLocked(owner, id);
+      return await this.readLocked(owner, id, lease);
     } finally {
       if (lease) this.options.database?.release(`instance:${id}`, lease);
     }
@@ -417,6 +454,7 @@ export class CeremonyController {
   private async readLocked(
     owner: string,
     id: string,
+    lease?: string,
   ): Promise<CeremonySnapshot> {
     const instance = this.instance(owner, id);
     if (
@@ -426,7 +464,7 @@ export class CeremonyController {
       this.now() - instance.lastRead >= 1000
     ) {
       instance.lastRead = this.now();
-      await this.run(instance, () => instance.adapter.poll());
+      await this.run(instance, () => instance.adapter.poll(), lease);
     }
     return structuredClone(instance.snapshot);
   }
@@ -437,7 +475,7 @@ export class CeremonyController {
   ): Promise<CeremonySnapshot> {
     const lease = this.options.database?.acquire(`instance:${id}`);
     try {
-      const snapshot = await this.actLocked(owner, id, input);
+      const snapshot = await this.actLocked(owner, id, input, lease);
       this.actionEvent(
         owner,
         id,
@@ -509,6 +547,7 @@ export class CeremonyController {
     owner: string,
     id: string,
     input: unknown,
+    lease?: string,
   ): Promise<CeremonySnapshot> {
     const parsed = actionSchema.safeParse(input);
     if (!parsed.success) throw new CeremonyError("Invalid ceremony action");
@@ -533,17 +572,20 @@ export class CeremonyController {
         if (!instance.adapter.requestHuman)
           throw new CeremonyError("Human delivery is not configured", 503);
         instance.busy = true;
+        const stopRenewing = this.renewWhileWaiting(instance, lease);
         try {
           const update = await instance.adapter.requestHuman();
+          stopRenewing();
           // A concurrent read may have expired the instance while delivery was pending.
           if (instance.snapshot.step !== "expired")
-            this.update(instance, update);
+            this.update(instance, update, false, lease);
         } finally {
+          stopRenewing();
           instance.busy = false;
         }
         break;
       case "begin":
-        await this.run(instance, () => instance.adapter.begin());
+        await this.run(instance, () => instance.adapter.begin(), lease);
         break;
       case "submit": {
         const validated = this.submissionValues(
@@ -552,8 +594,10 @@ export class CeremonyController {
           snapshot,
           parsed.data,
         );
-        await this.run(instance, () =>
-          instance.adapter.submit(validated, snapshot.step === "claim"),
+        await this.run(
+          instance,
+          () => instance.adapter.submit(validated, snapshot.step === "claim"),
+          lease,
         );
         break;
       }
@@ -568,7 +612,7 @@ export class CeremonyController {
         break;
       case "retry": {
         if (instance.adapter.retry) {
-          await this.run(instance, () => instance.adapter.retry!());
+          await this.run(instance, () => instance.adapter.retry!(), lease);
           break;
         }
         instance.adapter.cancel();
@@ -616,7 +660,7 @@ export class CeremonyController {
   ): Promise<CeremonySnapshot> {
     const lease = this.options.database?.acquire(`instance:${id}`);
     try {
-      return await this.callbackLocked(owner, id, url);
+      return await this.callbackLocked(owner, id, url, lease);
     } finally {
       if (lease) this.options.database?.release(`instance:${id}`, lease);
     }
@@ -625,49 +669,92 @@ export class CeremonyController {
     owner: string,
     id: string,
     url: URL,
+    lease?: string,
   ): Promise<CeremonySnapshot> {
     const instance = this.instance(owner, id);
     if (instance.snapshot.step !== "redirect" || instance.busy)
       throw new CeremonyError("Callback is stale or already consumed", 409);
-    await this.run(instance, () => instance.adapter.callback(url));
+    await this.run(instance, () => instance.adapter.callback(url), lease);
     return structuredClone(instance.snapshot);
   }
+  /** `lease` is the request's lease on `instance:<id>`; every write after the await checks it. */
   private async run(
     instance: Instance,
     operation: () => Promise<AdapterUpdate | undefined>,
+    lease?: string,
   ): Promise<void> {
     instance.busy = true;
+    const stopRenewing = this.renewWhileWaiting(instance, lease);
     try {
       const update = await operation();
+      stopRenewing();
       // A concurrent read may have expired the instance while the provider was responding.
       if (update && instance.snapshot.step !== "expired")
-        this.update(instance, update);
+        this.update(instance, update, false, lease);
     } catch (error) {
+      if (error instanceof LeaseLost) throw error;
       if (
         instance.snapshot.step === "waiting" &&
         !(error instanceof CeremonyError)
       ) {
         const current = instance.snapshot;
-        this.update(instance, {
-          step: "waiting",
-          ...(current.verificationUri
-            ? { verificationUri: current.verificationUri }
-            : {}),
-          ...(current.userCode ? { userCode: current.userCode } : {}),
-          message:
-            "Could not reach the provider. Checking again until this attempt expires.",
-        });
+        this.update(
+          instance,
+          {
+            step: "waiting",
+            ...(current.verificationUri
+              ? { verificationUri: current.verificationUri }
+              : {}),
+            ...(current.userCode ? { userCode: current.userCode } : {}),
+            message:
+              "Could not reach the provider. Checking again until this attempt expires.",
+          },
+          false,
+          lease,
+        );
       } else if (instance.snapshot.step !== "expired")
-        this.update(instance, {
-          step: "error",
-          message:
-            error instanceof CeremonyError
-              ? error.message
-              : "Authentication could not be completed. Please retry.",
-        });
+        this.update(
+          instance,
+          {
+            step: "error",
+            message:
+              error instanceof CeremonyError
+                ? error.message
+                : "Authentication could not be completed. Please retry.",
+          },
+          false,
+          lease,
+        );
     } finally {
+      stopRenewing();
       instance.busy = false;
     }
+  }
+  /**
+   * Renews the request's lease on `instance:<id>` every 20 seconds while its
+   * adapter call is in flight, so a call longer than the 60-second lease keeps
+   * it. The returned function stops the renewal. A renewal that finds the
+   * lease gone stops too: the lease is not revived, and the fence in
+   * persist() refuses the answer.
+   */
+  private renewWhileWaiting(
+    instance: Instance,
+    lease: string | undefined,
+  ): () => void {
+    const database = this.options.database;
+    if (!database || lease === undefined) return () => {};
+    const id = `instance:${instance.snapshot.id}`;
+    const timer = setInterval(() => {
+      let held = false;
+      try {
+        held = database.renew(id, lease, LEASE_MS);
+      } catch {
+        // A database that cannot renew leaves the lease to run out.
+      }
+      if (!held) clearInterval(timer);
+    }, LEASE_RENEWAL_MS);
+    timer.unref?.();
+    return () => clearInterval(timer);
   }
   sweep(): void {
     for (const instance of this.store.values()) {

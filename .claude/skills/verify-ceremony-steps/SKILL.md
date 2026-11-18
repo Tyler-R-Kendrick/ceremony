@@ -11,6 +11,8 @@ Every embedded auth method shows a person the same step machine: `intro`, `input
 
 If it breaks, a person is shown as connected after they cancelled or the attempt expired, or loses a finished connection, or an old tab or a repeated request changes a ceremony they are no longer looking at.
 
+A second model, `DurableSteps.tla` in the same folder, covers the database path: two workers sharing one `CeremonyDatabase`, the lease, the reload in `instance()` and the poll on `redirect`. Its promise: **two workers never both apply an answer to one ceremony, and a reload never moves a final step.**
+
 `verification/ceremony-steps/README.md` has the rules, the bounds, what is left out, the fixed findings F1 and F2, and the table that maps every model action and variable to `file:line`. Read it before you change the model.
 
 ## Does your change touch the verified code?
@@ -21,12 +23,13 @@ It does if it changes any of the code in the coverage record below, or if it add
 - sets or reads `instance.busy`;
 - adds an entry point to `CeremonyController` beside `start`, `read`, `collect`, `act`, `callback`;
 - adds a method to `AuthAdapter`, or an `await` inside a path that had none;
-- adds a step to `steps`, an action to `actionNames`, or a case to `actionsFor`.
+- adds a step to `steps`, an action to `actionNames`, or a case to `actionsFor`;
+- changes the `database` path: `acquire` or `release` around a request, the reload in `instance()`, `persist()`, or the poll on `redirect` in `readLocked`; or changes `CeremonyDatabase.acquire`, `holds`, `renew`, `release`, `put` or `transaction` in `src/server/storage.ts`; or changes the lease renewal in `renewWhileWaiting`.
 
 To see what changed since the verification was last confirmed:
 
 ```sh
-git diff 9414fb2245119572c7db164fb1f74e144d094f85 -- src/core/schema.ts src/server/controller.ts src/server/adapters.ts
+git diff 280de3083a90266a103c7478bc2093c567453c4a -- src/core/schema.ts src/server/controller.ts src/server/adapters.ts src/server/storage.ts
 ```
 
 Formatting, comments, messages, field definitions, and the code listed under "Not covered" do not touch it.
@@ -49,16 +52,28 @@ ok       BrokenNoOfferedCheck         breaks:ConnectedMeansConfirmed   broken on
 ok       BrokenNoBusyCheck            breaks:EndScreensStayPut         broken on purpose
 ok       BrokenNoExpiredGuard         breaks:EndScreensStayPut         broken on purpose
 ok       BrokenNoExpiredGuardOnError  breaks:EndScreensStayPut         broken on purpose
+ok       BrokenNoHumanExpiredGuard    breaks:EndScreensStayPut         broken on purpose
 ok       BrokenNoEndExemption         breaks:EndScreensStayPut         broken on purpose
 ok       BrokenNoCallbackGuard        breaks:EndScreensStayPut         broken on purpose
 ok       BrokenNoRetryAfterCancel     breaks:EveryScreenOffersAWayOn   broken on purpose
+ok       BrokenRetryKeepsOutcome      breaks:TryAgainStartsClean       broken on purpose
+ok       Durable                      holds                            the durable controller as written
+ok       DurableReload                holds                            the durable controller as written, a reload never moves a final step
+ok       DurableLeaseHeld             holds                            the durable controller while every lease lasts
+ok       BrokenDurableNoLease         breaks:OneWorkerAppliesAnswers   broken on purpose
+ok       BrokenDurableCachedCopy      breaks:OneWorkerAppliesAnswers   broken on purpose
+ok       BrokenDurableNoFence         breaks:OneWorkerAppliesAnswers   broken on purpose
+ok       BrokenDurableNoBusyRefusal   breaks:OneWorkerAppliesAnswers   broken on purpose
 ok       conformance.test.ts          the real controller has the checks the model assumes; F1 and F2 are fixed
+ok       durable-conformance.test.ts  the durable controller has the lease, reload, fence and renewal the model assumes; one worker applies answers
 As expected: the rules hold for the code as written. Open findings: 0 (see README.md).
 ```
 
-Exit 0 means every line is the expected one. A `FINDING` line, when there is one, is a known bug in the code, reported and not fixed; it is not yours unless you changed that code. Two broken configs are not listed in `check.sh` yet: `BrokenNoHumanExpiredGuard.cfg` (the check that fixed F1, removed; expect `EndScreensStayPut` to break) and `BrokenRetryKeepsOutcome.cfg` (the check that fixed F2, removed; expect `TryAgainStartsClean` to break). Run each with `verification/tlc.sh ceremony-steps CeremonySteps <config name>`. A `MISMATCH` line prints the TLC or test output under it and the script exits 1.
+Finding F3 (README.md, "The database path") is fixed by the checks `busy-refuses` and `lease-fence` in `DurableSteps.tla` and by the lease renewal while an adapter call is in flight; `BrokenDurableNoBusyRefusal` and `BrokenDurableNoFence` remove one check each and must break `OneWorkerAppliesAnswers`. The `durable-conformance.test.ts` line also runs `lease-renewal.test.ts`, which tests the renewal and the fence where the lease does run out: a busy worker past the deadline, a `request-human` answer, and another worker's fresh lease.
 
-**TLC does not read the TypeScript.** `conformance.test.ts` is the only part that runs the real code. It tests what the model takes as given (twelve checks, the `actionsFor` table, one adapter call in flight at a time), the fixes for F1 and F2, and nothing else. So "as expected" after a change to covered code means something only when the model describes the changed code. If your change alters what a model action does, update the model first (see below), then run.
+Exit 0 means every line is the expected one. A `FINDING` line, when there is one, is a known bug in the code, reported and not fixed; it is not yours unless you changed that code. To run one config alone: `verification/tlc.sh ceremony-steps CeremonySteps <config name>`, or `DurableSteps` for a `Durable*` config. A `MISMATCH` line prints the TLC or test output under it and the script exits 1.
+
+**TLC does not read the TypeScript.** `conformance.test.ts`, `durable-conformance.test.ts` and `lease-renewal.test.ts` are the only parts that run the real code. The first tests what the model takes as given (twelve checks, the `actionsFor` table, one adapter call in flight at a time), the fixes for F1 and F2, and nothing else. So "as expected" after a change to covered code means something only when the model describes the changed code. If your change alters what a model action does, update the model first (see below), then run.
 
 ## Read a result
 
@@ -68,8 +83,9 @@ Read every TLC result with the `/statechart` skill: give it `CeremonySteps.tla`,
 |---|---|---|
 | `MISMATCH conformance.test.ts`, a test named after a check (`revision-check`, `busy-check`, `offered-check`, `end-exemption`, `expired-guard`, `expired-guard-on-error`, `callback-guard`, `revision-bump and retry-keeps-revision`, `retry-after-cancel`) | The real controller lost a check the model takes as given. | The `Broken*.cfg` that has that name in `Removed` already shows what follows: which rule breaks and by which path. Unless the change is meant to replace the check with another one, this is a bug in the change. Restore the check, or model the replacement and rerun. |
 | `MISMATCH conformance.test.ts`, test `actionsFor is the table…` or `one call in flight…` | The offered actions changed, or two adapter calls can now run at once. The model no longer describes the code. | Change `ActionsFor`, or model the second call in flight, from the new code, then update the test and rerun. |
-| `MISMATCH conformance.test.ts`, test `request-human expired-guard` | The `request-human` case lost its expired check (`controller.ts:539`): F1 is back. | `BrokenNoHumanExpiredGuard.cfg` shows the path. Restore the check. |
-| `MISMATCH conformance.test.ts`, a test `retry-clears-outcome` | Retry no longer drops an outcome that is not claimed (`controller.ts:595`), or drops a claimed one: F2 is back, or decision D1 changed. | `BrokenRetryKeepsOutcome.cfg` shows the path. Restore the check, or, if D1 changed on purpose, change `RetryOwn` from the new code and rerun. |
+| `MISMATCH conformance.test.ts`, test `request-human expired-guard` | The `request-human` case lost its expired check (`controller.ts:580`): F1 is back. | `BrokenNoHumanExpiredGuard.cfg` shows the path. Restore the check. |
+| `MISMATCH conformance.test.ts`, a test `retry-clears-outcome` | Retry no longer drops an outcome that is not claimed (`controller.ts:639`), or drops a claimed one: F2 is back, or decision D1 changed. | `BrokenRetryKeepsOutcome.cfg` shows the path. Restore the check, or, if D1 changed on purpose, change `RetryOwn` from the new code and rerun. |
+| `MISMATCH Durable` or `DurableReload` with a `breaks:` result, or `MISMATCH durable-conformance.test.ts` | Two workers can both apply an answer, or a reload moves a final step: the change brought finding F3 back, or a call longer than the lease lost it. | Replay the path with `durable-conformance.test.ts`. Do not weaken the rule or set `LeaseRunsOut = FALSE` in these configs. |
 | `MISMATCH CeremonySteps` with a `breaks:` result | The model, as you now have it, breaks the rule named after `breaks:`. Other configs can show `MISMATCH` with the same rule, because TLC stops at the first rule that breaks. | Deal with `CeremonySteps` first. Decide whether it is a bug or a modelling error, as below. |
 | `MISMATCH` on a `Broken*` config that now `holds` | The rule no longer depends on that check in the model, so the rule has stopped guarding it. | Find the model edit that made the check redundant. Either the code really has a second defence, which you must point to and then retire the config with its reason, or the model edit was wrong. |
 | `MISMATCH` with `deadlock` | A state with no step out that is not `complete`. | Treat it as a broken `EveryScreenOffersAWayOn`. |
@@ -103,20 +119,21 @@ Line numbers are at the sync commit.
 
 | Check | Code it covers |
 |---|---|
-| `YouActOnTheScreenYouSee` | `src/server/controller.ts`: `actLocked` checks (516-524), `update` (315-364; revision at 336, early return at 321-328), `startLocked` (revision 0, 246-258), `case "retry"` (569-598). `src/core/schema.ts`: `actionSchema` (277-284). |
-| `ConnectedMeansConfirmed` | `src/server/controller.ts`: the offered check (523), `case "finish"` (566-568), the outcome kept by `update` (329-333). `src/core/schema.ts`: `actionsFor` (317-344). `src/server/adapters.ts`: every return of `step: "complete"` (380-383, 386-391, 420, 449-456, 470-473). |
-| `EndScreensStayPut` | `src/server/controller.ts`: `instance` expiry (303-312), `run` (635-671), `callbackLocked` (624-634), `readLocked` (417-432), the busy check (518), `case "cancel"` (599-608), `case "request-human"` (532-544, the expired check at 539). `src/server/adapters.ts`: `cancel` (491-497), `callback` (393-421), `poll` (422-490), `save` (193-215). |
-| `EveryScreenOffersAWayOn` and TLC's deadlock check | `src/core/schema.ts`: `steps` (189-200), `actionNames` (202-210), `actionsFor` (317-344). `src/server/controller.ts`: where `snapshot.actions` is set (259-261, 344, 358-362). |
-| `TryAgainStartsClean` (finding F2, fixed) and `BrokenRetryKeepsOutcome.cfg` | `src/server/controller.ts`: `case "retry"` (569-598, the outcome dropped unless claimed at 595), `case "cancel"` (599-608), `update` (315-333). `src/server/adapters.ts`: `outcome` (171), `save` (193-215), the claim token check in `submit` (300-304). |
-| `FindingRequestHuman.cfg` (finding F1, fixed) and `BrokenNoHumanExpiredGuard.cfg` | `src/server/controller.ts`: `case "request-human"` (532-544, the expired check at 539), `AuthAdapter.requestHuman` (41). `src/server/github.ts`: `requestHuman` (501-525), for the shape of its answer only. |
-| `conformance.test.ts` | On the real `CeremonyController`: the twelve checks (`controller.ts` 304, 336, 518 twice, 523, 539, 588, 595, 630, 643, 660; `schema.ts` 322-323), the whole `actionsFor` table (`schema.ts` 317-344), and one adapter call in flight (`controller.ts` 425, 630). The fix for F1, and the fix for F2 with the real `createProtocolAdapter`. |
+| `YouActOnTheScreenYouSee` | `src/server/controller.ts`: `actLocked` checks (555-563), `update` (336-391; revision at 358, early return at 343-350), `startLocked` (revision 0, 262-274), `case "retry"` (613-642). `src/core/schema.ts`: `actionSchema` (277-284). |
+| `ConnectedMeansConfirmed` | `src/server/controller.ts`: the offered check (562), `case "finish"` (610-612), the outcome kept by `update` (351-355). `src/core/schema.ts`: `actionsFor` (317-344). `src/server/adapters.ts`: every return of `step: "complete"` (380-383, 386-391, 420, 449-456, 470-473). |
+| `EndScreensStayPut` | `src/server/controller.ts`: `instance` expiry (324-333), `run` (681-732), `callbackLocked` (668-679), `readLocked` (454-470), the busy check (557), `case "cancel"` (643-652), `case "request-human"` (571-586, the expired check at 580). `src/server/adapters.ts`: `cancel` (491-497), `callback` (393-421), `poll` (422-490), `save` (193-215). |
+| `EveryScreenOffersAWayOn` and TLC's deadlock check | `src/core/schema.ts`: `steps` (189-200), `actionNames` (202-210), `actionsFor` (317-344). `src/server/controller.ts`: where `snapshot.actions` is set (275-277, 366, 380-384). |
+| `TryAgainStartsClean` (finding F2, fixed) and `BrokenRetryKeepsOutcome.cfg` | `src/server/controller.ts`: `case "retry"` (613-642, the outcome dropped unless claimed at 639), `case "cancel"` (643-652), `update` (336-355). `src/server/adapters.ts`: `outcome` (171), `save` (193-215), the claim token check in `submit` (300-304). |
+| `FindingRequestHuman.cfg` (finding F1, fixed) and `BrokenNoHumanExpiredGuard.cfg` | `src/server/controller.ts`: `case "request-human"` (571-586, the expired check at 580), `AuthAdapter.requestHuman` (41). `src/server/github.ts`: `requestHuman` (501-525), for the shape of its answer only. |
+| `conformance.test.ts` | On the real `CeremonyController`: the twelve checks (`controller.ts` 325, 358, 557 twice, 562, 580, 632, 639, 675, 692, 715; `schema.ts` 322-323), the whole `actionsFor` table (`schema.ts` 317-344), and one adapter call in flight (`controller.ts` 463, 675). The fix for F1, and the fix for F2 with the real `createProtocolAdapter`. |
+| `OneWorkerAppliesAnswers`, `ReloadNeverMovesAnEndStep` (finding F3, fixed) and `BrokenDurable*.cfg` | `src/server/controller.ts`: `instance` (289-334; `busy-refuses` at 293-294, the reload at 295-320), `update` putting the copy back when the write is refused (384-390), `persist` (397-422; `lease-fence` at 400-405), the acquire and release in `read` (446-452), `act` (471-494) and `callback` (656-666), `case "request-human"` (571-586; the lease passed to `update()` at 581), `run` (681-732; the rethrow at 695), `renewWhileWaiting` (733-758). `src/server/storage.ts`: `acquire` (98-112), `holds` (113-120), `renew` (121-135), `release` (136-138). `durable-conformance.test.ts` and `lease-renewal.test.ts` run them on SQLite. |
 | The adapter answers in the model | `src/server/adapters.ts`: `createProtocolAdapter`: `begin` (228-298), `submit` (299-392), `callback` (393-421), `poll` (422-490), `cancel` (491-497), and the closure variables `verifier`, `state`, `claimToken`, `stopped`, `outcome` (155-171). |
 
 ## Sync commit
 
-`9414fb2245119572c7db164fb1f74e144d094f85`
+`280de3083a90266a103c7478bc2093c567453c4a`
 
-At this commit the model was read against the three covered files: the only change since the previous sync commit (`eb2e70c153164530faadc68767da7a0ec5f8140d`) is in `controller.ts`, where `update()` takes `dropOutcome` and `case "retry"` passes it unless the outcome is claimed, which `RetryOwn` in `ActRetry` now models, and the line shift after it. `check.sh` printed "As expected" with `TryAgainStartsClean` in `CeremonySteps.cfg`, `BrokenRetryKeepsOutcome.cfg` breaks `TryAgainStartsClean`, `BrokenNoHumanExpiredGuard.cfg` breaks `EndScreensStayPut`, and `Chart.cfg` holds.
+At this commit the models were read against the covered files: the changes since the previous sync commit (`9414fb2245119572c7db164fb1f74e144d094f85`) are in `controller.ts` and `storage.ts`, the database path only. `instance()` refuses a request that finds the worker's copy busy (`busy-refuses`, `NotBusy` in `Enter`); `persist()` stores a snapshot after an adapter call only while the request's lease is held (`lease-fence`, `Fenced` in `Answer`), and `update()` puts the copy back when it is refused; `run()` and the `request-human` case renew the lease every 20 seconds while the call is in flight, which `LeaseExpires` covers as a renewal that does not land in time; `CeremonyDatabase` gains `holds` and `renew`. The `request-human` case passes its lease to `update()` (`controller.ts:580-581`), which `ActRequestHuman` and the `human` flight in `DurableSteps.tla` describe. `CeremonySteps.tla` is unchanged apart from line numbers: with no database none of these run. `check.sh` printed "As expected" with `Durable.cfg` and `DurableReload.cfg` holding, `BrokenDurableNoFence.cfg` and `BrokenDurableNoBusyRefusal.cfg` breaking `OneWorkerAppliesAnswers`, `BrokenRetryKeepsOutcome.cfg` breaking `TryAgainStartsClean`, and `Chart.cfg` holds.
 
 Move this forward only after you have read the diff of the covered files from the old sync commit to the new one, confirmed that each model action still describes its code, updated the line numbers, and seen `check.sh` print "As expected" at the new commit. A passing run on its own is not that confirmation. If covered code changed in commits that never ran this skill, use `/maintain-formal-verification-skill`.
 
@@ -124,7 +141,7 @@ Move this forward only after you have read the diff of the covered files from th
 
 A pass says nothing about these:
 
-- the durable controller: the `database` option, leases, the reload in `instance()`, `persist`, events, polling on `redirect`;
+- in `DurableSteps.tla`: `start` and its lease, events and their delivery, the intro-to-redirect update on reload, the poll throttle, more than two workers, any flow but `oauth-code`;
 - `connect`, resume, the 100-attempt limit, `sweep`, `collect`, the credential broker, field validation;
 - the kinds `github-app` and `account-registration`, and every adapter except `createProtocolAdapter`; other adapters appear only as "may answer anything";
 - what the snapshot shows apart from its step: fields, messages, URLs, codes, scopes;

@@ -23,24 +23,24 @@ CONSTANTS
 (***************************************************************************)
 (* Each name in Removed takes one check out, to show a rule can fail.      *)
 (* The code has every one of them.                                         *)
-(*   "revision-check"       controller.ts:518  revision !== snapshot.revision *)
-(*   "busy-check"           controller.ts:518  || instance.busy             *)
-(*   "offered-check"        controller.ts:523  !snapshot.actions.includes   *)
-(*   "end-exemption"        controller.ts:304  complete, cancelled and      *)
+(*   "revision-check"       controller.ts:557  revision !== snapshot.revision *)
+(*   "busy-check"           controller.ts:557  || instance.busy             *)
+(*   "offered-check"        controller.ts:562  !snapshot.actions.includes   *)
+(*   "end-exemption"        controller.ts:325  complete, cancelled and      *)
 (*                          expired are never expired                       *)
-(*   "expired-guard"        controller.ts:643  step !== "expired", for an   *)
+(*   "expired-guard"        controller.ts:692  step !== "expired", for an   *)
 (*                          answer the adapter returns                      *)
-(*   "human-expired-guard"  controller.ts:539  step !== "expired", for a    *)
+(*   "human-expired-guard"  controller.ts:580  step !== "expired", for a    *)
 (*                          requestHuman answer                             *)
-(*   "expired-guard-on-error" controller.ts:660 step !== "expired", for an  *)
+(*   "expired-guard-on-error" controller.ts:715 step !== "expired", for an  *)
 (*                          error the adapter throws                        *)
-(*   "callback-guard"       controller.ts:630  step !== "redirect"          *)
-(*   "revision-bump"        controller.ts:336  revision: previous.revision+1*)
-(*   "retry-keeps-revision" controller.ts:588  retry goes through update(), *)
+(*   "callback-guard"       controller.ts:675  step !== "redirect"          *)
+(*   "revision-bump"        controller.ts:358  revision: previous.revision+1*)
+(*   "retry-keeps-revision" controller.ts:632  retry goes through update(), *)
 (*                          so the revision carries on; removed, retry      *)
 (*                          starts again at 0 as startLocked does (:248)    *)
 (*   "retry-after-cancel"   schema.ts:322-323  cancelled offers "retry"     *)
-(*   "retry-drops-outcome"  controller.ts:595  retry drops an outcome that  *)
+(*   "retry-drops-outcome"  controller.ts:639  retry drops an outcome that  *)
 (*                          is not claimed; removed, update() keeps it      *)
 (***************************************************************************)
 Checks == {"revision-check", "busy-check", "offered-check", "end-exemption",
@@ -56,7 +56,7 @@ ActionNames == {"begin", "submit", "claim", "finish", "retry", "cancel",
 BuiltInKinds == {"api-key", "basic", "form", "oauth-code", "device",
                  "authmd-anonymous"}
 InputKinds == {"api-key", "basic", "form"}
-EndSteps == {"complete", "cancelled", "expired"}             \* controller.ts:304
+EndSteps == {"complete", "cancelled", "expired"}             \* controller.ts:325
 Flights == {"none", "begin", "submit", "submit-claim", "callback", "poll",
             "human-redirect", "human-input"}
 
@@ -90,7 +90,7 @@ vars == <<kind, step, revision, own, late, codeAsked, flight, stopped, armed,
 
 Has(check) == check \notin Removed
 
-\* controller.ts:237-239 and :583-585
+\* controller.ts:253-255 and :627-629
 InitialStep == IF kind \in InputKinds THEN "input" ELSE "intro"
 
 \* actionsFor, schema.ts:317-344
@@ -105,7 +105,7 @@ ActionsFor(s, anonymous) ==
          IF anonymous THEN {"finish", "claim", "cancel"} ELSE {"retry", "cancel"}
 
 \* snapshot.actions.  It is stored, but update() recomputes it from the step
-\* and the outcome every time: controller.ts:259-261, :344, :358-362.
+\* and the outcome every time: controller.ts:275-277, :366, :380-384.
 Offered ==
   ActionsFor(step, own = "anonymous")
     \cup (IF RequestHuman /\ step \in {"redirect", "input"}
@@ -121,7 +121,7 @@ NextRevision == IF Has("revision-bump") THEN revision + 1 ELSE revision
 
 Same == UNCHANGED snapshot
 
-\* update(), controller.ts:315-364, when something differs.  `by` is who
+\* update(), controller.ts:336-391, when something differs.  `by` is who
 \* caused it: "you" for an accepted action, "provider" for an adapter answer,
 \* "clock" for expiry.
 ChangeAt(s, o, renew, code, by, rev) ==
@@ -136,7 +136,7 @@ ChangeAt(s, o, renew, code, by, rev) ==
 
 Change(s, o, renew, code, by) == ChangeAt(s, o, renew, code, by, NextRevision)
 
-\* update() returns early when the update repeats the snapshot: controller.ts:321-328.
+\* update() returns early when the update repeats the snapshot: controller.ts:343-350.
 Update(s, o, renew, code, by) ==
   IF s = step /\ o = own /\ ~renew /\ code = codeAsked
   THEN Same
@@ -145,13 +145,13 @@ Update(s, o, renew, code, by) ==
 \* adapter.cancel(), adapters.ts:491-497
 AdapterCancel == stopped' = TRUE /\ armed' = FALSE
 
-\* instance(), controller.ts:303-312, runs first in every request.  Without
+\* instance(), controller.ts:324-333, runs first in every request.  Without
 \* the exemption, expiring an expired snapshot is an update that repeats it.
 ExpiryDue ==
   /\ late
   /\ IF Has("end-exemption") THEN step \notin EndSteps ELSE step # "expired"
 
-\* actLocked's checks, controller.ts:516-524.  A client can send any action
+\* actLocked's checks, controller.ts:555-563.  A client can send any action
 \* name with the revision of the screen it has.
 Accepts(a) ==
   /\ ~ExpiryDue
@@ -163,17 +163,17 @@ Press(a) ==
   /\ Accepts(a)
   /\ staleAccepted' = (staleAccepted \/ seen.n # shown)
 
-\* A success answer in run(), controller.ts:641-644.
+\* A success answer in run(), controller.ts:689-693.
 Applies == ~Has("expired-guard") \/ step # "expired"
 
 \* The catch in run() for an error while the step is not "waiting":
-\* controller.ts:660-667.
+\* controller.ts:715-727.
 ErrorUpdate ==
   IF Has("expired-guard-on-error") /\ step = "expired" THEN Same
   ELSE Update("error", own, FALSE, FALSE, "provider")
 
 ---------------------------------------------------------------------------
-(* The person's actions: actLocked, controller.ts:508-611                  *)
+(* The person's actions: actLocked, controller.ts:546-655                  *)
 
 \* case "begin", :545-547.  adapter.begin runs to its first await:
 \* adapters.ts:229-232.
@@ -248,7 +248,7 @@ ActRequestHuman ==
   /\ UNCHANGED <<kind, adapter>>
 
 ---------------------------------------------------------------------------
-(* The adapter's answers: run(), controller.ts:635-671                     *)
+(* The adapter's answers: run(), controller.ts:681-732                     *)
 
 \* adapter.begin returns: adapters.ts:243 (oauth-code), :261-266 (device),
 \* :288-295 (authmd-anonymous), :297 (the others).
@@ -339,7 +339,7 @@ CallbackThrows ==
   /\ ErrorUpdate /\ Tab
   /\ UNCHANGED <<kind, adapter, staleAccepted>>
 
-\* read() polls while the step is "waiting": controller.ts:422-430.  A
+\* read() polls while the step is "waiting": controller.ts:460-468.  A
 \* stopped adapter returns at once: adapters.ts:423.
 ReadPolls ==
   /\ ~ExpiryDue
@@ -378,7 +378,7 @@ PollThrowsCeremonyError ==
   /\ UNCHANGED <<kind, adapter, staleAccepted>>
 
 \* adapter.poll throws another error while the step is "waiting":
-\* controller.ts:646-659 keeps the step and sets a message.  The message
+\* controller.ts:696-714 keeps the step and sets a message.  The message
 \* is new the first time and the same after that.
 PollThrowsOther ==
   /\ flight = "poll"
@@ -389,7 +389,7 @@ PollThrowsOther ==
   /\ Tab
   /\ UNCHANGED <<kind, adapter, staleAccepted>>
 
-\* adapter.requestHuman returns, controller.ts:537, and controller.ts:539-540
+\* adapter.requestHuman returns, controller.ts:577, and controller.ts:580-581
 \* applies it unless the snapshot is "expired".  There is no other check that
 \* the snapshot is still the one the request was accepted on.  The answer may
 \* carry its own expiresAt (github.ts:468).
@@ -404,7 +404,7 @@ RequestHumanReturns ==
   /\ Tab
   /\ UNCHANGED <<kind, adapter, staleAccepted>>
 
-\* adapter.requestHuman throws: controller.ts:536-543 only clears busy
+\* adapter.requestHuman throws: controller.ts:576-585 only clears busy
 RequestHumanThrows ==
   /\ flight \in {"human-redirect", "human-input"}
   /\ flight' = "none"
@@ -423,7 +423,7 @@ DeadlinePasses ==
   /\ UNCHANGED <<kind, step, revision, own, codeAsked, flight, adapter, seen,
                  shown, staleAccepted, endMoved>>
 
-\* instance(), controller.ts:303-312: the next request of any sort, a read
+\* instance(), controller.ts:324-333: the next request of any sort, a read
 \* included, expires the snapshot before it does anything else.
 ExpireOnAccess ==
   /\ ExpiryDue
@@ -432,7 +432,7 @@ ExpireOnAccess ==
   /\ Tab
   /\ UNCHANGED <<kind, flight, holds, staleAccepted>>
 
-\* The person looks at the page again: read(), controller.ts:409-432
+\* The person looks at the page again: read(), controller.ts:446-470
 TabRefreshes ==
   /\ StaleTabs
   /\ ~ExpiryDue
