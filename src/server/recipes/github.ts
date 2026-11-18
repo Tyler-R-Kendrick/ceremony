@@ -642,9 +642,10 @@ export class AsyncGitHubChildren {
       url.pathname !==
         `/api/v1/teaching/github/${encodeURIComponent(context.runId)}/callback` ||
       url.searchParams.get("state") !== state.nonce ||
-      url.searchParams.getAll("state").length !== 1 ||
-      state.expires <= Date.now()
+      url.searchParams.getAll("state").length !== 1
     )
+      throw new GitHubCallbackRefused();
+    if (state.expires <= Date.now())
       throw new Error("GitHub callback unavailable");
     if (state.phase === "registration") {
       const local = await this.store.transaction((tx) =>
@@ -657,19 +658,25 @@ export class AsyncGitHubChildren {
         .string()
         .regex(/^[a-zA-Z0-9_-]{1,200}$/)
         .parse(url.searchParams.get("code"));
-      const admitted = await this.store.transaction(async (tx) => {
-        const fence = await tx.claim(
-          callbackKey,
-          `callback-${randomBytes(16).toString("hex")}`,
-          60000,
-        );
-        const revision = await tx.put(
-          callbackKey,
-          { ...state, phase: "converting", nonce: "consumed" },
-          record.revision,
-        );
-        return { fence, revision };
-      });
+      // Losing this transaction to another return of the same hand-off is a
+      // refusal: the other return holds the one-time code.
+      const admitted = await this.store
+        .transaction(async (tx) => {
+          const fence = await tx.claim(
+            callbackKey,
+            `callback-${randomBytes(16).toString("hex")}`,
+            60000,
+          );
+          const revision = await tx.put(
+            callbackKey,
+            { ...state, phase: "converting", nonce: "consumed" },
+            record.revision,
+          );
+          return { fence, revision };
+        })
+        .catch(() => {
+          throw new GitHubCallbackRefused();
+        });
       try {
         const app = appSchema.parse(
           await this.api(
@@ -720,7 +727,7 @@ export class AsyncGitHubChildren {
       return;
     }
     if (state.phase !== "installation" || !state.app)
-      throw new Error("GitHub callback already consumed");
+      throw new GitHubCallbackRefused("GitHub callback already consumed");
     const app = state.app;
     const installation = z.coerce
       .number()
@@ -980,5 +987,17 @@ export class AsyncGitHubChildren {
       expires: Date.parse(token.expires_at),
     });
     return this.result("connection", id);
+  }
+}
+
+/**
+ * A return that this hand-off cannot act on: its state is not the current
+ * one-time state, the hand-off already took a return, or another return was
+ * admitted first. Nothing was written for it.
+ */
+export class GitHubCallbackRefused extends Error {
+  constructor(message = "GitHub callback unavailable") {
+    super(message);
+    this.name = "GitHubCallbackRefused";
   }
 }

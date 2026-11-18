@@ -15,6 +15,7 @@ import {
 } from "./recipes/registry.js";
 import {
   AsyncGitHubChildren,
+  GitHubCallbackRefused,
   githubVocabulary,
   resolveGitHubInstallationRun,
   type AsyncGitHubOptions,
@@ -1320,8 +1321,11 @@ export function createGitHubRuntime(
     if (new URL(request.url).pathname.endsWith("/callback")) {
       try {
         await children.callback(context, callbackUrl);
-      } catch {
-        await advance(actor, runId);
+      } catch (error) {
+        // A refused return wrote nothing and proves nothing about the
+        // hand-off, so the run stays as it is.
+        if (!(error instanceof GitHubCallbackRefused))
+          await advance(actor, runId);
         return new Response(
           `<!doctype html><html lang="en"><title>GitHub needs attention</title><main><h1>GitHub could not confirm this return</h1><p>No authorization was inferred from this callback. Return to the connection for the current verified status and recovery options.</p><a href="${escape(returnUrl(runId))}">Return to connection</a></main></html>`,
           {
